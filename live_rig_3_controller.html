@@ -591,7 +591,18 @@ function updateKbdTabs() {
 }
 
 // ── Init ──
+// INJECTED_IP is replaced by the launcher script at serve-time
+// If it's a real IP, auto-connect immediately — no typing needed
+const INJECTED_IP = '{{BRIDGE_IP}}';
+
 function initMIDI() {
+  // Auto-connect if launcher injected a real IP
+  if (INJECTED_IP && INJECTED_IP !== '{{BRIDGE_IP}}' && !INJECTED_IP.includes('NOT_DETECTED')) {
+    localStorage.setItem('bridgeIP', INJECTED_IP);
+    connectWS(INJECTED_IP);
+    return;
+  }
+  // Fall back to saved IP or prompt
   const saved = localStorage.getItem('bridgeIP');
   if (saved) {
     connectWS(saved);
