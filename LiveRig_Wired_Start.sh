@@ -48,19 +48,21 @@ if ! kill -0 $BRIDGE_PID 2>/dev/null; then
     exit 1
 fi
 
-# ── 4. Detect USB IP ─────────────────────────────────────────────────────────
-sleep 1
-USB_IP=$(ifconfig 2>/dev/null | grep "inet 169.254" | awk '{print $2}' | head -1)
-[ -z "$USB_IP" ] && USB_IP=$(ifconfig 2>/dev/null | grep "inet 172.20" | awk '{print $2}' | head -1)
-[ -z "$USB_IP" ] && USB_IP=$(ifconfig 2>/dev/null | grep -A3 -i "iphone\|ipad\|usb" | grep "inet " | awk '{print $2}' | head -1)
-[ -z "$USB_IP" ] && USB_IP=$(ipconfig getifaddr en0 2>/dev/null)
-[ -z "$USB_IP" ] && USB_IP="NOT_DETECTED"
+# ── 4. Detect hostname ────────────────────────────────────────────────────────
+MDNS_HOST=$(scutil --get LocalHostName 2>/dev/null)
+if [ -n "$MDNS_HOST" ]; then
+    BRIDGE_HOST="${MDNS_HOST}.local"
+else
+    BRIDGE_HOST=$(ifconfig 2>/dev/null | grep "inet 169.254" | awk '{print $2}' | head -1)
+    [ -z "$BRIDGE_HOST" ] && BRIDGE_HOST=$(ifconfig 2>/dev/null | grep "inet 172.20" | awk '{print $2}' | head -1)
+    [ -z "$BRIDGE_HOST" ] && BRIDGE_HOST=$(ipconfig getifaddr en0 2>/dev/null)
+    [ -z "$BRIDGE_HOST" ] && BRIDGE_HOST="NOT_DETECTED"
+fi
 
-# ── 5. Inject IP into HTML and serve it ──────────────────────────────────────
-# Inject the detected IP into the HTML placeholder
-sed "s|{{BRIDGE_IP}}|$USB_IP|g" "$HTML_SRC" > "$HTML_SERVED"
+# ── 5. Inject hostname into HTML and serve it ─────────────────────────────────
+sed "s|{{BRIDGE_HOST}}|$BRIDGE_HOST|g" "$HTML_SRC" > "$HTML_SERVED"
 
-# Start HTTP server from /tmp so it serves the modified HTML
+# Start HTTP server from /tmp
 cd /tmp
 $PYTHON -m http.server $HTTP_PORT > "$HTTP_LOG" 2>&1 &
 HTTP_PID=$!
@@ -71,37 +73,36 @@ if ! kill -0 $HTTP_PID 2>/dev/null; then
     fatal "HTTP server failed to start."
 fi
 
-# ── 6. Copy IP and notify ─────────────────────────────────────────────────────
-echo -n "$USB_IP" | pbcopy 2>/dev/null
-notify "Bridge running · $USB_IP (copied)" "Glass"
+# ── 6. Build URL and notify ───────────────────────────────────────────────────
+IPAD_URL="http://$BRIDGE_HOST:$HTTP_PORT/liverig_controller_served.html"
+echo -n "$IPAD_URL" | pbcopy 2>/dev/null
+notify "Bridge running · $BRIDGE_HOST (copied)" "Glass"
 
-IPAD_URL="http://$USB_IP:$HTTP_PORT/liverig_controller_served.html"
 
-# ── 7. Show dialog ───────────────────────────────────────────────────────────
 osascript << EOF
 display dialog "✅  LiveRig Bridge is running.
 
-On your iPad open Safari and go to:
+Open this URL in Safari on your iPad:
 
 $IPAD_URL
 
-The controller will load and connect automatically.
-Bookmark it or Add to Home Screen for next time.
+(already copied to clipboard)
+
+💡 This URL never changes — bookmark it or
+   Add to Home Screen for instant access every time.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-iPad checklist:
-  1. Plugged into Mac via USB cable
+iPad setup:
+  1. iPad plugged into Mac via USB
   2. Personal Hotspot ON on iPad
 
-Ableton checklist:
-  • Preferences › MIDI › Input  'LiveRig Bridge' → Track ✓  Remote ✓
-  • Preferences › MIDI › Output 'LiveRig Bridge' → Track ✓  Remote ✓
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" buttons {"Copy URL", "Stop Bridge"} default button "Stop Bridge" with title "LiveRig Bridge — Running"
+Ableton setup (one time only):
+  Preferences › MIDI › Input  'LiveRig Bridge'
+    → Track ON   Remote ON
+  Preferences › MIDI › Output 'LiveRig Bridge'
+    → Track ON   Remote ON
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" buttons {"Stop Bridge"} default button "Stop Bridge" with title "LiveRig Bridge — Running"
 EOF
-
-RESULT=$?
-# Copy URL if requested
-echo -n "$IPAD_URL" | pbcopy 2>/dev/null
 
 # ── 8. Stop everything ───────────────────────────────────────────────────────
 [ -f "$PID_FILE" ] && kill "$(cat "$PID_FILE")" 2>/dev/null && rm -f "$PID_FILE"

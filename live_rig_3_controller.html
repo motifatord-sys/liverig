@@ -591,18 +591,19 @@ function updateKbdTabs() {
 }
 
 // ── Init ──
-// INJECTED_IP is replaced by the launcher script at serve-time
-// If it's a real IP, auto-connect immediately — no typing needed
-const INJECTED_IP = '{{BRIDGE_IP}}';
+// BRIDGE_HOST is injected by the launcher — either a .local mDNS hostname
+// or an IP address fallback. Either way it never needs manual entry.
+const BRIDGE_HOST = '{{BRIDGE_HOST}}';
+const BRIDGE_HOST_INJECTED = BRIDGE_HOST !== '{{BRIDGE_HOST_PLACEHOLDER}}';
 
 function initMIDI() {
-  // Auto-connect if launcher injected a real IP
-  if (INJECTED_IP && INJECTED_IP !== '{{BRIDGE_IP}}' && !INJECTED_IP.includes('NOT_DETECTED')) {
-    localStorage.setItem('bridgeIP', INJECTED_IP);
-    connectWS(INJECTED_IP);
+  // Auto-connect if launcher injected a valid host
+  if (BRIDGE_HOST_INJECTED && !BRIDGE_HOST.includes('NOT_DETECTED')) {
+    localStorage.setItem('bridgeIP', BRIDGE_HOST);
+    connectWS(BRIDGE_HOST);
     return;
   }
-  // Fall back to saved IP or prompt
+  // Fall back to saved host or prompt
   const saved = localStorage.getItem('bridgeIP');
   if (saved) {
     connectWS(saved);
