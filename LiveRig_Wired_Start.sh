@@ -78,14 +78,18 @@ notify "Bridge running · $USB_IP (copied)" "Glass"
 IPAD_URL="http://$USB_IP:$HTTP_PORT/liverig_controller_served.html"
 
 # ── 7. Show dialog ───────────────────────────────────────────────────────────
-# ── 7. Show dialog — loop so Copy URL doesn't stop bridge ────────────────────
-while true; do
-  CLICKED=$(osascript << EOF
+# ── 7. Show dialog ───────────────────────────────────────────────────────────
+# Copy URL to clipboard upfront so it's ready before user even clicks
+echo -n "$IPAD_URL" | pbcopy 2>/dev/null
+
+osascript << EOF
 display dialog "✅  LiveRig Bridge is running.
 
 On your iPad open Safari and go to:
 
 $IPAD_URL
+
+(URL already copied to clipboard)
 
 The controller will load and connect automatically.
 Bookmark it or Add to Home Screen for next time.
@@ -98,18 +102,8 @@ iPad checklist:
 Ableton checklist:
   • Preferences › MIDI › Input  'LiveRig Bridge' → Track ✓  Remote ✓
   • Preferences › MIDI › Output 'LiveRig Bridge' → Track ✓  Remote ✓
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" buttons {"Copy URL", "Stop Bridge"} default button "Stop Bridge" with title "LiveRig Bridge — Running"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" buttons {"Stop Bridge"} default button "Stop Bridge" with title "LiveRig Bridge — Running"
 EOF
-)
-  if echo "$CLICKED" | grep -q "Copy URL"; then
-    echo -n "$IPAD_URL" | pbcopy 2>/dev/null
-    notify "URL copied to clipboard!" "Glass"
-    # Loop back and show dialog again
-  else
-    # Stop Bridge clicked — exit loop
-    break
-  fi
-done
 
 # ── 8. Stop everything ───────────────────────────────────────────────────────
 [ -f "$PID_FILE" ] && kill "$(cat "$PID_FILE")" 2>/dev/null && rm -f "$PID_FILE"
