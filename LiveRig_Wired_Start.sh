@@ -78,33 +78,30 @@ notify "Bridge running · $USB_IP (copied)" "Glass"
 IPAD_URL="http://$USB_IP:$HTTP_PORT/liverig_controller_served.html"
 
 # ── 7. Show dialog ───────────────────────────────────────────────────────────
-# ── 7. Show dialog ───────────────────────────────────────────────────────────
-# Copy URL to clipboard upfront so it's ready before user even clicks
-echo -n "$IPAD_URL" | pbcopy 2>/dev/null
-
 osascript << EOF
 display dialog "✅  LiveRig Bridge is running.
 
-Open this URL in Safari on your iPad:
+On your iPad open Safari and go to:
 
 $IPAD_URL
 
-(already copied to clipboard — just paste in Safari)
-
-Note: This URL changes each session. Paste it fresh each time you start.
+The controller will load and connect automatically.
+Bookmark it or Add to Home Screen for next time.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-iPad setup:
-  1. iPad plugged into Mac via USB
+iPad checklist:
+  1. Plugged into Mac via USB cable
   2. Personal Hotspot ON on iPad
 
-Ableton setup (one time only):
-  Preferences › MIDI › Input  'LiveRig Bridge'
-    → Track ON   Remote ON
-  Preferences › MIDI › Output 'LiveRig Bridge'
-    → Track ON   Remote ON
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" buttons {"Stop Bridge"} default button "Stop Bridge" with title "LiveRig Bridge — Running"
+Ableton checklist:
+  • Preferences › MIDI › Input  'LiveRig Bridge' → Track ✓  Remote ✓
+  • Preferences › MIDI › Output 'LiveRig Bridge' → Track ✓  Remote ✓
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" buttons {"Copy URL", "Stop Bridge"} default button "Stop Bridge" with title "LiveRig Bridge — Running"
 EOF
+
+RESULT=$?
+# Copy URL if requested
+echo -n "$IPAD_URL" | pbcopy 2>/dev/null
 
 # ── 8. Stop everything ───────────────────────────────────────────────────────
 [ -f "$PID_FILE" ] && kill "$(cat "$PID_FILE")" 2>/dev/null && rm -f "$PID_FILE"
