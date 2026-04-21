@@ -73,6 +73,130 @@ html, body { width: 100%; height: 100%; background: var(--bg); color: var(--text
 .tab[data-page="5"].active::after { background: var(--k2); }
 .tab[data-page="6"].active::after { background: var(--k3); }
 .tab[data-page="7"].active::after { background: var(--k4); }
+.tab[data-page="8"].active::after { background: #ff4466; }
+
+/* ── BEAT PULSE DOT ── */
+#beat-pulse {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--muted); flex-shrink: 0;
+  transition: background 0.05s;
+}
+#beat-pulse.playing  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+#beat-pulse.recording { background: #ff4466; box-shadow: 0 0 6px #ff4466; }
+#beat-pulse.flash { background: #fff; box-shadow: 0 0 10px #fff; }
+
+/* ── TRANSPORT PAGE ── */
+.transport-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.transport-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.transport-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.t-btn {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--radius); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; padding: 14px 8px; touch-action: none;
+  transition: background 0.1s;
+}
+.t-btn:active { background: #ffffff15; }
+.t-btn .t-icon { font-size: 28px; line-height: 1; pointer-events: none; }
+.t-btn .t-label {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  letter-spacing: .1em; text-transform: uppercase; pointer-events: none;
+}
+.t-btn.t-play  { border-color: var(--green); }
+.t-btn.t-play .t-icon { color: var(--green); }
+.t-btn.t-stop  { border-color: #6a6a80; }
+.t-btn.t-stop .t-icon { color: #aaa; }
+.t-btn.t-rec   { border-color: var(--red); }
+.t-btn.t-rec .t-icon { color: var(--red); }
+.t-btn.t-over  { border-color: var(--amber); }
+.t-btn.t-over .t-icon { color: var(--amber); }
+.t-btn.active-state { background: #ffffff18 !important; }
+.t-btn.active-state .t-icon { filter: brightness(1.4); }
+
+/* BPM + bar counter display */
+.transport-bpm-row {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 10px; margin-bottom: 12px;
+}
+.bpm-display {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--radius); padding: 12px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.bpm-number {
+  font-family: var(--mono); font-size: 52px; font-weight: bold;
+  color: var(--text); line-height: 1; letter-spacing: -2px;
+}
+.bpm-unit {
+  font-family: var(--mono); font-size: 13px; color: var(--muted);
+  letter-spacing: .15em; text-transform: uppercase; margin-top: 2px;
+}
+.bar-display {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--radius); padding: 12px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+}
+.bar-number {
+  font-family: var(--mono); font-size: 38px; font-weight: bold;
+  color: var(--text); line-height: 1;
+}
+.bar-beats { display: flex; gap: 6px; }
+.bar-beat {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--surface); border: 1px solid var(--border2);
+  transition: background 0.05s, box-shadow 0.05s;
+}
+.bar-beat.on { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.bar-beat.beat1.on { background: #fff; box-shadow: 0 0 8px #fff; }
+
+/* Tap tempo big button */
+.tap-btn {
+  background: #1a1a28; border: 2px solid var(--accent);
+  border-radius: var(--radius); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; padding: 18px 8px; touch-action: none;
+  transition: background 0.08s;
+}
+.tap-btn:active { background: var(--accent) !important; }
+.tap-btn .t-icon { font-size: 32px; color: var(--accent); pointer-events: none; }
+.tap-btn .t-label { font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: .1em; pointer-events: none; }
+
+/* Nudge buttons */
+.nudge-row {
+  display: grid; grid-template-columns: 1fr 2fr 1fr;
+  gap: 10px; margin-bottom: 12px; align-items: center;
+}
+.nudge-btn {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--radius); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 14px 8px; touch-action: none;
+  font-size: 26px; transition: background 0.1s;
+}
+.nudge-btn:active { background: #ffffff20; }
+.bpm-tap-center {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px;
+}
+.bpm-tap-center span {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  letter-spacing: .1em; text-transform: uppercase;
+}
 
 /* ── PAGES ── */
 #pages { position: fixed; top: calc(28px + var(--tab-h)); left: 0; right: 0; bottom: 0; overflow: hidden; }
@@ -240,6 +364,7 @@ html, body { width: 100%; height: 100%; background: var(--bg); color: var(--text
 
 <div id="statusbar">
   <div id="midi-dot"></div>
+  <div id="beat-pulse" title="Beat pulse"></div>
   <span id="midi-label" style="cursor:pointer" onclick="showIPPrompt()">Tap to set Mac IP…</span>
   <span id="meta-bar" style="font-family:var(--mono);font-size:11px;color:var(--muted);flex:2;text-align:center"></span>
   <button onclick="showIPPrompt()" style="
@@ -266,6 +391,7 @@ html, body { width: 100%; height: 100%; background: var(--bg); color: var(--text
   <div class="tab" data-page="5">Kbd 2</div>
   <div class="tab" data-page="6">Kbd 3</div>
   <div class="tab" data-page="7">Kbd 4</div>
+  <div class="tab" data-page="8">Transport</div>
 </div>
 
 <div id="pages">
@@ -353,6 +479,79 @@ html, body { width: 100%; height: 100%; background: var(--bg); color: var(--text
   <div id="page-5" class="page"></div>
   <div id="page-6" class="page"></div>
   <div id="page-7" class="page"></div>
+
+  <!-- ===== TRANSPORT ===== -->
+  <div id="page-8" class="page">
+    <div class="sec" style="margin-bottom:10px">Transport</div>
+
+    <!-- BPM + Bar display -->
+    <div class="transport-bpm-row">
+      <div class="bpm-display">
+        <div class="bpm-number" id="t-bpm-display">--</div>
+        <div class="bpm-unit">BPM</div>
+      </div>
+      <div class="bar-display">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase">BAR · BEAT</div>
+        <div class="bar-number" id="t-bar-display">-- · -</div>
+        <div class="bar-beats">
+          <div class="bar-beat beat1" id="tbeat0"></div>
+          <div class="bar-beat" id="tbeat1"></div>
+          <div class="bar-beat" id="tbeat2"></div>
+          <div class="bar-beat" id="tbeat3"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Play / Stop / Record / Overdub -->
+    <div class="transport-grid" style="margin-bottom:10px">
+      <div class="t-btn t-play" id="t-play-btn" ontouchstart="transportPlay(event)">
+        <div class="t-icon">▶</div><div class="t-label">Play</div>
+      </div>
+      <div class="t-btn t-stop" id="t-stop-btn" ontouchstart="transportStop(event)">
+        <div class="t-icon">■</div><div class="t-label">Stop</div>
+      </div>
+      <div class="t-btn t-rec" id="t-rec-btn" ontouchstart="transportRecord(event)">
+        <div class="t-icon">⏺</div><div class="t-label">Record</div>
+      </div>
+      <div class="t-btn t-over" id="t-over-btn" ontouchstart="transportOverdub(event)">
+        <div class="t-icon">⊕</div><div class="t-label">Overdub</div>
+      </div>
+    </div>
+
+    <!-- Tap Tempo + Nudge -->
+    <div class="nudge-row">
+      <div class="nudge-btn" ontouchstart="tempoBendDown(event)" ontouchend="tempoBendRelease(event)">◀◀</div>
+      <div class="tap-btn" id="tap-btn" ontouchstart="tapTempo(event)">
+        <div class="t-icon" style="color:var(--accent)">♩</div>
+        <div class="t-label" style="color:var(--accent)">Tap Tempo</div>
+        <div id="tap-bpm-hint" style="font-family:var(--mono);font-size:13px;color:var(--muted)"></div>
+      </div>
+      <div class="nudge-btn" ontouchstart="tempoBendUp(event)" ontouchend="tempoBendRelease(event)">▶▶</div>
+    </div>
+
+    <!-- Metronome / Loop / Punch In -->
+    <div class="transport-grid-3" style="margin-bottom:10px">
+      <div class="t-btn" id="t-metro-btn" ontouchstart="transportMetronome(event)">
+        <div class="t-icon">🎵</div><div class="t-label">Metronome</div>
+      </div>
+      <div class="t-btn" id="t-loop-btn" ontouchstart="transportLoop(event)">
+        <div class="t-icon">🔁</div><div class="t-label">Loop</div>
+      </div>
+      <div class="t-btn" id="t-punch-btn" ontouchstart="transportPunch(event)">
+        <div class="t-icon">⚡</div><div class="t-label">Punch In</div>
+      </div>
+    </div>
+
+    <!-- Undo / Redo -->
+    <div class="transport-grid-2">
+      <div class="t-btn" ontouchstart="transportUndo(event)">
+        <div class="t-icon">↩</div><div class="t-label">Undo</div>
+      </div>
+      <div class="t-btn" ontouchstart="transportRedo(event)">
+        <div class="t-icon">↪</div><div class="t-label">Redo</div>
+      </div>
+    </div>
+  </div>
 
 </div>
 
@@ -579,6 +778,28 @@ function updateMetaBar() {
     + (m4l.song ? '  ·  ' + m4l.song : '')
     + '  ·  BAR ' + (m4l.bar + 1)
     + '  ·  ' + m4l.timesig + '/4';
+
+  // Sync transport state with beat pulse
+  const prev = transportState;
+  if (m4l.transport === 'PLAYING') transportState = 'PLAYING';
+  else if (m4l.transport === 'REC') transportState = 'RECORDING';
+  else transportState = 'STOPPED';
+  if (prev !== transportState) {
+    updateTransportButtons();
+    updateBeatPulseColor();
+    if (transportState === 'STOPPED') {
+      clearInterval(beatPulseTimer);
+      beatPulseTimer = null;
+    } else if (prev === 'STOPPED') {
+      restartBeat();
+    }
+  }
+
+  // Update Transport page BPM display
+  const tDisp = document.getElementById('t-bpm-display');
+  if (tDisp && m4l.bpm !== '--') tDisp.textContent = typeof m4l.bpm === 'number' ? Math.round(m4l.bpm) : m4l.bpm;
+  const tBar = document.getElementById('t-bar-display');
+  if (tBar) tBar.textContent = `${m4l.bar + 1} · -`;
 }
 
 function updateKbdTabs() {
@@ -1001,8 +1222,212 @@ function buildKbdPage(k) {
 }
 
 // ═══════════════════════════════════════════════════════
-//  TABS
+//  BEAT PULSE — global visual metronome on status bar
 // ═══════════════════════════════════════════════════════
+let beatPulseTimer = null;
+let currentBeat = 0;
+let transportState = 'STOPPED'; // STOPPED, PLAYING, RECORDING
+
+function pulseBeat() {
+  const dot = document.getElementById('beat-pulse');
+  if (!dot) return;
+  dot.classList.add('flash');
+  setTimeout(() => dot.classList.remove('flash'), 80);
+
+  // Update transport page beat indicators
+  const timesig = m4l.timesig || 4;
+  for (let i = 0; i < 4; i++) {
+    const b = document.getElementById(`tbeat${i}`);
+    if (b) b.classList.toggle('on', i === currentBeat % timesig);
+  }
+  currentBeat++;
+
+  // Update bar/beat display
+  const barDisp = document.getElementById('t-bar-display');
+  if (barDisp) {
+    barDisp.textContent = `${(m4l.bar + 1)} · ${(currentBeat % timesig) + 1}`;
+  }
+}
+
+function restartBeat() {
+  clearInterval(beatPulseTimer);
+  currentBeat = 0;
+  if (transportState !== 'STOPPED' && tempo > 0) {
+    beatPulseTimer = setInterval(pulseBeat, (60 / tempo) * 1000);
+  }
+  updateBeatPulseColor();
+}
+
+function updateBeatPulseColor() {
+  const dot = document.getElementById('beat-pulse');
+  if (!dot) return;
+  dot.classList.remove('playing', 'recording');
+  if (transportState === 'PLAYING') dot.classList.add('playing');
+  else if (transportState === 'RECORDING') dot.classList.add('recording');
+}
+
+// ═══════════════════════════════════════════════════════
+//  TRANSPORT CONTROLS
+//  CC map (CH1):
+//   CC 116 = Play (127=on)
+//   CC 117 = Stop (127=on)
+//   CC 118 = Record (127=toggle)
+//   CC 119 = Overdub (127=toggle)
+//   CC 112 = Metronome toggle
+//   CC 113 = Loop toggle
+//   CC 114 = Punch In toggle
+//   CC 115 = Undo (127=trigger)
+//   CC 111 = Redo (127=trigger)
+//   CC 110 = Tempo nudge down
+//   CC 109 = Tempo nudge up
+//   CC 108 = Tempo bend down (hold)
+//   CC 107 = Tempo bend up (hold)
+// ═══════════════════════════════════════════════════════
+let transportOverdubState = false;
+let transportMetroState = false;
+let transportLoopState = false;
+let transportPunchState = false;
+let tapTimes = [];
+let tempoBendTimer = null;
+
+function transportPlay(e) {
+  e && e.preventDefault();
+  sendCC(1, 116, 127);
+  transportState = 'PLAYING';
+  updateTransportButtons();
+  restartBeat();
+}
+
+function transportStop(e) {
+  e && e.preventDefault();
+  sendCC(1, 117, 127);
+  transportState = 'STOPPED';
+  clearInterval(beatPulseTimer);
+  beatPulseTimer = null;
+  currentBeat = 0;
+  updateTransportButtons();
+  updateBeatPulseColor();
+  // Clear beat dots
+  for (let i = 0; i < 4; i++) {
+    const b = document.getElementById(`tbeat${i}`);
+    if (b) b.classList.remove('on');
+  }
+}
+
+function transportRecord(e) {
+  e && e.preventDefault();
+  sendCC(1, 118, 127);
+  transportState = transportState === 'RECORDING' ? 'PLAYING' : 'RECORDING';
+  updateTransportButtons();
+  updateBeatPulseColor();
+}
+
+function transportOverdub(e) {
+  e && e.preventDefault();
+  transportOverdubState = !transportOverdubState;
+  sendCC(1, 119, transportOverdubState ? 127 : 0);
+  const btn = document.getElementById('t-over-btn');
+  if (btn) btn.classList.toggle('active-state', transportOverdubState);
+}
+
+function transportMetronome(e) {
+  e && e.preventDefault();
+  transportMetroState = !transportMetroState;
+  sendCC(1, 112, transportMetroState ? 127 : 0);
+  const btn = document.getElementById('t-metro-btn');
+  if (btn) btn.classList.toggle('active-state', transportMetroState);
+}
+
+function transportLoop(e) {
+  e && e.preventDefault();
+  transportLoopState = !transportLoopState;
+  sendCC(1, 113, transportLoopState ? 127 : 0);
+  const btn = document.getElementById('t-loop-btn');
+  if (btn) btn.classList.toggle('active-state', transportLoopState);
+}
+
+function transportPunch(e) {
+  e && e.preventDefault();
+  transportPunchState = !transportPunchState;
+  sendCC(1, 114, transportPunchState ? 127 : 0);
+  const btn = document.getElementById('t-punch-btn');
+  if (btn) btn.classList.toggle('active-state', transportPunchState);
+}
+
+function transportUndo(e) {
+  e && e.preventDefault();
+  sendCC(1, 115, 127);
+  const btn = e && e.currentTarget;
+  if (btn) { btn.classList.add('active-state'); setTimeout(() => btn.classList.remove('active-state'), 150); }
+}
+
+function transportRedo(e) {
+  e && e.preventDefault();
+  sendCC(1, 111, 127);
+  const btn = e && e.currentTarget;
+  if (btn) { btn.classList.add('active-state'); setTimeout(() => btn.classList.remove('active-state'), 150); }
+}
+
+function tempoBendDown(e) {
+  e && e.preventDefault();
+  tempoBendTimer = setInterval(() => sendCC(1, 108, 127), 80);
+}
+
+function tempoBendUp(e) {
+  e && e.preventDefault();
+  tempoBendTimer = setInterval(() => sendCC(1, 107, 127), 80);
+}
+
+function tempoBendRelease(e) {
+  e && e.preventDefault();
+  clearInterval(tempoBendTimer);
+  sendCC(1, 108, 0);
+  sendCC(1, 107, 0);
+}
+
+function tapTempo(e) {
+  e && e.preventDefault();
+  const now = Date.now();
+  tapTimes.push(now);
+  // Keep last 8 taps
+  if (tapTimes.length > 8) tapTimes.shift();
+  // Need at least 2 taps
+  if (tapTimes.length < 2) return;
+  // Reset if gap > 3 seconds
+  if (now - tapTimes[tapTimes.length - 2] > 3000) {
+    tapTimes = [now];
+    return;
+  }
+  // Calculate average interval
+  const intervals = [];
+  for (let i = 1; i < tapTimes.length; i++) {
+    intervals.push(tapTimes[i] - tapTimes[i-1]);
+  }
+  const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+  const bpm = Math.round(60000 / avg);
+  if (bpm < 20 || bpm > 300) return;
+  tempo = bpm;
+  sendCC(1, 14, Math.round((bpm - 40) / 200 * 127));
+  restartBeat();
+  // Update displays
+  const disp = document.getElementById('tempo-disp');
+  if (disp) disp.textContent = bpm;
+  const tDisp = document.getElementById('t-bpm-display');
+  if (tDisp) tDisp.textContent = bpm;
+  const hint = document.getElementById('tap-bpm-hint');
+  if (hint) { hint.textContent = bpm + ' BPM'; clearTimeout(hint._t); hint._t = setTimeout(() => hint.textContent = '', 2000); }
+}
+
+function updateTransportButtons() {
+  const play = document.getElementById('t-play-btn');
+  const stop = document.getElementById('t-stop-btn');
+  const rec = document.getElementById('t-rec-btn');
+  if (play) play.classList.toggle('active-state', transportState === 'PLAYING' || transportState === 'RECORDING');
+  if (stop) stop.classList.toggle('active-state', transportState === 'STOPPED');
+  if (rec) rec.classList.toggle('active-state', transportState === 'RECORDING');
+}
+
+
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('pointerdown', e => {
     e.preventDefault();
