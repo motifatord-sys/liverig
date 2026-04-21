@@ -959,7 +959,7 @@ function buildLooper() {
     restartBeat();
   });
 
-  document.getElementById('tap-btn').addEventListener('pointerdown', e => { e.preventDefault(); tapTempo(); });
+  document.getElementById('tap-btn').addEventListener('pointerdown', e => { e.preventDefault(); tapTempoLooper(); });
   restartBeat();
 }
 
@@ -1008,6 +1008,13 @@ function restartBeat() {
     document.getElementById('beat'+beatIdx).classList.add('lit');
     beatIdx = (beatIdx+1) % 4;
   }, ms);
+  // Also restart global pulse
+  clearInterval(beatPulseTimer);
+  currentBeat = 0;
+  if (transportState !== 'STOPPED' && tempo > 0) {
+    beatPulseTimer = setInterval(pulseBeat, ms);
+  }
+  updateBeatPulseColor();
 }
 
 function nudgeTempo(d) {
@@ -1052,7 +1059,7 @@ function tempoKeydown(e) {
   }
 }
 
-function tapTempo() {
+function tapTempoLooper() {
   const now = Date.now();
   if (lastTap && now - lastTap < 3000) {
     tapTimes.push(now - lastTap);
@@ -1249,15 +1256,6 @@ function pulseBeat() {
   }
 }
 
-function restartBeat() {
-  clearInterval(beatPulseTimer);
-  currentBeat = 0;
-  if (transportState !== 'STOPPED' && tempo > 0) {
-    beatPulseTimer = setInterval(pulseBeat, (60 / tempo) * 1000);
-  }
-  updateBeatPulseColor();
-}
-
 function updateBeatPulseColor() {
   const dot = document.getElementById('beat-pulse');
   if (!dot) return;
@@ -1287,7 +1285,6 @@ let transportOverdubState = false;
 let transportMetroState = false;
 let transportLoopState = false;
 let transportPunchState = false;
-let tapTimes = [];
 let tempoBendTimer = null;
 
 function transportPlay(e) {
