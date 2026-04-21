@@ -85,23 +85,24 @@ echo -n "$IPAD_URL" | pbcopy 2>/dev/null
 osascript << EOF
 display dialog "✅  LiveRig Bridge is running.
 
-On your iPad open Safari and go to:
+Open this URL in Safari on your iPad:
 
 $IPAD_URL
 
-(URL already copied to clipboard)
+(already copied to clipboard — just paste in Safari)
 
-The controller will load and connect automatically.
-Bookmark it or Add to Home Screen for next time.
+Note: This URL changes each session. Paste it fresh each time you start.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-iPad checklist:
-  1. Plugged into Mac via USB cable
+iPad setup:
+  1. iPad plugged into Mac via USB
   2. Personal Hotspot ON on iPad
 
-Ableton checklist:
-  • Preferences › MIDI › Input  'LiveRig Bridge' → Track ✓  Remote ✓
-  • Preferences › MIDI › Output 'LiveRig Bridge' → Track ✓  Remote ✓
+Ableton setup (one time only):
+  Preferences › MIDI › Input  'LiveRig Bridge'
+    → Track ON   Remote ON
+  Preferences › MIDI › Output 'LiveRig Bridge'
+    → Track ON   Remote ON
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" buttons {"Stop Bridge"} default button "Stop Bridge" with title "LiveRig Bridge — Running"
 EOF
 
