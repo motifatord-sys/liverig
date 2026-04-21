@@ -78,7 +78,9 @@ notify "Bridge running · $USB_IP (copied)" "Glass"
 IPAD_URL="http://$USB_IP:$HTTP_PORT/liverig_controller_served.html"
 
 # ── 7. Show dialog ───────────────────────────────────────────────────────────
-osascript << EOF
+# ── 7. Show dialog — loop so Copy URL doesn't stop bridge ────────────────────
+while true; do
+  CLICKED=$(osascript << EOF
 display dialog "✅  LiveRig Bridge is running.
 
 On your iPad open Safari and go to:
@@ -98,10 +100,16 @@ Ableton checklist:
   • Preferences › MIDI › Output 'LiveRig Bridge' → Track ✓  Remote ✓
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" buttons {"Copy URL", "Stop Bridge"} default button "Stop Bridge" with title "LiveRig Bridge — Running"
 EOF
-
-RESULT=$?
-# Copy URL if requested
-echo -n "$IPAD_URL" | pbcopy 2>/dev/null
+)
+  if echo "$CLICKED" | grep -q "Copy URL"; then
+    echo -n "$IPAD_URL" | pbcopy 2>/dev/null
+    notify "URL copied to clipboard!" "Glass"
+    # Loop back and show dialog again
+  else
+    # Stop Bridge clicked — exit loop
+    break
+  fi
+done
 
 # ── 8. Stop everything ───────────────────────────────────────────────────────
 [ -f "$PID_FILE" ] && kill "$(cat "$PID_FILE")" 2>/dev/null && rm -f "$PID_FILE"
