@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LIVE RIG 3">
+<title>LIVE RIG 3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0c;
+  --surface: #111116;
+  --surface2: #181820;
+  --border: #2a2a35;
+  --border2: #3a3a48;
+  --text: #e8e8f0;
+  --muted: #6a6a80;
+  --accent: #7c6fe0;
+  --k1: #6c5fd4;
+  --k2: #1a9e6e;
+  --k3: #d4551e;
+  --k4: #c07818;
+  --red: #c02828;
+  --red-hot: #e03030;
+  --green: #28a048;
+  --amber: #c07818;
+  --mono: 'Share Tech Mono', monospace;
+  --sans: 'Barlow Condensed', sans-serif;
+  --tab-h: 52px;
+  --radius: 6px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; user-select: none; }
+html, body { width: 100%; height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); overflow: hidden; touch-action: none; }
+
+/* ── MIDI STATUS BAR ── */
+#statusbar {
+  position: fixed; top: 0; left: 0; right: 0; height: 28px;
+  background: #0d0d10; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 12px; gap: 10px; z-index: 100;
+}
+#midi-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); transition: background .3s; flex-shrink: 0; }
+#midi-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+#midi-label { font-family: var(--mono); font-size: 11px; color: var(--muted); flex: 1; }
+#midi-out { font-family: var(--mono); font-size: 10px; color: var(--muted); min-width: 180px; text-align: right; }
+
+/* ── TAB BAR ── */
+#tabbar {
+  position: fixed; top: 28px; left: 0; right: 0; height: var(--tab-h);
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  display: flex; z-index: 99;
+}
+.tab {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  font-family: var(--sans); font-size: 17px; font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  border-right: 1px solid var(--border); cursor: pointer;
+  transition: color .15s, background .15s; position: relative;
+}
+.tab:last-child { border-right: none; }
+.tab.active { color: var(--text); background: var(--surface2); }
+.tab.active::after {
+  content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+  background: var(--accent);
+}
+.tab[data-page="0"].active::after { background: var(--k1); }
+.tab[data-page="1"].active::after { background: #3ab8ff; }
+.tab[data-page="2"].active::after { background: var(--amber); }
+.tab[data-page="3"].active::after { background: var(--k2); }
+.tab[data-page="4"].active::after { background: var(--k1); }
+.tab[data-page="5"].active::after { background: var(--k2); }
+.tab[data-page="6"].active::after { background: var(--k3); }
+.tab[data-page="7"].active::after { background: var(--k4); }
+
+/* ── PAGES ── */
+#pages { position: fixed; top: calc(28px + var(--tab-h)); left: 0; right: 0; bottom: 0; overflow: hidden; }
+.page { position: absolute; inset: 0; padding: 10px; overflow-y: auto; display: none; }
+.page.active { display: block; }
+
+/* ── SECTION LABEL ── */
+.sec { font-family: var(--mono); font-size: 14px; color: var(--muted); letter-spacing: .12em; text-transform: uppercase; margin-bottom: 6px; }
+
+/* ── TOGGLE BUTTON ── */
+.tog {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--radius); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; transition: none;
+  padding: 6px 4px; touch-action: none;
+}
+.tog span { font-family: var(--mono); font-size: 14px; color: var(--muted); line-height: 1; pointer-events: none; }
+.tog .cc-lbl { font-size: 12px; }
+.tog.on { border-color: currentColor; }
+.tog.on span { color: #fff; }
+.tog.flash { background: #fff2 !important; }
+
+/* ── FADER ── */
+.fader-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.fader-track {
+  width: 100%; flex: 1; background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--radius); position: relative; overflow: hidden; cursor: pointer; min-height: 80px;
+}
+.fader-fill { position: absolute; bottom: 0; left: 0; right: 0; border-radius: var(--radius); }
+.fader-label { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+.fader-val { font-family: var(--mono); font-size: 14px; color: var(--text); font-weight: bold; }
+
+/* ── PAD ── */
+.pad {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--radius); cursor: pointer;
+  display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 8px; touch-action: none;
+}
+.pad span { font-family: var(--sans); font-size: 22px; font-weight: 700; letter-spacing: .04em; color: var(--muted); pointer-events: none; }
+.pad.hit { background: #ffffff18; }
+
+/* ── SONG BUTTON ── */
+.song-btn {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--radius); cursor: pointer; touch-action: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  height: 100%;
+}
+.song-btn .sname { font-family: var(--sans); font-size: 34px; font-weight: 700; letter-spacing: .04em; pointer-events: none; }
+.song-btn .spc { font-family: var(--mono); font-size: 13px; color: var(--muted); pointer-events: none; }
+.song-btn .ssounds { font-family: var(--sans); font-size: 15px; color: var(--muted); pointer-events: none; text-align: center; line-height: 1.5; }
+.song-btn.active { border-color: var(--k2); background: #1a9e6e18; border-width: 2px; }
+.song-btn.active .sname { color: #4de0a8; }
+.song-btn.active .spc { color: #4de0a8; opacity: .7; }
+
+/* ── LOOPER ── */
+.loop-row {
+  display: grid; grid-template-columns: 100px 1fr 90px 90px 90px;
+  gap: 8px; align-items: center; padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.loop-row:last-child { border-bottom: none; }
+.loop-name { font-family: var(--sans); font-size: 13px; font-weight: 600; letter-spacing: .04em; }
+.loop-bar-wrap { height: 22px; background: var(--surface2); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; }
+.loop-bar { height: 100%; width: 0%; border-radius: var(--radius); transition: width .1s linear; }
+.loop-state { font-family: var(--mono); font-size: 11px; text-align: center; }
+.loop-btn {
+  padding: 8px 4px; border-radius: var(--radius); border: 1px solid var(--border2);
+  background: var(--surface2); font-family: var(--mono); font-size: 11px;
+  letter-spacing: .06em; cursor: pointer; text-align: center; touch-action: none;
+}
+.loop-btn.rec-active { background: var(--red); border-color: var(--red-hot); color: #fff; }
+.loop-btn.play-active { border-color: var(--green); color: var(--green); }
+.loop-btn.stop-btn { color: #ff6060; }
+
+/* ── TEMPO ── */
+.tempo-box {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--radius); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px;
+}
+.tempo-num { font-family: var(--mono); font-size: 56px; font-weight: bold; color: var(--text); line-height: 1; }
+.tempo-unit { font-family: var(--mono); font-size: 15px; color: var(--muted); }
+.beat-row { display: flex; gap: 10px; align-items: center; }
+.beat { width: 26px; height: 26px; border-radius: 50%; background: var(--surface2); border: 1px solid var(--border2); transition: background .04s; }
+.beat.lit { background: var(--red-hot); border-color: var(--red-hot); }
+.ctrl-btn {
+  padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--border2);
+  background: var(--surface2); font-family: var(--mono); font-size: 16px;
+  color: var(--text); cursor: pointer; letter-spacing: .06em; touch-action: none;
+}
+.ctrl-btn:active { background: var(--border2); }
+.ctrl-btn.tap-btn { font-size: 22px; font-weight: bold; padding: 20px 16px; }
+
+/* ── GRID LAYOUTS ── */
+.btn-grid-16 { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.fader-grid-8 { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.pad-grid-16 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.song-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.fx-row { display: flex; gap: 8px; }
+.row { display: flex; gap: 8px; align-items: center; }
+.col { display: flex; flex-direction: column; gap: 6px; }
+.divider { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+
+/* kbd color classes */
+.k1 { color: var(--k1); } .k1.on { background: #6c5fd422; border-color: var(--k1) !important; }
+.k2 { color: var(--k2); } .k2.on { background: #1a9e6e22; border-color: var(--k2) !important; }
+.k3 { color: var(--k3); } .k3.on { background: #d4551e22; border-color: var(--k3) !important; }
+.k4 { color: var(--k4); } .k4.on { background: #c0781822; border-color: var(--k4) !important; }
+.amber-on.on { background: #c0781822; border-color: var(--amber) !important; color: var(--amber); }
+.amber-on.on span { color: var(--amber); }
+
+/* fader fills per kbd */
+.fill-k1 { background: var(--k1); } .fill-k2 { background: var(--k2); }
+.fill-k3 { background: var(--k3); } .fill-k4 { background: var(--k4); }
+.fill-gray { background: #505060; } .fill-amber { background: var(--amber); }
+.fill-red { background: var(--red); } .fill-teal { background: var(--k2); }
+
+/* page-specific flex layouts */
+#page-master { height: 100%; display: flex; flex-direction: column; gap: 8px; }
+#page-looper { height: 100%; display: flex; gap: 10px; }
+#page-pads   { height: 100%; display: flex; flex-direction: column; gap: 8px; }
+#page-patches { height: 100%; display: flex; flex-direction: column; gap: 10px; }
+
+.master-btns { flex: 0 0 auto; }
+.master-faders { flex: 1; display: flex; flex-direction: column; }
+.master-faders .fader-grid-8 { flex: 1; }
+.master-faders .fader-grid-8 .fader-wrap { height: 100%; }
+.master-faders .fader-grid-8 .fader-wrap .fader-track { flex: 1; }
+
+#page-master .btn-grid-16 { gap: 7px; }
+#page-master .tog { min-height: 74px; padding: 10px 4px; }
+#page-master .tog span { font-size: 15px; }
+#page-master .tog .cc-lbl { font-size: 12px; }
+#page-master .fader-grid-8 .fader-track { min-height: 55px; }
+.looper-left { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.looper-right { width: 230px; display: flex; flex-direction: column; gap: 8px; }
+
+/* Looper row — bigger, easier to read */
+.loop-row {
+  display: grid; grid-template-columns: 150px 1fr 90px 120px 120px;
+  gap: 12px; align-items: center; padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.loop-row:last-child { border-bottom: none; }
+.loop-name { font-family: var(--sans); font-size: 22px; font-weight: 700; letter-spacing: .04em; }
+.loop-bar-wrap { height: 54px; background: var(--surface2); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; }
+.loop-bar { height: 100%; width: 0%; border-radius: var(--radius); transition: width .1s linear; }
+.loop-state { font-family: var(--mono); font-size: 16px; text-align: center; font-weight: bold; }
+.loop-btn {
+  padding: 16px 4px; border-radius: var(--radius); border: 1px solid var(--border2);
+  background: var(--surface2); font-family: var(--mono); font-size: 17px;
+  letter-spacing: .06em; cursor: pointer; text-align: center; transition: background .1s;
+}
+
+.pads-grid { flex: 1; }
+.pads-grid .pad-grid-16 { height: 100%; }
+.pads-grid .pad-grid-16 .pad { height: 100%; }
+.pads-fx { flex: 0 0 auto; }
+</style>
+</head>
+<body>
+
+<div id="statusbar">
+  <div id="midi-dot"></div>
+  <span id="midi-label" style="cursor:pointer" onclick="showIPPrompt()">Tap to set Mac IP…</span>
+  <span id="meta-bar" style="font-family:var(--mono);font-size:11px;color:var(--muted);flex:2;text-align:center"></span>
+  <button onclick="showIPPrompt()" style="
+    background:#1a1a28;border:1px solid #3a3a50;border-radius:4px;
+    color:#8888aa;font-family:'Share Tech Mono',monospace;font-size:10px;
+    letter-spacing:.08em;padding:3px 8px;cursor:pointer;
+    flex-shrink:0;touch-action:none;
+  ">IP</button>
+  <button id="panic-btn" onclick="midiPanic()" style="
+    background:#7a1010;border:1px solid #c02020;border-radius:4px;
+    color:#ffaaaa;font-family:'Share Tech Mono',monospace;font-size:11px;
+    font-weight:700;letter-spacing:.1em;padding:3px 10px;cursor:pointer;
+    flex-shrink:0;touch-action:none;
+  ">PANIC</button>
+  <span id="midi-out"></span>
+</div>
+
+<div id="tabbar">
+  <div class="tab active" data-page="0">Master</div>
+  <div class="tab" data-page="1">Looper</div>
+  <div class="tab" data-page="2">Pads</div>
+  <div class="tab" data-page="3">Patches</div>
+  <div class="tab" data-page="4">Kbd 1</div>
+  <div class="tab" data-page="5">Kbd 2</div>
+  <div class="tab" data-page="6">Kbd 3</div>
+  <div class="tab" data-page="7">Kbd 4</div>
+</div>
+
+<div id="pages">
+
+  <!-- ===== MASTER ===== -->
+  <div id="page-0" class="page active">
+    <div id="page-master">
+      <div class="master-btns">
+        <div class="sec">Toggle buttons — 4 per keyboard</div>
+        <div class="btn-grid-16" id="master-btns"></div>
+      </div>
+      <div class="master-faders">
+        <div class="sec">Volume faders</div>
+        <div class="fader-grid-8" id="master-faders"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== LOOPER ===== -->
+  <div id="page-1" class="page">
+    <div id="page-looper">
+      <div class="looper-left" id="loop-rows-wrap">
+        <div class="sec">Loop slots — 1 per keyboard</div>
+        <div id="loop-rows"></div>
+      </div>
+      <div class="looper-right">
+        <div class="sec">Tempo</div>
+        <div class="tempo-box" style="height:80px;position:relative;overflow:visible">
+          <div class="tempo-num" id="tempo-disp" title="Tap to enter BPM" style="cursor:pointer;border-bottom:1px dashed #3a3a50" onclick="startTempoEdit()">120</div>
+          <input id="tempo-input" type="number" min="20" max="300" step="0.01"
+            style="display:none;position:absolute;inset:0;width:100%;height:100%;
+            background:#1a1a28;border:2px solid #6c5fd4;border-radius:6px;
+            color:#e8e8f0;font-family:'Share Tech Mono',monospace;font-size:34px;
+            font-weight:bold;text-align:center;outline:none;padding:0 8px;
+            -webkit-appearance:none;touch-action:none;"
+            onblur="commitTempoEdit()"
+            onkeydown="tempoKeydown(event)">
+          <div class="tempo-unit">BPM</div>
+        </div>
+        <div class="beat-row" style="justify-content:center">
+          <div class="beat" id="beat0"></div>
+          <div class="beat" id="beat1"></div>
+          <div class="beat" id="beat2"></div>
+          <div class="beat" id="beat3"></div>
+        </div>
+        <button class="ctrl-btn tap-btn" id="tap-btn">TAP</button>
+        <div class="row">
+          <button class="ctrl-btn" style="flex:1" onclick="nudgeTempo(-1)">BPM –</button>
+          <button class="ctrl-btn" style="flex:1" onclick="nudgeTempo(1)">BPM +</button>
+        </div>
+        <div class="sec" style="margin-top:4px">Tempo fader</div>
+        <div class="fader-wrap" style="flex:1; min-height:80px">
+          <div class="fader-track" id="tempo-fader-track" style="width:100%; flex:1">
+            <div class="fader-fill fill-gray" id="tempo-fill" style="height:50%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PADS ===== -->
+  <div id="page-2" class="page">
+    <div id="page-pads">
+      <div class="sec">One-shot pads — CH 10, Notes C2–D#3</div>
+      <div class="pads-grid">
+        <div class="pad-grid-16" id="pad-grid"></div>
+      </div>
+      <div class="pads-fx">
+        <div class="sec">FX toggles — CH 1, CC 70–73</div>
+        <div class="fx-row" id="fx-btns"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PATCHES ===== -->
+  <div id="page-3" class="page">
+    <div style="height:100%;display:flex;flex-direction:column;gap:6px">
+      <div class="sec">Song presets — Program Change on all 4 keyboards simultaneously</div>
+      <div id="song-grid" style="flex:1;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,1fr);gap:10px"></div>
+    </div>
+  </div>
+
+  <!-- ===== KBD 1–4 ===== -->
+  <div id="page-4" class="page"></div>
+  <div id="page-5" class="page"></div>
+  <div id="page-6" class="page"></div>
+  <div id="page-7" class="page"></div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  WEBSOCKET MIDI ENGINE  (v2 — bidirectional)
+//  iPad → WebSocket → Mac bridge → Ableton  (outbound)
+//  Ableton → Mac bridge → WebSocket → iPad  (inbound)
+// ═══════════════════════════════════════════════════════
+let ws = null;
+let wsConnected = false;
+let wsReconnectTimer = null;
+let wsReconnectIP = null;   // separate from wsIP to avoid closure stale-ref bugs
+
+// ── Status bar helpers ──
+function setDot(on) {
+  document.getElementById('midi-dot').classList.toggle('connected', on);
+}
+function setLabel(txt) {
+  document.getElementById('midi-label').textContent = txt;
+}
+
+// ── WebSocket connect ──
+function connectWS(ip) {
+  // Cancel any pending reconnect for old IP
+  clearTimeout(wsReconnectTimer);
+  wsReconnectTimer = null;
+
+  // Tear down existing socket cleanly — null handlers first to prevent
+  // the old onclose from scheduling a reconnect after we've moved on
+  if (ws) {
+    ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null;
+    try { ws.close(); } catch(e) {}
+    ws = null;
+  }
+
+  wsConnected = false;
+  wsReconnectIP = ip;
+  localStorage.setItem('bridgeIP', ip);
+
+  const url = `ws://${ip}:8765`;
+  setLabel(`Connecting to ${url}…`);
+  setDot(false);
+
+  const sock = new WebSocket(url);
+  sock.binaryType = 'arraybuffer';
+  ws = sock;
+
+  sock.onopen = () => {
+    if (sock !== ws) return;          // stale socket — ignore
+    wsConnected = true;
+    setDot(true);
+    setLabel(`Bridge · ${ip}`);
+  };
+
+  sock.onclose = (ev) => {
+    if (sock !== ws) return;
+    wsConnected = false;
+    setDot(false);
+    setLabel(`Bridge disconnected — retrying…`);
+    // Reconnect with exponential back-off capped at 5 s
+    const delay = Math.min(5000, 1000 + (sock._retries || 0) * 500);
+    wsReconnectTimer = setTimeout(() => {
+      if (wsReconnectIP) {
+        sock._retries = (sock._retries || 0) + 1;
+        connectWS(wsReconnectIP);
+      }
+    }, delay);
+  };
+
+  sock.onerror = () => {
+    if (sock !== ws) return;
+    setLabel(`Can't reach bridge at ${ip}:8765 — is the Mac script running?`);
+    // onclose fires after onerror, so reconnect is handled there
+  };
+
+  sock.onmessage = (ev) => {
+    if (sock !== ws) return;
+    // Normalise to plain Array regardless of whether bridge sent
+    // binary ArrayBuffer or JSON-encoded array string
+    let bytes;
+    if (ev.data instanceof ArrayBuffer) {
+      bytes = Array.from(new Uint8Array(ev.data));
+    } else {
+      try { bytes = JSON.parse(ev.data); } catch(e) { return; }
+    }
+    if (!Array.isArray(bytes) || !bytes.length) return;
+    onMIDIIn(bytes);
+  };
+}
+
+// ── IP entry prompt ──
+function showIPPrompt() {
+  const saved = localStorage.getItem('bridgeIP') || '';
+  const ip = prompt(
+    'Enter your Mac\'s USB IP address\n\n' +
+    'Run LiveRig_Wired_Start.sh on Mac — it copies the IP to clipboard.\n' +
+    'USB link-local addresses look like: 169.254.x.x\n\n' +
+    'Make sure iPad is plugged in and you tapped "Trust This Computer".',
+    saved
+  );
+  if (ip && ip.trim()) connectWS(ip.trim());
+}
+
+// ── Send raw MIDI bytes over WebSocket ──
+function send(bytes) {
+  if (wsConnected && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(bytes));
+  }
+  // Always show in status bar regardless of connection (useful for debugging)
+  const lbl = document.getElementById('midi-out');
+  lbl.textContent = bytes.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+  clearTimeout(send._t);
+  send._t = setTimeout(() => lbl.textContent = '', 1200);
+}
+
+function sendCC(ch, cc, val)         { send([0xB0|(ch-1), cc, val]); }
+function sendNote(ch, note, vel=127) { send([0x90|(ch-1), note, vel]); setTimeout(() => send([0x80|(ch-1), note, 0]), 80); }
+function sendPC(ch, pc)              { send([0xC0|(ch-1), pc]); }
+
+function midiPanic() {
+  for (let ch = 0; ch < 16; ch++) {
+    send([0xB0|ch, 120, 0]);   // all sound off
+    send([0xB0|ch, 123, 0]);   // all notes off
+    send([0xB0|ch, 121, 0]);   // reset all controllers
+  }
+  const btn = document.getElementById('panic-btn');
+  btn.style.background = '#e03030';
+  btn.textContent = 'RELEASED';
+  setTimeout(() => { btn.style.background = '#7a1010'; btn.textContent = 'PANIC'; }, 800);
+  document.querySelectorAll('.tog.on').forEach(el => {
+    el.classList.remove('on'); el.dataset.state = '0';
+  });
+  for (let k = 0; k < 4; k++) loopStop(k);
+  const lbl = document.getElementById('midi-out');
+  lbl.textContent = 'PANIC — all notes off CH 1-16';
+  clearTimeout(send._t);
+  send._t = setTimeout(() => lbl.textContent = '', 2000);
+}
+
+// ═══════════════════════════════════════════════════════
+//  INBOUND MIDI — from Ableton via bridge
+// ═══════════════════════════════════════════════════════
+// Expected CC map (Ableton/M4L → iPad):
+//   CH1 CC14        BPM (scaled: val 0–127 → 40–240 BPM)
+//   CH1 CC15        Transport: 127=PLAYING, 64=REC, 0=STOPPED
+//   CH1 CC16        Current bar (0-based)
+//   CH1 CC17        Time signature numerator
+//   CH1 CC18–21     Clip state per track (0=empty,64=stopped,127=playing)
+//   SysEx 0xF0 0x7D type ...text... 0xF7
+//     type 0x01 = BPM string
+//     type 0x02 = Song/set name
+//     type 0x03–0x06 = Track names (Kbd1–4)
+
+const m4l = {
+  bpm: '--', transport: 'STOPPED',
+  bar: 0, timesig: 4,
+  song: '', tracks: ['', '', '', ''],
+  clips: [0, 0, 0, 0]
+};
+
+function onMIDIIn(bytes) {
+  // bytes is a plain Array of integers
+  if (!bytes || bytes.length < 2) return;
+
+  const status = bytes[0] & 0xF0;
+  const ch     = (bytes[0] & 0x0F) + 1;
+
+  // ── CC messages from CH1 ──
+  if (status === 0xB0 && ch === 1 && bytes.length >= 3) {
+    const cc = bytes[1], val = bytes[2];
+    if (cc === 14) {
+      // BPM feedback — sync metronome
+      const bpm = Math.round(40 + (val / 127) * 200);
+      m4l.bpm = bpm;
+      tempo = bpm;
+      const disp = document.getElementById('tempo-disp');
+      if (disp && disp.style.display !== 'none') disp.textContent = bpm;
+      restartBeat();
+    } else if (cc === 15) {
+      m4l.transport = val === 127 ? 'PLAYING' : val === 64 ? 'REC' : 'STOPPED';
+      updateMetaBar();
+    } else if (cc === 16) {
+      m4l.bar = val; updateMetaBar();
+    } else if (cc === 17) {
+      m4l.timesig = val; updateMetaBar();
+    } else if (cc >= 18 && cc <= 21) {
+      m4l.clips[cc - 18] = val; updateMetaBar();
+    }
+    return;
+  }
+
+  // ── SysEx text messages 0xF0 0x7D <type> <ascii...> 0xF7 ──
+  if (bytes[0] === 0xF0 && bytes[1] === 0x7D && bytes[bytes.length - 1] === 0xF7) {
+    const type = bytes[2];
+    const txt  = bytes.slice(3, -1).map(b => String.fromCharCode(b)).join('');
+    if (type === 0x01) {
+      // BPM as string (higher precision than CC)
+      const bpm = parseFloat(txt);
+      if (!isNaN(bpm)) {
+        m4l.bpm = bpm; tempo = bpm;
+        const disp = document.getElementById('tempo-disp');
+        if (disp && disp.style.display !== 'none')
+          disp.textContent = bpm % 1 === 0 ? bpm : bpm.toFixed(2);
+        restartBeat();
+      }
+    } else if (type === 0x02) {
+      m4l.song = txt; updateMetaBar();
+    } else if (type >= 0x03 && type <= 0x06) {
+      m4l.tracks[type - 0x03] = txt; updateKbdTabs();
+    }
+    return;
+  }
+}
+
+function updateMetaBar() {
+  const bar = document.getElementById('meta-bar');
+  if (!bar) return;
+  const tc = m4l.transport === 'PLAYING' ? '#28a048'
+           : m4l.transport === 'REC'     ? '#e03030'
+                                         : '#6a6a80';
+  bar.style.color = tc;
+  bar.textContent = m4l.transport
+    + (m4l.song ? '  ·  ' + m4l.song : '')
+    + '  ·  BAR ' + (m4l.bar + 1)
+    + '  ·  ' + m4l.timesig + '/4';
+}
+
+function updateKbdTabs() {
+  for (let k = 0; k < 4; k++) {
+    if (m4l.tracks[k]) {
+      const tab = document.querySelector(`.tab[data-page="${4 + k}"]`);
+      if (tab) tab.textContent = m4l.tracks[k].substring(0, 8);
+    }
+  }
+}
+
+// ── Init ──
+function initMIDI() {
+  const saved = localStorage.getItem('bridgeIP');
+  if (saved) {
+    connectWS(saved);
+  } else {
+    setLabel('Tap here to set Mac IP address →');
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  CONSTANTS
+// ═══════════════════════════════════════════════════════
+const KBD = [
+  { name:'Keyboard 1', cls:'k1', fill:'fill-k1', ch:1 },
+  { name:'Keyboard 2', cls:'k2', fill:'fill-k2', ch:2 },
+  { name:'Keyboard 3', cls:'k3', fill:'fill-k3', ch:3 },
+  { name:'Keyboard 4', cls:'k4', fill:'fill-k4', ch:4 },
+];
+const PAD_NAMES = JSON.parse(localStorage.getItem('padNames') || 'null') ||
+  ['Kick','Snare','HH','Clap','Perc 1','Perc 2','Riser','FX Dn','Atmo 1','Atmo 2','Stab','Bass Hit','Vox 1','Vox 2','Sweep','Impact'];
+const SONG_NAMES = ['Song 1','Song 2','Song 3','Song 4','Song 5','Song 6','Song 7','Song 8'];
+const FX_NAMES  = ['Reverb','Delay','Chorus','Distort'];
+const SONG_SOUNDS = [
+  ['Pad A','Bass 1','Lead 1','Arp 1'],['Strings','Bass 2','Synth','Bells'],
+  ['Organ','Sub Bass','Brass','Choir'],['E.Piano','Fretless','Flute','Vibes'],
+  ['Ambient','808 Bass','Poly','Pads'],['Wurlitzer','Synth Bass','Mono','Keys'],
+  ['Grand','Slap Bass','Sax','Mallets'],['Rhodes','Pick Bass','Trumpet','Marimba'],
+];
+
+// ═══════════════════════════════════════════════════════
+//  MASTER PAGE
+// ═══════════════════════════════════════════════════════
+function buildMaster() {
+  const btnGrid = document.getElementById('master-btns');
+  for (let k=0; k<4; k++) {
+    for (let b=0; b<4; b++) {
+      const i = k*4+b;
+      const cc = 20+i;
+      const el = document.createElement('div');
+      el.className = `tog ${KBD[k].cls}`;
+      el.dataset.state = '0';
+      el.innerHTML = `<span>K${k+1} B${b+1}</span><span class="cc-lbl">CC${cc}</span>`;
+      el.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        const on = el.dataset.state === '0';
+        el.dataset.state = on ? '1' : '0';
+        el.classList.toggle('on', on);
+        sendCC(k+1, cc, on ? 127 : 0);
+      });
+      btnGrid.appendChild(el);
+    }
+  }
+
+  const fdrGrid = document.getElementById('master-faders');
+  for (let k=0; k<4; k++) {
+    for (let f=0; f<2; f++) {
+      const fi = k*2+f;
+      const wrap = document.createElement('div');
+      wrap.className = 'fader-wrap';
+      const track = document.createElement('div');
+      track.className = 'fader-track';
+      const fill = document.createElement('div');
+      fill.className = `fader-fill ${KBD[k].fill}`;
+      fill.style.height = '75%';
+      track.appendChild(fill);
+      const lbl = document.createElement('div');
+      lbl.className = 'fader-label';
+      lbl.textContent = `K${k+1}`;
+      const val = document.createElement('div');
+      val.className = 'fader-val';
+      val.textContent = '96';
+      fdrTouch(track, fill, val, pct => sendCC(k+1, 7, Math.round(pct*127)));
+      wrap.append(track, lbl, val);
+      fdrGrid.appendChild(wrap);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  FADER TOUCH HELPER — pointer events only, throttled
+// ═══════════════════════════════════════════════════════
+function fdrTouch(track, fill, valEl, cb) {
+  let lastVal = -1;
+  function update(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const r = track.getBoundingClientRect();
+    const clientY = (e.touches ? e.touches[0].clientY : e.clientY);
+    const pct = Math.max(0, Math.min(1, 1 - (clientY - r.top) / r.height));
+    const midiVal = Math.round(pct * 127);
+    fill.style.height = (pct * 100) + '%';
+    if (valEl) valEl.textContent = midiVal;
+    if (midiVal !== lastVal) { lastVal = midiVal; cb(pct); }
+  }
+  track.addEventListener('pointerdown', e => { track.setPointerCapture(e.pointerId); update(e); }, {passive:false});
+  track.addEventListener('pointermove', e => { if (e.buttons) update(e); }, {passive:false});
+  track.addEventListener('pointerup',   e => { update(e); }, {passive:false});
+}
+
+// ═══════════════════════════════════════════════════════
+//  LOOPER PAGE
+// ═══════════════════════════════════════════════════════
+let tempo = 120, beatIdx = 0, beatTimer = null;
+let tapTimes = [], lastTap = 0;
+let loopState = ['idle','idle','idle','idle'];
+let loopTimers = [null,null,null,null];
+let loopProg = [0,0,0,0];
+
+function buildLooper() {
+  const wrap = document.getElementById('loop-rows');
+  for (let k=0; k<4; k++) {
+    const row = document.createElement('div');
+    row.className = 'loop-row';
+    row.innerHTML = `
+      <div class="loop-name ${KBD[k].cls}">${KBD[k].name}</div>
+      <div class="loop-bar-wrap"><div class="loop-bar ${KBD[k].fill}" id="lbar${k}" style="width:0%"></div></div>
+      <div class="loop-state" id="lstate${k}" style="color:var(--muted)">IDLE</div>
+      <div class="loop-btn" id="lrec${k}" data-k="${k}">REC</div>
+      <div class="loop-btn stop-btn" id="lstop${k}" data-k="${k}">STOP</div>
+    `;
+    wrap.appendChild(row);
+    document.getElementById(`lrec${k}`).addEventListener('pointerdown', e => { e.preventDefault(); loopRec(k); });
+    document.getElementById(`lstop${k}`).addEventListener('pointerdown', e => { e.preventDefault(); loopStop(k); });
+  }
+
+  // Tempo fader
+  const tf = document.getElementById('tempo-fader-track');
+  const tfill = document.getElementById('tempo-fill');
+  fdrTouch(tf, tfill, null, pct => {
+    tempo = Math.round(40 + pct * 200);
+    document.getElementById('tempo-disp').textContent = tempo;
+    sendCC(1, 14, Math.round(pct*127));
+    restartBeat();
+  });
+
+  document.getElementById('tap-btn').addEventListener('pointerdown', e => { e.preventDefault(); tapTempo(); });
+  restartBeat();
+}
+
+function loopRec(k) {
+  if (loopState[k] === 'idle') {
+    loopState[k] = 'rec';
+    document.getElementById(`lstate${k}`).textContent = 'REC';
+    document.getElementById(`lstate${k}`).style.color = 'var(--red-hot)';
+    document.getElementById(`lrec${k}`).textContent = 'PLAY';
+    document.getElementById(`lrec${k}`).classList.add('rec-active');
+    loopProg[k] = 0;
+    clearInterval(loopTimers[k]);
+    loopTimers[k] = setInterval(() => {
+      loopProg[k] = (loopProg[k] + 1.5) % 101;
+      document.getElementById(`lbar${k}`).style.width = loopProg[k] + '%';
+    }, 60);
+    sendCC(k+1, 80+k, 127);
+  } else if (loopState[k] === 'rec') {
+    loopState[k] = 'play';
+    document.getElementById(`lstate${k}`).textContent = 'PLAY';
+    document.getElementById(`lstate${k}`).style.color = 'var(--green)';
+    document.getElementById(`lrec${k}`).classList.remove('rec-active');
+    document.getElementById(`lrec${k}`).classList.add('play-active');
+    sendCC(k+1, 80+k, 64);
+  }
+}
+
+function loopStop(k) {
+  loopState[k] = 'idle';
+  clearInterval(loopTimers[k]);
+  loopProg[k] = 0;
+  document.getElementById(`lbar${k}`).style.width = '0%';
+  document.getElementById(`lstate${k}`).textContent = 'IDLE';
+  document.getElementById(`lstate${k}`).style.color = 'var(--muted)';
+  const rb = document.getElementById(`lrec${k}`);
+  rb.textContent = 'REC';
+  rb.classList.remove('rec-active','play-active');
+  sendCC(k+1, 84+k, 127);
+}
+
+function restartBeat() {
+  clearInterval(beatTimer);
+  const ms = Math.round(60000 / tempo);
+  beatTimer = setInterval(() => {
+    document.querySelectorAll('.beat').forEach(b => b.classList.remove('lit'));
+    document.getElementById('beat'+beatIdx).classList.add('lit');
+    beatIdx = (beatIdx+1) % 4;
+  }, ms);
+}
+
+function nudgeTempo(d) {
+  tempo = Math.max(20, Math.min(300, tempo+d));
+  document.getElementById('tempo-disp').textContent = tempo % 1 === 0 ? tempo : tempo.toFixed(2);
+  sendCC(1, 90+(d>0?0:1), 127);
+  restartBeat();
+}
+
+function startTempoEdit() {
+  const disp = document.getElementById('tempo-disp');
+  const inp  = document.getElementById('tempo-input');
+  inp.value = tempo;
+  disp.style.display = 'none';
+  inp.style.display  = 'block';
+  inp.focus();
+  inp.select();
+}
+
+function commitTempoEdit() {
+  const disp = document.getElementById('tempo-disp');
+  const inp  = document.getElementById('tempo-input');
+  const raw  = parseFloat(inp.value);
+  if (!isNaN(raw) && raw >= 20 && raw <= 300) {
+    tempo = Math.round(raw * 100) / 100; // keep up to 2 decimal places
+    const cc14val = Math.round(Math.max(0, Math.min(127, (tempo - 40) / 200 * 127)));
+    sendCC(1, 14, cc14val);
+    restartBeat();
+  }
+  disp.textContent = tempo % 1 === 0 ? tempo : tempo.toFixed(2);
+  inp.style.display  = 'none';
+  disp.style.display = 'block';
+}
+
+function tempoKeydown(e) {
+  if (e.key === 'Enter') { e.preventDefault(); commitTempoEdit(); }
+  if (e.key === 'Escape') {
+    const inp  = document.getElementById('tempo-input');
+    const disp = document.getElementById('tempo-disp');
+    inp.style.display  = 'none';
+    disp.style.display = 'block';
+  }
+}
+
+function tapTempo() {
+  const now = Date.now();
+  if (lastTap && now - lastTap < 3000) {
+    tapTimes.push(now - lastTap);
+    if (tapTimes.length > 4) tapTimes.shift();
+    const avg = tapTimes.reduce((a,b) => a+b) / tapTimes.length;
+    tempo = Math.max(20, Math.min(300, Math.round(60000/avg * 100) / 100));
+    document.getElementById('tempo-disp').textContent = tempo % 1 === 0 ? tempo : tempo.toFixed(2);
+    sendCC(1, 89, 127);
+    restartBeat();
+  } else { tapTimes = []; }
+  lastTap = now;
+  const btn = document.getElementById('tap-btn');
+  btn.style.background = '#fff3';
+  setTimeout(() => btn.style.background = '', 120);
+}
+
+// ═══════════════════════════════════════════════════════
+//  PADS PAGE
+// ═══════════════════════════════════════════════════════
+function buildPads() {
+  const grid = document.getElementById('pad-grid');
+  for (let i=0; i<16; i++) {
+    const el = document.createElement('div');
+    el.className = 'pad amber-on';
+    el.dataset.idx = i;
+    const sp = document.createElement('span');
+    sp.textContent = PAD_NAMES[i];
+    el.appendChild(sp);
+
+    // Short press — fire note
+    let pressTimer = null;
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        const name = prompt(`Rename pad ${i+1} (match your Ableton sample name):`, PAD_NAMES[i]);
+        if (name !== null && name.trim() !== '') {
+          PAD_NAMES[i] = name.trim();
+          sp.textContent = PAD_NAMES[i];
+          localStorage.setItem('padNames', JSON.stringify(PAD_NAMES));
+        }
+      }, 600);
+    });
+    el.addEventListener('pointerup', e => {
+      if (pressTimer !== null) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+        el.classList.add('hit');
+        setTimeout(() => el.classList.remove('hit'), 100);
+        sendNote(10, 36+i, 127);
+      }
+    });
+    el.addEventListener('pointerleave', e => {
+      if (pressTimer !== null) { clearTimeout(pressTimer); pressTimer = null; }
+    });
+    grid.appendChild(el);
+  }
+
+  const fx = document.getElementById('fx-btns');
+  FX_NAMES.forEach((name, i) => {
+    const el = document.createElement('div');
+    el.className = 'tog amber-on';
+    el.style.flex = '1'; el.style.padding = '12px 4px';
+    el.dataset.state = '0';
+    el.innerHTML = `<span style="font-size:18px;font-weight:600">${name}</span><span class="cc-lbl">CC${70+i}</span>`;
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const on = el.dataset.state === '0';
+      el.dataset.state = on ? '1' : '0';
+      el.classList.toggle('on', on);
+      sendCC(1, 70+i, on ? 127 : 0);
+    });
+    fx.appendChild(el);
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+//  PATCHES PAGE
+// ═══════════════════════════════════════════════════════
+let activeSong = -1;
+
+function buildPatches() {
+  const grid = document.getElementById('song-grid');
+  SONG_NAMES.forEach((name, i) => {
+    const el = document.createElement('div');
+    el.className = 'song-btn';
+    const sounds = SONG_SOUNDS[i];
+    el.innerHTML = `
+      <div class="sname">${name}</div>
+      <div class="ssounds">${sounds.join(' &nbsp;·&nbsp; ')}</div>
+      <div class="spc">PC ${i} — CH 1–4</div>
+    `;
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      document.querySelectorAll('.song-btn').forEach(b => b.classList.remove('active'));
+      el.classList.add('active');
+      activeSong = i;
+      for (let ch=1; ch<=4; ch++) sendPC(ch, i);
+    });
+    grid.appendChild(el);
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+//  KBD PAGES 1–4
+// ═══════════════════════════════════════════════════════
+function buildKbdPage(k) {
+  const pg = document.getElementById(`page-${4+k}`);
+  pg.style.height = '100%';
+  pg.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:8px;height:100%">
+      <div>
+        <div class="sec" style="color:var(--${KBD[k].cls})">${KBD[k].name.toUpperCase()} — MIDI CH ${KBD[k].ch}</div>
+        <div class="sec">Toggle buttons — CC 20–35</div>
+        <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:7px" id="kbtns${k}"></div>
+      </div>
+      <div class="divider"></div>
+      <div style="flex:1;display:flex;flex-direction:column">
+        <div class="sec">CC sliders — CC 10–17</div>
+        <div class="fader-grid-8" id="kfdrs${k}" style="flex:1"></div>
+      </div>
+    </div>
+  `;
+
+  const btns = document.getElementById(`kbtns${k}`);
+  for (let b=0; b<16; b++) {
+    const cc = 20+b;
+    const el = document.createElement('div');
+    el.className = `tog ${KBD[k].cls}`;
+    el.style.minHeight = '86px';
+    el.style.padding = '12px 4px';
+    el.dataset.state = '0';
+    el.innerHTML = `<span style="font-size:18px">B${b+1}</span><span class="cc-lbl" style="font-size:13px">CC${cc}</span>`;
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const on = el.dataset.state === '0';
+      el.dataset.state = on ? '1' : '0';
+      el.classList.toggle('on', on);
+      sendCC(k+1, cc, on ? 127 : 0);
+    });
+    btns.appendChild(el);
+  }
+
+  const fdrs = document.getElementById(`kfdrs${k}`);
+  for (let f=0; f<8; f++) {
+    const cc = 10+f;
+    const wrap = document.createElement('div');
+    wrap.className = 'fader-wrap';
+    wrap.style.height = '100%';
+    const track = document.createElement('div');
+    track.className = 'fader-track';
+    track.style.flex = '1';
+    const fill = document.createElement('div');
+    fill.className = `fader-fill ${KBD[k].fill}`;
+    fill.style.height = '75%';
+    track.appendChild(fill);
+    const lbl = document.createElement('div');
+    lbl.className = 'fader-label';
+    lbl.textContent = `CC${cc}`;
+    const val = document.createElement('div');
+    val.className = 'fader-val';
+    val.textContent = '96';
+    fdrTouch(track, fill, val, pct => sendCC(k+1, cc, Math.round(pct*127)));
+    wrap.append(track, lbl, val);
+    fdrs.appendChild(wrap);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  TABS
+// ═══════════════════════════════════════════════════════
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    const p = tab.dataset.page;
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(`page-${p}`).classList.add('active');
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════
+buildMaster();
+buildLooper();
+buildPads();
+buildPatches();
+for (let k=0; k<4; k++) buildKbdPage(k);
+initMIDI();
+</script>
+</body>
+</html>
