@@ -89,13 +89,84 @@ async def broadcast(payload_str):
 async def broadcast_live_state():
     await broadcast(json.dumps(live_state))
 
+async def handle_http(reader, writer):
+    """Simple HTTP server to receive JSON POSTs from M4L JS object."""
+    try:
+        head = await reader.read(4096)
+        text = head.decode('utf-8', errors='replace')
+        # Extract body (after double newline)
+        if '\r\n\r\n' in text:
+            body = text.split('\r\n\r\n', 1)[1]
+        elif '\n\n' in text:
+            body = text.split('\n\n', 1)[1]
+        else:
+            body = ''
+        body = body.strip()
+        if body:
+            try:
+                msg = json.loads(body)
+                changed = False
+                for k, v in msg.items():
+                    if live_state.get(k) != v:
+                        live_state[k] = v
+                        changed = True
+                live_state["type"] = "live_state"
+                if changed:
+                    await broadcast_live_state()
+                    print(f"[LiveRig] HTTP state: bpm={live_state.get('bpm')} transport={live_state.get('transport')} bar={live_state.get('bar')}", flush=True)
+            except Exception as e:
+                print(f"[LiveRig] HTTP parse error: {e}", flush=True)
+        # Send 200 OK
+        writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK")
+        await writer.drain()
+    except Exception as e:
+        pass
+    finally:
+        writer.close()
+
+
+
 # ── UDP server — receives JSON from M4L ──────────────────────────────────────
 class UDPProtocol(asyncio.DatagramProtocol):
     def datagram_received(self, data, addr):
+        # udpsend in Max wraps data as OSC — try multiple decode strategies
+        msg = None
+
+        # Strategy 1: plain JSON (if using a custom sender)
         try:
-            msg = json.loads(data.decode())
+            msg = json.loads(data.decode('utf-8'))
         except Exception:
+            pass
+
+        # Strategy 2: OSC string message — skip OSC address header
+        # OSC packets start with / and are null-padded
+        if msg is None:
+            try:
+                text = data.decode('utf-8', errors='ignore')
+                # Find first { which starts the JSON
+                brace = text.find('{')
+                if brace != -1:
+                    msg = json.loads(text[brace:])
+            except Exception:
+                pass
+
+        # Strategy 3: scan raw bytes for JSON
+        if msg is None:
+            try:
+                raw = data.decode('latin-1', errors='replace')
+                brace = raw.find('{')
+                end = raw.rfind('}')
+                if brace != -1 and end != -1:
+                    msg = json.loads(raw[brace:end+1])
+            except Exception:
+                pass
+
+        if msg is None:
+            print(f"[LiveRig] UDP: could not parse {len(data)} bytes from {addr}", flush=True)
+            print(f"[LiveRig] UDP hex: {data[:120].hex()}", flush=True)
+            print(f"[LiveRig] UDP str: {data[:120]}", flush=True)
             return
+
         # Merge incoming fields into live_state
         changed = False
         for k, v in msg.items():
@@ -193,6 +264,52 @@ def get_all_ips():
     return ips
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+async def watch_state_file():
+    """Watch /tmp/liverig_state.json written by M4L JS."""
+    import os
+    last_mtime = 0
+    last_content = ""
+    poll_count = 0
+    change_count = 0
+    error_count = 0
+    print(f"[LiveRig] Watching /tmp/liverig_state.json", flush=True)
+    while True:
+        poll_count += 1
+        try:
+            mtime = os.path.getmtime("/tmp/liverig_state.json")
+            if mtime != last_mtime:
+                last_mtime = mtime
+                with open("/tmp/liverig_state.json", 'r') as fh:
+                    content = fh.read().strip()
+                if content and content != last_content:
+                    last_content = content
+                    try:
+                        msg = json.loads(content)
+                    except Exception as e:
+                        error_count += 1
+                        if error_count < 5:
+                            print(f"[LiveRig] JSON parse fail: {e} | content: {content[:100]}", flush=True)
+                        continue
+                    changed = False
+                    for k, v in msg.items():
+                        if live_state.get(k) != v:
+                            live_state[k] = v
+                            changed = True
+                    live_state["type"] = "live_state"
+                    if changed:
+                        change_count += 1
+                        await broadcast_live_state()
+                        if change_count == 1 or change_count % 20 == 0:
+                            print(f"[LiveRig] ✓#{change_count} bpm={live_state.get('bpm')} {live_state.get('transport')} bar={live_state.get('bar')} beat={live_state.get('beat')}", flush=True)
+        except FileNotFoundError:
+            if poll_count % 100 == 0:
+                print(f"[LiveRig] state file not found yet (poll #{poll_count})", flush=True)
+        except Exception as e:
+            error_count += 1
+            if error_count < 5:
+                print(f"[LiveRig] watch error: {e}", flush=True)
+        await asyncio.sleep(0.05)
+
 async def main():
     global main_loop
     main_loop = asyncio.get_running_loop()
@@ -225,12 +342,19 @@ async def main():
     print(f"  UDP (M4L) : 0.0.0.0:{UDP_PORT}")
     print(f"{'='*58}\n")
 
-    # Start UDP listener
+    # Start file watcher for M4L JS state file
+    asyncio.create_task(watch_state_file())
+
+    # Start HTTP server for M4L JS → bridge
+    http_server = await asyncio.start_server(handle_http, "127.0.0.1", 9090)
+    print(f"[LiveRig] HTTP receiver ready on 127.0.0.1:9090", flush=True)
+
+    # Start UDP listener on loopback — Max udpsend sends to 127.0.0.1
     await main_loop.create_datagram_endpoint(
         UDPProtocol,
-        local_addr=("0.0.0.0", UDP_PORT)
+        local_addr=("127.0.0.1", UDP_PORT)
     )
-    print(f"[LiveRig] UDP listener ready on port {UDP_PORT}", flush=True)
+    print(f"[LiveRig] UDP listener ready on 127.0.0.1:{UDP_PORT}", flush=True)
 
     # Start WebSocket server
     async with ws_serve(handle_client, "0.0.0.0", WS_PORT):

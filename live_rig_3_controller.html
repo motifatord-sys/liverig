@@ -396,11 +396,25 @@ function connectWS(ip) {
   sock.onerror = () => { if(sock!==ws)return; setLabel(`Can't reach bridge at ${ip}:8765 — is the Mac script running?`); };
   sock.onmessage = (ev) => {
     if(sock!==ws)return;
-    let bytes;
-    if(ev.data instanceof ArrayBuffer) bytes=Array.from(new Uint8Array(ev.data));
-    else try{bytes=JSON.parse(ev.data);}catch(e){return;}
-    if(!Array.isArray(bytes)||!bytes.length)return;
-    onMIDIIn(bytes);
+    if(!(ev.data instanceof ArrayBuffer)) {
+      // Try parsing as JSON - could be live_state object OR raw MIDI bytes array
+      try {
+        const parsed = JSON.parse(ev.data);
+        // New format: live_state object from Python bridge (via M4L file watcher)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          if (parsed.type === 'live_state') { onLiveState(parsed); return; }
+          // Could also be a wrapped {type:"midi",data:[...]}
+          if (parsed.type === 'midi' && Array.isArray(parsed.data)) { onMIDIIn(parsed.data); return; }
+          return;
+        }
+        // Legacy: raw MIDI bytes array
+        if (Array.isArray(parsed) && parsed.length) { onMIDIIn(parsed); return; }
+      } catch(e) { return; }
+      return;
+    }
+    // Binary MIDI
+    const bytes = Array.from(new Uint8Array(ev.data));
+    if (bytes.length) onMIDIIn(bytes);
   };
 }
 
@@ -435,7 +449,67 @@ function midiPanic() {
 // ═══════════════════════════════════════════
 //  INBOUND MIDI (from Ableton via M4L)
 // ═══════════════════════════════════════════
-const m4l = {bpm:'--',transport:'STOPPED',bar:0,timesig:4,song:'',tracks:['','','',''],clips:[0,0,0,0]};
+const m4l = {bpm:'--',transport:'STOPPED',bar:0,timesig:4,song:'',tracks:['','','',''],clips:[0,0,0,0],locators:[],current_locator:''};
+
+// ═══════════════════════════════════════════
+//  LIVE STATE from M4L → Python bridge (new JSON protocol)
+// ═══════════════════════════════════════════
+function onLiveState(s) {
+  // s: { transport, bar, beat, bpm, timesig, song, locators, current_locator }
+  if (typeof s.bpm === 'number' && s.bpm > 0) {
+    m4l.bpm = s.bpm; tempo = s.bpm;
+    const d = document.getElementById('t-bpm-display'); if(d) d.textContent = Math.round(s.bpm);
+    const t = document.getElementById('tempo-disp');    if(t) t.textContent = Math.round(s.bpm);
+  }
+  if (typeof s.transport === 'string') {
+    const tState = s.transport === 'playing' ? 'PLAYING'
+                 : s.transport === 'recording' ? 'RECORDING'
+                 : 'STOPPED';
+    m4l.transport = tState;
+    const prev = transportState;
+    transportState = tState;
+    if (prev !== transportState) {
+      updateTransportButtons();
+      updateBeatPulseColor();
+      if (transportState === 'STOPPED') {
+        clearInterval(beatPulseTimer); beatPulseTimer = null;
+      }
+    }
+  }
+  if (typeof s.bar === 'number')  m4l.bar = s.bar;
+  if (typeof s.timesig === 'number' && s.timesig > 0) m4l.timesig = s.timesig;
+  if (typeof s.song === 'string') m4l.song = s.song;
+
+  // Beat indicator — s.beat is 1-based from Max (1,2,3,4)
+  if (typeof s.beat === 'number' && s.beat > 0) {
+    const bi = (s.beat - 1) % (m4l.timesig || 4);
+    currentBeat = s.beat;
+    const timesig = m4l.timesig || 4;
+    for (let i = 0; i < 4; i++) {
+      const b = document.getElementById(`tbeat${i}`);
+      if (b) b.classList.toggle('on', i === bi);
+    }
+    // Flash the top status bar pulse on each new beat
+    const dot = document.getElementById('beat-pulse');
+    if (dot) { dot.classList.add('flash'); setTimeout(()=>dot.classList.remove('flash'),80); }
+    // Update bar · beat text
+    const tBar = document.getElementById('t-bar-display');
+    if (tBar) tBar.textContent = `${m4l.bar} · ${s.beat}`;
+  }
+
+  // Locators — store for future setlist/section display
+  if (Array.isArray(s.locators))      m4l.locators = s.locators;
+  if (typeof s.current_locator==='string') m4l.current_locator = s.current_locator;
+
+  // Top status bar
+  const bar = document.getElementById('meta-bar');
+  if (bar) {
+    const tc = transportState==='PLAYING'?'#28a048':transportState==='RECORDING'?'#e03030':'#6a6a80';
+    bar.style.color = tc;
+    const secPart = m4l.current_locator ? '  ·  ' + m4l.current_locator : '';
+    bar.textContent = transportState + (m4l.song ? '  ·  '+m4l.song : '') + secPart + '  ·  BAR '+m4l.bar+'  ·  '+(m4l.timesig||4)+'/4';
+  }
+}
 
 function onMIDIIn(bytes) {
   if(!bytes||bytes.length<2) return;

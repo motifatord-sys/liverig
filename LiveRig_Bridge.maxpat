@@ -1,530 +1,80 @@
 {
-	"patcher" : 	{
+	"patcher" : {
 		"fileversion" : 1,
-		"appversion" : 		{
-			"major" : 9,
-			"minor" : 0,
-			"revision" : 10,
-			"architecture" : "x64",
-			"modernui" : 1
-		}
-,
-		"classnamespace" : "box",
-		"rect" : [ 134.0, 173.0, 851.0, 811.0 ],
-		"gridsize" : [ 15.0, 15.0 ],
-		"boxes" : [ 			{
-				"box" : 				{
-					"id" : "obj-1",
-					"maxclass" : "newobj",
-					"numinlets" : 1,
-					"numoutlets" : 3,
-					"outlettype" : [ "bang", "int", "int" ],
-					"patching_rect" : [ 30.0, 30.0, 120.0, 22.0 ],
-					"text" : "live.thisdevice"
-				}
+		"appversion" : { "major" : 8, "minor" : 6, "revision" : 0, "architecture" : "x64", "modernui" : 1 },
+		"classnamespace" : "dsp.midi",
+		"rect" : [ 50.0, 50.0, 1000.0, 700.0 ],
+		"boxes" : [
+			{ "box" : { "id" : "obj-title", "maxclass" : "comment", "numinlets" : 1, "numoutlets" : 0, "patching_rect" : [ 30.0, 10.0, 940.0, 20.0 ],
+				"text" : "LiveRig Bridge v10 — uses transport object (proven working). JS writes to /tmp/liverig_state.json for Python bridge file watcher." } },
+			{ "box" : { "id" : "obj-outlets", "maxclass" : "comment", "numinlets" : 1, "numoutlets" : 0, "patching_rect" : [ 30.0, 30.0, 940.0, 20.0 ],
+				"text" : "transport outlets: 1=bars 2=beats 3=units 4=PPQ 5=tempo 6=timesig(list) 7=state(0/1) 8=rawticks 9=clocksrc" } },
 
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-2",
-					"maxclass" : "newobj",
-					"numinlets" : 1,
-					"numoutlets" : 1,
-					"outlettype" : [ "bang" ],
-					"patching_rect" : [ 170.0, 30.0, 80.0, 22.0 ],
-					"text" : "loadbang"
-				}
+			{ "box" : { "id" : "obj-thisdevice", "maxclass" : "newobj", "numinlets" : 0, "numoutlets" : 1, "outlettype" : [ "bang" ], "patching_rect" : [ 30.0, 60.0, 120.0, 22.0 ], "text" : "live.thisdevice" } },
+			{ "box" : { "id" : "obj-loadbang",   "maxclass" : "newobj", "numinlets" : 0, "numoutlets" : 1, "outlettype" : [ "bang" ], "patching_rect" : [ 170.0, 60.0, 80.0, 22.0 ],  "text" : "loadbang" } },
+			{ "box" : { "id" : "obj-metro",       "maxclass" : "newobj", "numinlets" : 2, "numoutlets" : 1, "outlettype" : [ "bang" ], "patching_rect" : [ 30.0, 95.0, 80.0, 22.0 ],   "text" : "metro 100" } },
 
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-3",
-					"maxclass" : "newobj",
-					"numinlets" : 2,
-					"numoutlets" : 1,
-					"outlettype" : [ "bang" ],
-					"patching_rect" : [ 30.0, 70.0, 80.0, 22.0 ],
-					"text" : "metro 200"
-				}
+			{ "box" : { "id" : "obj-transport", "maxclass" : "newobj", "numinlets" : 0, "numoutlets" : 9,
+				"outlettype" : [ "int", "int", "int", "int", "float", "list", "int", "int", "list" ],
+				"patching_rect" : [ 30.0, 130.0, 80.0, 22.0 ], "text" : "transport" } },
 
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-comment",
-					"maxclass" : "comment",
-					"numinlets" : 1,
-					"numoutlets" : 0,
-					"patching_rect" : [ 77.0, 100.0, 640.0, 20.0 ],
-					"text" : "LiveRig Bridge v4 — single transport object sends BPM(CC14), PlayState(CC15), Bar(CC16), TimeSig(CC17)"
-				}
+			{ "box" : { "id" : "obj-bar-int",   "maxclass" : "newobj", "numinlets" : 1, "numoutlets" : 1, "patching_rect" : [ 30.0,  165.0, 40.0, 22.0 ], "text" : "int" } },
+			{ "box" : { "id" : "obj-beat-int",  "maxclass" : "newobj", "numinlets" : 1, "numoutlets" : 1, "patching_rect" : [ 80.0,  165.0, 40.0, 22.0 ], "text" : "int" } },
+			{ "box" : { "id" : "obj-bpm-int",   "maxclass" : "newobj", "numinlets" : 1, "numoutlets" : 1, "patching_rect" : [ 130.0, 165.0, 40.0, 22.0 ], "text" : "int" } },
+			{ "box" : { "id" : "obj-tsig-zl",  "maxclass" : "newobj", "numinlets" : 1, "numoutlets" : 2, "patching_rect" : [ 180.0, 165.0, 60.0, 22.0 ], "text" : "zl nth 1" } },
+			{ "box" : { "id" : "obj-sel-state", "maxclass" : "newobj", "numinlets" : 1, "numoutlets" : 3, "patching_rect" : [ 250.0, 165.0, 60.0, 22.0 ], "text" : "sel 0 1" } },
+			{ "box" : { "id" : "obj-msg-stop",  "maxclass" : "message","numinlets" : 2, "numoutlets" : 1, "patching_rect" : [ 250.0, 195.0, 70.0, 22.0 ], "text" : "stopped" } },
+			{ "box" : { "id" : "obj-msg-play",  "maxclass" : "message","numinlets" : 2, "numoutlets" : 1, "patching_rect" : [ 330.0, 195.0, 60.0, 22.0 ], "text" : "playing" } },
 
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-4",
-					"maxclass" : "newobj",
-					"numinlets" : 2,
-					"numoutlets" : 9,
-					"outlettype" : [ "int", "int", "float", "float", "float", "", "int", "float", "" ],
-					"patching_rect" : [ 30.0, 135.0, 80.0, 22.0 ],
-					"text" : "transport"
-				}
+			{ "box" : { "id" : "obj-lpath",    "maxclass" : "newobj","numinlets" : 1, "numoutlets" : 3, "patching_rect" : [ 550.0, 130.0, 120.0, 22.0 ], "text" : "live.path" } },
+			{ "box" : { "id" : "obj-lobj",     "maxclass" : "newobj","numinlets" : 2, "numoutlets" : 2, "patching_rect" : [ 550.0, 165.0, 120.0, 22.0 ], "text" : "live.object" } },
+			{ "box" : { "id" : "obj-pathmsg",  "maxclass" : "message","numinlets" : 2, "numoutlets" : 1, "patching_rect" : [ 680.0, 95.0,  130.0, 22.0 ], "text" : "path live_set" } },
+			{ "box" : { "id" : "obj-getname",  "maxclass" : "message","numinlets" : 2, "numoutlets" : 1, "patching_rect" : [ 680.0, 165.0, 80.0,  22.0 ], "text" : "get name" } },
+			{ "box" : { "id" : "obj-routename","maxclass" : "newobj","numinlets" : 1, "numoutlets" : 2, "patching_rect" : [ 550.0, 200.0, 100.0, 22.0 ], "text" : "route name" } },
 
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-comment2",
-					"maxclass" : "comment",
-					"numinlets" : 1,
-					"numoutlets" : 0,
-					"patching_rect" : [ 127.0, 136.0, 590.0, 20.0 ],
-					"text" : "out1=playstate  out2=position(beats)  out3=tempo(BPM)  out4=timesig_num  out5=timesig_denom  out6=loop"
-				}
+			{ "box" : { "id" : "obj-cuepoints","maxclass" : "newobj","numinlets" : 1, "numoutlets" : 1, "patching_rect" : [ 780.0, 130.0, 200.0, 22.0 ], "text" : "M4L.api.GetCuePointNames" } },
 
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-5",
-					"maxclass" : "newobj",
-					"numinlets" : 4,
-					"numoutlets" : 4,
-					"outlettype" : [ "bang", "bang", "bang", "" ],
-					"patching_rect" : [ 24.0, 189.0, 70.0, 22.0 ],
-					"text" : "sel 0 1 2"
-				}
+			{ "box" : { "id" : "obj-js",  "maxclass" : "newobj","numinlets" : 7, "numoutlets" : 1, "patching_rect" : [ 30.0, 280.0, 200.0, 22.0 ], "text" : "js liverig_send.js" } },
+			{ "box" : { "id" : "obj-udp", "maxclass" : "newobj","numinlets" : 1, "numoutlets" : 0, "patching_rect" : [ 30.0, 315.0, 200.0, 22.0 ], "text" : "udpsend 127.0.0.1 9000" } },
+			{ "box" : { "id" : "obj-print","maxclass":"newobj","numinlets":1,"numoutlets":0,"patching_rect":[ 260.0, 280.0, 150.0, 22.0 ],"text" : "print json_out" } },
 
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-6",
-					"maxclass" : "message",
-					"numinlets" : 2,
-					"numoutlets" : 1,
-					"outlettype" : [ "" ],
-					"patching_rect" : [ 28.0, 251.0, 30.0, 22.0 ],
-					"text" : "0"
-				}
+			{ "box" : { "id" : "obj-footer", "maxclass" : "comment","numinlets" : 1, "numoutlets" : 0, "patching_rect" : [ 30.0, 380.0, 940.0, 40.0 ],
+				"text" : "JS writes /tmp/liverig_state.json every 100ms. Python bridge polls the file and broadcasts via WebSocket to iPad." } }
+		],
+		"lines" : [
+			{ "patchline" : { "source" : [ "obj-thisdevice", 0 ], "destination" : [ "obj-metro",     0 ] } },
+			{ "patchline" : { "source" : [ "obj-thisdevice", 0 ], "destination" : [ "obj-pathmsg",   0 ] } },
+			{ "patchline" : { "source" : [ "obj-loadbang",   0 ], "destination" : [ "obj-metro",     0 ] } },
+			{ "patchline" : { "source" : [ "obj-metro",      0 ], "destination" : [ "obj-transport", 0 ] } },
+			{ "patchline" : { "source" : [ "obj-metro",      0 ], "destination" : [ "obj-getname",   0 ] } },
+			{ "patchline" : { "source" : [ "obj-metro",      0 ], "destination" : [ "obj-cuepoints", 0 ] } },
 
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-7",
-					"maxclass" : "message",
-					"numinlets" : 2,
-					"numoutlets" : 1,
-					"outlettype" : [ "" ],
-					"patching_rect" : [ 70.0, 251.0, 40.0, 22.0 ],
-					"text" : "127"
-				}
+			{ "patchline" : { "source" : [ "obj-transport",  0 ], "destination" : [ "obj-bar-int",   0 ] } },
+			{ "patchline" : { "source" : [ "obj-transport",  1 ], "destination" : [ "obj-beat-int",  0 ] } },
+			{ "patchline" : { "source" : [ "obj-transport",  4 ], "destination" : [ "obj-bpm-int",   0 ] } },
+			{ "patchline" : { "source" : [ "obj-transport",  5 ], "destination" : [ "obj-tsig-zl",   0 ] } },
+			{ "patchline" : { "source" : [ "obj-transport",  6 ], "destination" : [ "obj-sel-state", 0 ] } },
 
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-8",
-					"maxclass" : "message",
-					"numinlets" : 2,
-					"numoutlets" : 1,
-					"outlettype" : [ "" ],
-					"patching_rect" : [ 120.0, 251.0, 35.0, 22.0 ],
-					"text" : "64"
-				}
+			{ "patchline" : { "source" : [ "obj-sel-state",  0 ], "destination" : [ "obj-msg-stop",  0 ] } },
+			{ "patchline" : { "source" : [ "obj-sel-state",  1 ], "destination" : [ "obj-msg-play",  0 ] } },
+			{ "patchline" : { "source" : [ "obj-msg-stop",   0 ], "destination" : [ "obj-js", 0 ] } },
+			{ "patchline" : { "source" : [ "obj-msg-play",   0 ], "destination" : [ "obj-js", 0 ] } },
 
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-9",
-					"maxclass" : "newobj",
-					"numinlets" : 3,
-					"numoutlets" : 1,
-					"outlettype" : [ "" ],
-					"patching_rect" : [ 24.0, 315.0, 120.0, 22.0 ],
-					"text" : "pak 176 15 0"
-				}
+			{ "patchline" : { "source" : [ "obj-bar-int",   0 ], "destination" : [ "obj-js", 1 ] } },
+			{ "patchline" : { "source" : [ "obj-bpm-int",   0 ], "destination" : [ "obj-js", 2 ] } },
+			{ "patchline" : { "source" : [ "obj-tsig-zl",   0 ], "destination" : [ "obj-js", 3 ] } },
+			{ "patchline" : { "source" : [ "obj-beat-int",  0 ], "destination" : [ "obj-js", 6 ] } },
 
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-10",
-					"maxclass" : "newobj",
-					"numinlets" : 7,
-					"numoutlets" : 2,
-					"outlettype" : [ "int", "" ],
-					"patching_rect" : [ 24.0, 345.0, 100.0, 22.0 ],
-					"text" : "midiformat"
-				}
+			{ "patchline" : { "source" : [ "obj-pathmsg",   0 ], "destination" : [ "obj-lpath",     0 ] } },
+			{ "patchline" : { "source" : [ "obj-lpath",     0 ], "destination" : [ "obj-lobj",      1 ] } },
+			{ "patchline" : { "source" : [ "obj-getname",   0 ], "destination" : [ "obj-lobj",      0 ] } },
+			{ "patchline" : { "source" : [ "obj-lobj",      0 ], "destination" : [ "obj-routename", 0 ] } },
+			{ "patchline" : { "source" : [ "obj-routename", 0 ], "destination" : [ "obj-js",        4 ] } },
 
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-11",
-					"maxclass" : "newobj",
-					"numinlets" : 1,
-					"numoutlets" : 0,
-					"patching_rect" : [ 24.0, 375.0, 40.0, 22.0 ],
-					"saved_object_attributes" : 					{
-						"attr_comment" : ""
-					}
-,
-					"text" : "out 1"
-				}
+			{ "patchline" : { "source" : [ "obj-cuepoints", 0 ], "destination" : [ "obj-js",        5 ] } },
 
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-12",
-					"maxclass" : "newobj",
-					"numinlets" : 2,
-					"numoutlets" : 1,
-					"outlettype" : [ "int" ],
-					"patching_rect" : [ 177.0, 230.0, 50.0, 22.0 ],
-					"text" : "/ 4"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-13",
-					"maxclass" : "newobj",
-					"numinlets" : 2,
-					"numoutlets" : 1,
-					"outlettype" : [ "int" ],
-					"patching_rect" : [ 225.0, 266.0, 70.0, 22.0 ],
-					"text" : "% 127"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-14",
-					"maxclass" : "newobj",
-					"numinlets" : 3,
-					"numoutlets" : 1,
-					"outlettype" : [ "" ],
-					"patching_rect" : [ 215.0, 345.0, 120.0, 22.0 ],
-					"text" : "pak 176 16 0"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-15",
-					"maxclass" : "newobj",
-					"numinlets" : 7,
-					"numoutlets" : 2,
-					"outlettype" : [ "int", "" ],
-					"patching_rect" : [ 215.0, 384.0, 100.0, 22.0 ],
-					"text" : "midiformat"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-16",
-					"maxclass" : "newobj",
-					"numinlets" : 1,
-					"numoutlets" : 0,
-					"patching_rect" : [ 215.0, 421.0, 40.0, 22.0 ],
-					"saved_object_attributes" : 					{
-						"attr_comment" : ""
-					}
-,
-					"text" : "out 2"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-17",
-					"maxclass" : "newobj",
-					"numinlets" : 6,
-					"numoutlets" : 1,
-					"outlettype" : [ "" ],
-					"patching_rect" : [ 387.0, 266.0, 170.0, 22.0 ],
-					"text" : "scale 40. 240. 0. 127."
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-18",
-					"maxclass" : "newobj",
-					"numinlets" : 2,
-					"numoutlets" : 1,
-					"outlettype" : [ "int" ],
-					"patching_rect" : [ 422.0, 315.0, 40.0, 22.0 ],
-					"text" : "int"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-19",
-					"maxclass" : "newobj",
-					"numinlets" : 3,
-					"numoutlets" : 1,
-					"outlettype" : [ "" ],
-					"patching_rect" : [ 412.0, 359.0, 120.0, 22.0 ],
-					"text" : "pak 176 14 0"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-20",
-					"maxclass" : "newobj",
-					"numinlets" : 7,
-					"numoutlets" : 2,
-					"outlettype" : [ "int", "" ],
-					"patching_rect" : [ 412.0, 389.0, 100.0, 22.0 ],
-					"text" : "midiformat"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-21",
-					"maxclass" : "newobj",
-					"numinlets" : 1,
-					"numoutlets" : 0,
-					"patching_rect" : [ 412.0, 419.0, 40.0, 22.0 ],
-					"saved_object_attributes" : 					{
-						"attr_comment" : ""
-					}
-,
-					"text" : "out 3"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-22",
-					"maxclass" : "newobj",
-					"numinlets" : 3,
-					"numoutlets" : 1,
-					"outlettype" : [ "" ],
-					"patching_rect" : [ 668.0, 303.0, 120.0, 22.0 ],
-					"text" : "pak 176 17 0"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-23",
-					"maxclass" : "newobj",
-					"numinlets" : 7,
-					"numoutlets" : 2,
-					"outlettype" : [ "int", "" ],
-					"patching_rect" : [ 668.0, 333.0, 100.0, 22.0 ],
-					"text" : "midiformat"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-24",
-					"maxclass" : "newobj",
-					"numinlets" : 1,
-					"numoutlets" : 0,
-					"patching_rect" : [ 668.0, 363.0, 40.0, 22.0 ],
-					"saved_object_attributes" : 					{
-						"attr_comment" : ""
-					}
-,
-					"text" : "out 4"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-note",
-					"maxclass" : "comment",
-					"numinlets" : 1,
-					"numoutlets" : 0,
-					"patching_rect" : [ 30.0, 478.0, 709.0, 20.0 ],
-					"text" : "SETUP: Set MIDI To = LiveRig Bridge on this track. out1=Transport(CC15) out2=Bar(CC16) out3=BPM(CC14) out4=TimeSig(CC17)"
-				}
-
-			}
- ],
-		"lines" : [ 			{
-				"patchline" : 				{
-					"destination" : [ "obj-3", 0 ],
-					"source" : [ "obj-1", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-11", 0 ],
-					"source" : [ "obj-10", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-13", 0 ],
-					"source" : [ "obj-12", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-14", 2 ],
-					"source" : [ "obj-13", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-15", 0 ],
-					"source" : [ "obj-14", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-16", 0 ],
-					"source" : [ "obj-15", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-18", 0 ],
-					"source" : [ "obj-17", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-19", 2 ],
-					"source" : [ "obj-18", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-20", 0 ],
-					"source" : [ "obj-19", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-3", 0 ],
-					"source" : [ "obj-2", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-21", 0 ],
-					"source" : [ "obj-20", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-23", 0 ],
-					"source" : [ "obj-22", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-24", 0 ],
-					"source" : [ "obj-23", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-4", 0 ],
-					"source" : [ "obj-3", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-12", 0 ],
-					"source" : [ "obj-4", 1 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-17", 0 ],
-					"source" : [ "obj-4", 2 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-22", 2 ],
-					"source" : [ "obj-4", 3 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-5", 0 ],
-					"source" : [ "obj-4", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-6", 0 ],
-					"source" : [ "obj-5", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-7", 0 ],
-					"source" : [ "obj-5", 1 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-8", 0 ],
-					"source" : [ "obj-5", 2 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-9", 2 ],
-					"source" : [ "obj-6", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-9", 2 ],
-					"source" : [ "obj-7", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-9", 2 ],
-					"source" : [ "obj-8", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
-					"destination" : [ "obj-10", 0 ],
-					"source" : [ "obj-9", 0 ]
-				}
-
-			}
- ],
-		"dependency_cache" : [  ],
-		"autosave" : 0,
-		"oscreceiveudpport" : 0
+			{ "patchline" : { "source" : [ "obj-js",        0 ], "destination" : [ "obj-udp",       0 ] } },
+			{ "patchline" : { "source" : [ "obj-js",        0 ], "destination" : [ "obj-print",     0 ] } }
+		]
 	}
-
 }
