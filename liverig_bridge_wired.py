@@ -193,40 +193,43 @@ async def handle_client(websocket, path=None):
     try:
         async for message in websocket:
             try:
-                data = json.loads(message) if isinstance(message, str) else {}
-                msg_type = data.get("type", "midi") if isinstance(data, dict) else "midi"
+                data = json.loads(message) if isinstance(message, str) else message
+
+                # Legacy format: raw MIDI byte array [0xB0, cc, val]
+                if isinstance(data, list):
+                    if data and all(isinstance(b, (int, float)) for b in data):
+                        midi_out.send_message([int(b) & 0xFF for b in data])
+                        tx_count += 1
+                        if tx_count % 50 == 0:
+                            print(f"[LiveRig] → {tx_count} MIDI msgs to Ableton", flush=True)
+                    continue
+
+                if not isinstance(data, dict):
+                    continue
+
+                msg_type = data.get("type", "midi")
 
                 if msg_type == "midi":
-                    # Raw MIDI bytes → Ableton
-                    raw = data.get("data", data) if isinstance(data, dict) else data
+                    # New format: {type:"midi", data:[bytes]}
+                    raw = data.get("data", [])
                     if isinstance(raw, list) and raw:
                         midi_out.send_message([int(b) & 0xFF for b in raw])
                         tx_count += 1
 
                 elif msg_type == "setlist_reorder":
-                    # iPad reordered the setlist
-                    # {type: setlist_reorder, songs: [...]}
-                    # Just broadcast back to any other connected clients
                     await broadcast(json.dumps(data))
 
                 elif msg_type == "locator_jump":
-                    # iPad wants to jump to a locator
-                    # {type: locator_jump, index: N}
-                    # Send as SysEx to M4L: F0 7D 30 index F7
                     idx = int(data.get("index", 0)) & 0x7F
                     midi_out.send_message([0xF0, 0x7D, 0x30, idx, 0xF7])
 
                 elif msg_type == "locator_next":
-                    # Jump to next locator
                     midi_out.send_message([0xF0, 0x7D, 0x31, 0x00, 0xF7])
 
                 elif msg_type == "locator_prev":
-                    # Jump to previous locator
                     midi_out.send_message([0xF0, 0x7D, 0x32, 0x00, 0xF7])
 
                 elif msg_type == "song_activate":
-                    # iPad tapped a song — send PC
-                    # {type: song_activate, pc: N}
                     pc = int(data.get("pc", 0)) & 0x7F
                     for ch in range(4):
                         midi_out.send_message([0xC0 | ch, pc])
