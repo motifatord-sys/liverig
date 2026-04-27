@@ -207,10 +207,10 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-fam
 .bar-beat{width:18px;height:18px;border-radius:50%;background:var(--surface);border:1px solid var(--border2);transition:background 0.05s,box-shadow 0.05s;}
 .bar-beat.on{background:var(--accent);box-shadow:0 0 6px var(--accent);}
 .bar-beat.beat1.on{background:#fff;box-shadow:0 0 8px #fff;}
-.nudge-row{display:grid;grid-template-columns:1fr 2fr 1fr;gap:10px;margin-bottom:12px;align-items:center;}
-.nudge-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:14px 8px;touch-action:none;font-size:26px;transition:background 0.1s;}
+.nudge-row{display:grid;grid-template-columns:1fr 1fr 2fr 1fr 1fr;gap:8px;margin-bottom:12px;align-items:center;}
+.nudge-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:14px 8px;touch-action:none;font-size:26px;transition:background 0.1s;color:var(--accent);}
 .nudge-btn:active{background:#ffffff20;}
-.nudge-btn svg{display:block;fill:var(--muted);}
+.nudge-btn svg{display:block;}
 .tap-btn-transport{background:#1a1a28;border:2px solid var(--accent);border-radius:var(--radius);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:18px 8px;touch-action:none;transition:background 0.08s;}
 .tap-btn-transport:active{background:var(--accent)!important;}
 .tap-btn-transport .t-icon{pointer-events:none;}
@@ -312,13 +312,39 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-fam
       </div>
     </div>
     <div class="nudge-row">
-      <div class="nudge-btn" ontouchstart="tempoBendDown(event)" ontouchend="tempoBendRelease(event)"><svg viewBox="0 0 32 32" width="26" height="26"><polygon points="14,6 2,16 14,26"/><polygon points="28,6 16,16 28,26"/></svg></div>
+      <div class="nudge-btn" id="t-prev-marker" ontouchstart="prevMarker(event)" title="Previous Marker">
+        <svg viewBox="0 0 32 32" width="26" height="26" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="8" y1="6" x2="8" y2="26"/>
+          <polygon points="24,6 12,16 24,26" fill="var(--accent)"/>
+        </svg>
+      </div>
+      <div class="nudge-btn" id="t-nudge-down" ontouchstart="tempoBendDown(event)" ontouchend="tempoBendRelease(event)" title="Nudge Down">
+        <svg viewBox="0 0 32 32" width="26" height="26" fill="var(--accent)" stroke="none">
+          <rect x="6"  y="10" width="2.5" height="12" rx="1"/>
+          <rect x="11" y="8"  width="2.5" height="16" rx="1"/>
+          <rect x="16" y="6"  width="2.5" height="20" rx="1"/>
+          <text x="22" y="22" font-family="Share Tech Mono,monospace" font-size="14" font-weight="700">−</text>
+        </svg>
+      </div>
       <div class="tap-btn-transport" id="transport-tap-btn" ontouchstart="tapTempo(event)">
         <div class="t-icon"><svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"><circle cx="16" cy="22" r="5"/><line x1="16" y1="17" x2="16" y2="6"/><line x1="16" y1="6" x2="22" y2="9"/></svg></div>
         <div class="t-label">Tap Tempo</div>
         <div id="tap-bpm-hint" style="font-family:var(--mono);font-size:13px;color:var(--muted)"></div>
       </div>
-      <div class="nudge-btn" ontouchstart="tempoBendUp(event)" ontouchend="tempoBendRelease(event)"><svg viewBox="0 0 32 32" width="26" height="26"><polygon points="4,6 16,16 4,26"/><polygon points="18,6 30,16 18,26"/></svg></div>
+      <div class="nudge-btn" id="t-nudge-up" ontouchstart="tempoBendUp(event)" ontouchend="tempoBendRelease(event)" title="Nudge Up">
+        <svg viewBox="0 0 32 32" width="26" height="26" fill="var(--accent)" stroke="none">
+          <rect x="6"  y="6"  width="2.5" height="20" rx="1"/>
+          <rect x="11" y="8"  width="2.5" height="16" rx="1"/>
+          <rect x="16" y="10" width="2.5" height="12" rx="1"/>
+          <text x="22" y="22" font-family="Share Tech Mono,monospace" font-size="14" font-weight="700">+</text>
+        </svg>
+      </div>
+      <div class="nudge-btn" id="t-next-marker" ontouchstart="nextMarker(event)" title="Next Marker">
+        <svg viewBox="0 0 32 32" width="26" height="26" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="8,6 20,16 8,26" fill="var(--accent)"/>
+          <line x1="24" y1="6" x2="24" y2="26"/>
+        </svg>
+      </div>
     </div>
     <div class="transport-grid-3">
       <div class="t-btn" id="t-metro-btn" ontouchstart="transportMetronome(event)">
@@ -552,6 +578,19 @@ function onLiveState(s) {
     m4l.liveClips = s.clips;
     updateClipNamesFromLive();
   }
+  if (Array.isArray(s.kbd_macros)) {
+    m4l.kbdMacros = s.kbd_macros;
+    applyKbdMacros();
+  }
+
+  // Re-render Setlist library if Ableton's song list changed (name added/edited/removed)
+  if (Array.isArray(s.songs)) {
+    const newHash = s.songs.map(x => x.name + '@' + x.time).join('|');
+    if (newHash !== m4l._lastSongsHash) {
+      m4l._lastSongsHash = newHash;
+      if (typeof renderLibrary === 'function') renderLibrary();
+    }
+  }
 
   // Top status bar
   const bar = document.getElementById('meta-bar');
@@ -723,9 +762,10 @@ function fdrTouch(track, fill, valEl, cb) {
     if(valEl) valEl.textContent = midiVal;
     if(midiVal !== lastVal) { lastVal = midiVal; cb(pct); }
   }
-  track.addEventListener('pointerdown', e => { track.setPointerCapture(e.pointerId); update(e); }, {passive:false});
+  track.addEventListener('pointerdown', e => { track.setPointerCapture(e.pointerId); track.dataset.touching='1'; update(e); }, {passive:false});
   track.addEventListener('pointermove', e => { if(e.buttons) update(e); }, {passive:false});
-  track.addEventListener('pointerup', e => { update(e); }, {passive:false});
+  track.addEventListener('pointerup',     e => { update(e); track.dataset.touching='0'; }, {passive:false});
+  track.addEventListener('pointercancel', e => { track.dataset.touching='0'; }, {passive:false});
 }
 
 // ═══════════════════════════════════════════
@@ -781,13 +821,16 @@ function restartBeat() {
 
 function tapTempoLooper() {
   const now=Date.now();
+  // Always send the tap to Ableton — even if we don't have enough samples yet
+  sendCC(16,89,127);
+  if(typeof sendTransportNative==='function') sendTransportNative('tap');
   if(lastTap&&now-lastTap<3000){
     tapTimesLooper.push(now-lastTap);
     if(tapTimesLooper.length>4) tapTimesLooper.shift();
     const avg=tapTimesLooper.reduce((a,b)=>a+b)/tapTimesLooper.length;
     tempo=Math.max(20,Math.min(300,Math.round(60000/avg*100)/100));
     document.getElementById('tempo-disp').textContent=tempo%1===0?tempo:tempo.toFixed(2);
-    sendCC(16,89,127); restartBeat();
+    restartBeat();
   } else { tapTimesLooper=[]; }
   lastTap=now;
   const btn=document.getElementById('looper-tap-btn');
@@ -923,11 +966,17 @@ function buildKbdPage(k) {
   for(let f=0; f<8; f++) {
     const cc = 10+f;
     const wrap = document.createElement('div'); wrap.className = 'fader-wrap'; wrap.style.height = '100%';
+    wrap.id = `kfdr-wrap-${k}-${f}`;
+    wrap.dataset.kbd = k; wrap.dataset.faderIdx = f;
     const track = document.createElement('div'); track.className = 'fader-track'; track.style.flex = '1';
+    track.id = `kfdr-track-${k}-${f}`;
     const fill = document.createElement('div'); fill.className = `fader-fill ${KBD[k].fill}`; fill.style.height = '75%';
+    fill.id = `kfdr-fill-${k}-${f}`;
     track.appendChild(fill);
     const lbl = document.createElement('div'); lbl.className = 'fader-label'; lbl.textContent = `CC${cc}`;
+    lbl.id = `kfdr-lbl-${k}-${f}`;
     const val = document.createElement('div'); val.className = 'fader-val'; val.textContent = '96';
+    val.id = `kfdr-val-${k}-${f}`;
     fdrTouch(track, fill, val, pct => sendCC(k+1, cc, Math.round(pct*127)));
     wrap.append(track, lbl, val);
     fdrs.appendChild(wrap);
@@ -940,39 +989,77 @@ function buildKbdPage(k) {
 let transportOverdubState=false, transportMetroState=false, transportLoopState=false, transportPunchState=false;
 let tempoBendTimer=null, tapTimesTransport=[];
 
-function transportPlay(e){e&&e.preventDefault();sendCC(16,116,127);transportState='PLAYING';updateTransportButtons();restartBeat();}
+// Send a transport message to the bridge → M4L → native Live API call.
+// Works without the user setting up Cmd+M mappings. We also send the CC as fallback
+// for setups without the M4L device loaded.
+function sendTransportNative(action){
+  if (typeof wsConnected !== 'undefined' && wsConnected && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:'transport_'+action}));
+  }
+}
+
+function transportPlay(e){e&&e.preventDefault();sendCC(16,116,127);sendTransportNative('play');transportState='PLAYING';updateTransportButtons();restartBeat();}
 function transportStop(e){
-  e&&e.preventDefault();sendCC(16,117,127);transportState='STOPPED';
+  e&&e.preventDefault();sendCC(16,117,127);sendTransportNative('stop');transportState='STOPPED';
   clearInterval(beatPulseTimer);beatPulseTimer=null;currentBeat=0;
   updateTransportButtons();updateBeatPulseColor();
   for(let i=0;i<4;i++){const b=document.getElementById(`tbeat${i}`);if(b)b.classList.remove('on');}
 }
-function transportRecord(e){e&&e.preventDefault();sendCC(16,118,127);transportState=transportState==='RECORDING'?'PLAYING':'RECORDING';updateTransportButtons();updateBeatPulseColor();}
-function transportOverdub(e){e&&e.preventDefault();transportOverdubState=!transportOverdubState;sendCC(16,119,transportOverdubState?127:0);const btn=document.getElementById('t-over-btn');if(btn)btn.classList.toggle('active-state',transportOverdubState);const sl=document.getElementById('sl-t-over');if(sl)sl.classList.toggle('active-state',transportOverdubState);}
-function transportMetronome(e){e&&e.preventDefault();transportMetroState=!transportMetroState;sendCC(16,112,transportMetroState?127:0);const btn=document.getElementById('t-metro-btn');if(btn)btn.classList.toggle('active-state',transportMetroState);const sl=document.getElementById('sl-t-metro');if(sl)sl.classList.toggle('active-state',transportMetroState);}
-function transportLoop(e){e&&e.preventDefault();transportLoopState=!transportLoopState;sendCC(16,113,transportLoopState?127:0);const btn=document.getElementById('t-loop-btn');if(btn)btn.classList.toggle('active-state',transportLoopState);const sl=document.getElementById('sl-t-loop');if(sl)sl.classList.toggle('active-state',transportLoopState);}
-function transportPunch(e){e&&e.preventDefault();transportPunchState=!transportPunchState;sendCC(16,114,transportPunchState?127:0);const btn=document.getElementById('t-punch-btn');if(btn)btn.classList.toggle('active-state',transportPunchState);const sl=document.getElementById('sl-t-punch');if(sl)sl.classList.toggle('active-state',transportPunchState);}
-function transportUndo(e){e&&e.preventDefault();sendCC(16,115,127);}
-function transportRedo(e){e&&e.preventDefault();sendCC(16,111,127);}
+function transportRecord(e){e&&e.preventDefault();sendCC(16,118,127);sendTransportNative('record');transportState=transportState==='RECORDING'?'PLAYING':'RECORDING';updateTransportButtons();updateBeatPulseColor();}
+function transportOverdub(e){e&&e.preventDefault();transportOverdubState=!transportOverdubState;sendCC(16,119,transportOverdubState?127:0);sendTransportNative('overdub');const btn=document.getElementById('t-over-btn');if(btn)btn.classList.toggle('active-state',transportOverdubState);const sl=document.getElementById('sl-t-over');if(sl)sl.classList.toggle('active-state',transportOverdubState);}
+function transportMetronome(e){e&&e.preventDefault();transportMetroState=!transportMetroState;sendCC(16,112,transportMetroState?127:0);sendTransportNative('metronome');const btn=document.getElementById('t-metro-btn');if(btn)btn.classList.toggle('active-state',transportMetroState);const sl=document.getElementById('sl-t-metro');if(sl)sl.classList.toggle('active-state',transportMetroState);}
+function transportLoop(e){e&&e.preventDefault();transportLoopState=!transportLoopState;sendCC(16,113,transportLoopState?127:0);sendTransportNative('loop');const btn=document.getElementById('t-loop-btn');if(btn)btn.classList.toggle('active-state',transportLoopState);const sl=document.getElementById('sl-t-loop');if(sl)sl.classList.toggle('active-state',transportLoopState);}
+function transportPunch(e){e&&e.preventDefault();transportPunchState=!transportPunchState;sendCC(16,114,transportPunchState?127:0);sendTransportNative('punch');const btn=document.getElementById('t-punch-btn');if(btn)btn.classList.toggle('active-state',transportPunchState);const sl=document.getElementById('sl-t-punch');if(sl)sl.classList.toggle('active-state',transportPunchState);}
+function transportUndo(e){e&&e.preventDefault();sendCC(16,115,127);sendTransportNative('undo');}
+function transportRedo(e){e&&e.preventDefault();sendCC(16,111,127);sendTransportNative('redo');}
 
-function tempoBendDown(e){e&&e.preventDefault();tempoBendTimer=setInterval(()=>sendCC(16,108,127),80);}
-function tempoBendUp(e){e&&e.preventDefault();tempoBendTimer=setInterval(()=>sendCC(16,107,127),80);}
-function tempoBendRelease(e){e&&e.preventDefault();clearInterval(tempoBendTimer);sendCC(16,108,0);sendCC(16,107,0);}
+function tempoBendDown(e){e&&e.preventDefault();clearInterval(tempoBendTimer);tempoBendTimer=setInterval(()=>sendCC(16,108,127),80);}
+function tempoBendUp(e){e&&e.preventDefault();clearInterval(tempoBendTimer);tempoBendTimer=setInterval(()=>sendCC(16,107,127),80);}
+function tempoBendRelease(e){e&&e.preventDefault();clearInterval(tempoBendTimer);tempoBendTimer=null;sendCC(16,108,0);sendCC(16,107,0);}
+
+// Marker (locator) navigation. Sends locator nav via WebSocket → bridge → M4L → Live API call.
+// Also sends a CC on CH16 so users who prefer Cmd+M mapping can map this to anything.
+function prevMarker(e){
+  e&&e.preventDefault();
+  sendCC(16, 92, 127);
+  if(typeof wsConnected!=='undefined' && wsConnected && ws && ws.readyState===WebSocket.OPEN){
+    ws.send(JSON.stringify({type:'locator_prev'}));
+  }
+  flashBtn('t-prev-marker');
+}
+function nextMarker(e){
+  e&&e.preventDefault();
+  sendCC(16, 93, 127);
+  if(typeof wsConnected!=='undefined' && wsConnected && ws && ws.readyState===WebSocket.OPEN){
+    ws.send(JSON.stringify({type:'locator_next'}));
+  }
+  flashBtn('t-next-marker');
+}
+function flashBtn(id){const b=document.getElementById(id); if(!b) return; b.style.background='var(--accent)'; setTimeout(()=>b.style.background='',120);}
 
 function tapTempo(e) {
   e&&e.preventDefault();
-  const now=Date.now(); tapTimesTransport.push(now);
-  if(tapTimesTransport.length>8) tapTimesTransport.shift();
-  if(tapTimesTransport.length<2)return;
-  if(now-tapTimesTransport[tapTimesTransport.length-2]>3000){tapTimesTransport=[now];return;}
-  const intervals=[]; for(let i=1;i<tapTimesTransport.length;i++) intervals.push(tapTimesTransport[i]-tapTimesTransport[i-1]);
-  const avg=intervals.reduce((a,b)=>a+b,0)/intervals.length;
-  const bpm=Math.round(60000/avg); if(bpm<20||bpm>300)return;
-  tempo=bpm; sendCC(16,14,Math.round((bpm-40)/200*127)); restartBeat();
-  const disp=document.getElementById('tempo-disp'); if(disp) disp.textContent=bpm;
-  const tDisp=document.getElementById('t-bpm-display'); if(tDisp) tDisp.textContent=bpm;
-  const hint=document.getElementById('tap-bpm-hint'); if(hint){hint.textContent=bpm+' BPM';clearTimeout(hint._t);hint._t=setTimeout(()=>hint.textContent='',2000);}
-  const btn=document.getElementById('transport-tap-btn'); if(btn){btn.style.background='var(--accent)';setTimeout(()=>btn.style.background='',100);}
+  // Send the tap to Ableton — let Ableton's Tap Tempo do the BPM math
+  sendCC(16, 89, 127);
+  sendTransportNative('tap');
+
+  // Local BPM display for visual feedback only (not authoritative — Ableton's calc wins)
+  const now = Date.now(); tapTimesTransport.push(now);
+  if (tapTimesTransport.length > 8) tapTimesTransport.shift();
+  if (tapTimesTransport.length >= 2 && now - tapTimesTransport[tapTimesTransport.length-2] < 3000) {
+    const intervals = [];
+    for (let i = 1; i < tapTimesTransport.length; i++) intervals.push(tapTimesTransport[i] - tapTimesTransport[i-1]);
+    const avg = intervals.reduce((a,b)=>a+b, 0) / intervals.length;
+    const bpm = Math.round(60000 / avg);
+    if (bpm >= 20 && bpm <= 300) {
+      const tDisp = document.getElementById('t-bpm-display'); if (tDisp) tDisp.textContent = bpm;
+      const hint  = document.getElementById('tap-bpm-hint'); if (hint) { hint.textContent = bpm + ' BPM'; clearTimeout(hint._t); hint._t = setTimeout(() => hint.textContent = '', 2000); }
+    }
+  } else if (tapTimesTransport.length >= 2 && now - tapTimesTransport[tapTimesTransport.length-2] >= 3000) {
+    tapTimesTransport = [now];
+  }
+  const btn = document.getElementById('transport-tap-btn');
+  if (btn) { btn.style.background = 'var(--accent)'; setTimeout(() => btn.style.background = '', 100); }
 }
 
 function updateTransportButtons() {
@@ -1105,6 +1192,34 @@ function updateClipNamesFromLive() {
       } else {
         // No clip loaded → empty state
         if (clipStates[s][t] !== 0) updateClipCell(s, t, 0);
+      }
+    }
+  }
+}
+
+// Apply Ableton Macro values to KBD page faders. Skips faders being actively touched.
+function applyKbdMacros() {
+  if (!m4l.kbdMacros) return;
+  for (let k = 0; k < 4; k++) {
+    const macros = m4l.kbdMacros[k] || [];
+    for (let f = 0; f < 8; f++) {
+      const macro = macros[f];
+      const fillEl = document.getElementById(`kfdr-fill-${k}-${f}`);
+      const valEl  = document.getElementById(`kfdr-val-${k}-${f}`);
+      const lblEl  = document.getElementById(`kfdr-lbl-${k}-${f}`);
+      const trackEl = document.getElementById(`kfdr-track-${k}-${f}`);
+      if (!fillEl || !valEl) continue;
+      // Don't override if user is currently dragging this fader
+      if (trackEl && trackEl.dataset.touching === '1') continue;
+
+      if (macro) {
+        const range = (macro.max - macro.min) || 1;
+        const pct = Math.max(0, Math.min(1, (macro.value - macro.min) / range));
+        fillEl.style.height = (pct * 100).toFixed(1) + '%';
+        // Display normalized 0-127 like a CC value
+        const cc = Math.round(pct * 127);
+        valEl.textContent = String(cc);
+        if (lblEl && macro.name) lblEl.textContent = macro.name;
       }
     }
   }
@@ -1283,6 +1398,7 @@ function cardFontSizeForCount(n) {
 }
 
 function renderLibrary() {
+  cleanupSetlistGhosts();
   const host = document.getElementById('sl-library'); if (!host) return;
   const songs = librarySongs();
   const libCount = document.getElementById('lib-count');
@@ -1334,6 +1450,7 @@ function addToSetlist(song) {
 }
 
 function renderActiveList() {
+  cleanupSetlistGhosts();
   const host = document.getElementById('sl-active'); if (!host) return;
   const countEl = document.getElementById('sl-active-count');
   if (countEl) countEl.textContent = activeSetlist.length ? activeSetlist.length + ' songs' : 'empty';
@@ -1456,6 +1573,7 @@ function attachTouchDrag(el, getPayload) {
       try { el.setPointerCapture(pId); } catch(err) {}
       // Build ghost element
       ghost = el.cloneNode(true);
+      ghost.classList.add('sl-drag-ghost');
       ghost.style.cssText = 'position:fixed;pointer-events:none;opacity:.75;z-index:99999;transform:translate(-50%,-50%);width:' + el.offsetWidth + 'px;left:' + e.clientX + 'px;top:' + e.clientY + 'px;box-shadow:0 4px 20px rgba(0,0,0,.6);border-radius:6px;';
       document.body.appendChild(ghost);
     }, 350);
@@ -1671,6 +1789,18 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// Hard cleanup: remove every drag ghost on body and reset selection state.
+function cleanupSetlistGhosts() {
+  document.querySelectorAll('body > .sl-lib-card, body > .sl-active-card, body > .sl-drag-ghost').forEach(g => {
+    try { g.remove(); } catch(e) {}
+  });
+  document.body.style.userSelect = '';
+  document.body.style.webkitUserSelect = '';
+}
+// Safety net: if any pointer release happens anywhere, clean up dangling ghosts on the next tick
+document.addEventListener('pointerup',     () => setTimeout(cleanupSetlistGhosts, 50));
+document.addEventListener('pointercancel', () => setTimeout(cleanupSetlistGhosts, 50));
+
 renderSetlistPage();
 
 // ═══════════════════════════════════════════
@@ -1685,9 +1815,7 @@ document.querySelectorAll('.tab').forEach(tab=>{
     tab.classList.add('active');
     const pg=document.getElementById(`page-${p}`); if(pg) pg.classList.add('active');
     // Clean up any orphan drag ghosts from setlist
-    document.querySelectorAll('body > .sl-lib-card, body > .sl-active-card').forEach(g => g.remove());
-    document.body.style.userSelect = '';
-    document.body.style.webkitUserSelect = '';
+    if (typeof cleanupSetlistGhosts === 'function') cleanupSetlistGhosts();
   });
 });
 

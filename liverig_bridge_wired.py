@@ -229,6 +229,36 @@ async def handle_client(websocket, path=None):
                 elif msg_type == "locator_prev":
                     midi_out.send_message([0xF0, 0x7D, 0x32, 0x00, 0xF7])
 
+                elif msg_type == "transport_play":
+                    midi_out.send_message([0xF0, 0x7D, 0x40, 0x00, 0xF7])
+
+                elif msg_type == "transport_stop":
+                    midi_out.send_message([0xF0, 0x7D, 0x41, 0x00, 0xF7])
+
+                elif msg_type == "transport_record":
+                    midi_out.send_message([0xF0, 0x7D, 0x42, 0x00, 0xF7])
+
+                elif msg_type == "transport_overdub":
+                    midi_out.send_message([0xF0, 0x7D, 0x43, 0x00, 0xF7])
+
+                elif msg_type == "transport_metronome":
+                    midi_out.send_message([0xF0, 0x7D, 0x44, 0x00, 0xF7])
+
+                elif msg_type == "transport_loop":
+                    midi_out.send_message([0xF0, 0x7D, 0x45, 0x00, 0xF7])
+
+                elif msg_type == "transport_punch":
+                    midi_out.send_message([0xF0, 0x7D, 0x46, 0x00, 0xF7])
+
+                elif msg_type == "transport_tap":
+                    midi_out.send_message([0xF0, 0x7D, 0x47, 0x00, 0xF7])
+
+                elif msg_type == "transport_undo":
+                    midi_out.send_message([0xF0, 0x7D, 0x48, 0x00, 0xF7])
+
+                elif msg_type == "transport_redo":
+                    midi_out.send_message([0xF0, 0x7D, 0x49, 0x00, 0xF7])
+
                 elif msg_type == "song_activate":
                     pc = int(data.get("pc", 0)) & 0x7F
                     for ch in range(4):

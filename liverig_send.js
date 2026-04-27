@@ -19,15 +19,20 @@ var state = {
     current_song: "",
     current_section: "",
     tracks: [],
-    clips: []
+    clips: [],
+    // Per-keyboard track macros: kbd_macros[trackIndex] = [{name, value, min, max}, ... up to 8]
+    kbd_macros: [[],[],[],[]]
 };
 
 var lastSend = 0;
-var lastCueRefresh = 0;    // cue points refresh every 3s
-var lastSessionRefresh = 0; // tracks+clips every 3s
-var sessionStep = 0;        // which track index to poll on next tick
+var lastCueRefresh = 0;
+var lastSessionRefresh = 0;
+var sessionStep = 0;
+var sessionTick = 0;
 var sessionWarned = false;
-var sessionCache = { tracks: [], clips: [] };  // Build incrementally, swap when complete
+var cueWarned = false;
+var macroWarned = false;
+var sessionCache = { tracks: [], clips: [], kbd_macros: [[],[],[],[]] };  // Build incrementally, swap when complete
 
 function bang() {}
 function anything() {}
@@ -98,6 +103,11 @@ function refreshCuePoints() {
         state.locators = raw;
         state.songs    = songs;
         state.sections = sections;
+        // Log once when we first find data (so user knows it works)
+        if (!cueWarned && cueCount > 0) {
+            post("liverig_send: found " + cueCount + " cue points (" + songs.length + " songs, " + sections.length + " sections)\n");
+            cueWarned = true;
+        }
     } catch(e) {
         if (!sessionWarned) { post("liverig_send: cue query failed: " + e.message + "\n"); sessionWarned = true; }
     }
@@ -133,14 +143,84 @@ function refreshOneTrack(ti) {
                 var clipApi = new LiveAPI("live_set tracks " + ti + " clip_slots " + si + " clip");
                 var cn = clipApi.get("name");
                 if (cn && cn.length) clipName = String(cn[0]);
-                var isPlaying = slot.get("is_playing");
-                playing = (isPlaying && isPlaying.length) ? isPlaying[0] : 0;
+                var isPlayingArr = slot.get("is_playing");
+                playing = (isPlayingArr && isPlayingArr.length) ? isPlayingArr[0] : 0;
             }
             sessionCache.clips[si][ti] = { has: isHas, name: clipName, playing: playing };
+        }
+
+        // Macros for KBD pages: only tracks 0-3 are KBD1-KBD4
+        if (ti < 4) {
+            sessionCache.kbd_macros[ti] = readTrackMacros(ti);
         }
     } catch(e) {
         if (!sessionWarned) { post("liverig_send: track query failed: " + e.message + "\n"); sessionWarned = true; }
     }
+}
+
+// Cache: per-track rack info — set once, reused
+// macroCache[trackIdx] = { devIdx: N, names: [], mins: [], maxes: [] } or null if no rack
+var macroCache = [null, null, null, null];
+
+// Walk a track's devices to find the first Instrument Rack and cache its metadata.
+// Returns true if a rack was found.
+function findAndCacheRack(trackIdx) {
+    try {
+        var track = new LiveAPI("live_set tracks " + trackIdx);
+        var devCount = track.getcount("devices");
+        for (var d = 0; d < devCount; d++) {
+            var dev = new LiveAPI("live_set tracks " + trackIdx + " devices " + d);
+            var cls = dev.get("class_name");
+            var clsStr = (cls && cls.length) ? String(cls[0]) : "";
+            if (clsStr.indexOf("GroupDevice") < 0) continue;
+            // Found a rack — cache name/min/max ONCE
+            var pCount = dev.getcount("parameters");
+            var names = [], mins = [], maxes = [];
+            for (var m = 1; m <= 8 && m < pCount; m++) {
+                var param = new LiveAPI("live_set tracks " + trackIdx + " devices " + d + " parameters " + m);
+                var pname = param.get("name");
+                var pmin = param.get("min");
+                var pmax = param.get("max");
+                names.push((pname && pname.length) ? String(pname[0]) : ("Macro " + m));
+                mins.push((pmin && pmin.length) ? pmin[0] : 0);
+                maxes.push((pmax && pmax.length) ? pmax[0] : 127);
+            }
+            macroCache[trackIdx] = { devIdx: d, names: names, mins: mins, maxes: maxes };
+            return true;
+        }
+    } catch(e) {}
+    macroCache[trackIdx] = null;
+    return false;
+}
+
+// Read just the current values for a track's already-cached macros.
+// Returns [{name, value, min, max}, ...] or [].
+function readTrackMacros(trackIdx) {
+    try {
+        var cache = macroCache[trackIdx];
+        if (!cache) {
+            if (!findAndCacheRack(trackIdx)) return [];
+            cache = macroCache[trackIdx];
+            if (!cache) return [];
+        }
+        var d = cache.devIdx;
+        var macros = [];
+        for (var m = 0; m < cache.names.length; m++) {
+            var param = new LiveAPI("live_set tracks " + trackIdx + " devices " + d + " parameters " + (m+1));
+            var pval = param.get("value");
+            macros.push({
+                name: cache.names[m],
+                value: (pval && pval.length) ? pval[0] : 0,
+                min:  cache.mins[m],
+                max:  cache.maxes[m]
+            });
+        }
+        return macros;
+    } catch(e) {
+        if (!macroWarned) { post("liverig_send: macro query failed for track " + trackIdx + ": " + e.message + "\n"); macroWarned = true; }
+        macroCache[trackIdx] = null;
+    }
+    return [];
 }
 
 function writeFile() {
@@ -148,25 +228,29 @@ function writeFile() {
     if (now - lastSend < 100) return;
     lastSend = now;
 
-    // CUE POINTS every 3 seconds
-    if (now - lastCueRefresh > 3000) {
+    // CUE POINTS every 5 seconds
+    if (now - lastCueRefresh > 5000) {
         refreshCuePoints();
         recomputeCurrent();
         lastCueRefresh = now;
     }
 
-    // TRACKS + CLIPS: stagger — one track per writeFile tick (every 100ms)
-    // Total cycle: 8 tracks × 100ms = ~800ms for full refresh
-    // After full cycle (idle for 2s), repeat
-    if (now - lastSessionRefresh > 2000) {
-        refreshOneTrack(sessionStep);
-        sessionStep++;
-        if (sessionStep >= 8) {
-            // Completed one full cycle — swap cache into state and rest
-            state.tracks = sessionCache.tracks.slice();
-            state.clips  = sessionCache.clips.map(function(r){ return r.slice(); });
-            sessionStep = 0;
-            lastSessionRefresh = now;
+    // TRACKS + CLIPS: stagger — one track per 2 writeFile ticks (every 200ms)
+    // Total cycle: 8 tracks × 200ms = ~1600ms for full refresh
+    // After full cycle (idle for 4s), repeat — easier on Live audio thread
+    if (now - lastSessionRefresh > 4000) {
+        sessionTick++;
+        if (sessionTick % 2 === 0) {
+            refreshOneTrack(sessionStep);
+            sessionStep++;
+            if (sessionStep >= 8) {
+                // Completed one full cycle — swap cache into state and rest
+                state.tracks = sessionCache.tracks.slice();
+                state.clips  = sessionCache.clips.map(function(r){ return r.slice(); });
+                state.kbd_macros = sessionCache.kbd_macros.map(function(arr){ return arr.slice(); });
+                sessionStep = 0;
+                lastSessionRefresh = now;
+            }
         }
     }
 
