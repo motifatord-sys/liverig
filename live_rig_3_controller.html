@@ -14,7 +14,7 @@
   --bg:#0a0a0c; --surface:#111116; --surface2:#181820;
   --border:#2a2a35; --border2:#3a3a48; --text:#e8e8f0;
   --muted:#6a6a80; --accent:#7c6fe0;
-  --k1:#6c5fd4; --k2:#1a9e6e; --k3:#d4551e; --k4:#c07818;
+  --k1:#6c5fd4; --k2:#1a9e6e; --k3:#d4551e; --k4:#d423a6;
   --red:#c02828; --red-hot:#e03030; --green:#28a048; --amber:#c07818;
   --mono:'Share Tech Mono',monospace; --sans:'Barlow Condensed',sans-serif;
   --tab-h:52px; --radius:6px;
@@ -23,18 +23,26 @@
 html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);overflow:hidden;touch-action:none;}
 
 /* STATUS BAR */
-#statusbar{position:fixed;top:0;left:0;right:0;height:28px;background:#0d0d10;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:10px;z-index:100;}
-#midi-dot{width:8px;height:8px;border-radius:50%;background:var(--red);transition:background .3s;flex-shrink:0;}
-#midi-dot.connected{background:var(--green);box-shadow:0 0 6px var(--green);}
-#beat-pulse{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background 0.05s;}
-#beat-pulse.playing{background:var(--green);box-shadow:0 0 6px var(--green);}
-#beat-pulse.recording{background:#ff4466;box-shadow:0 0 6px #ff4466;}
-#beat-pulse.flash{background:#fff;box-shadow:0 0 10px #fff;}
-#midi-label{font-family:var(--mono);font-size:11px;color:var(--muted);flex:1;cursor:pointer;}
+#statusbar{position:fixed;top:0;left:0;right:0;height:44px;background:#0d0d10;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:12px;z-index:100;}
+#midi-dot{width:14px;height:14px;border-radius:50%;background:var(--red);transition:background .3s;flex-shrink:0;}
+#midi-dot.connected{background:var(--green);box-shadow:0 0 8px var(--green);}
+#beat-pulse{width:14px;height:14px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background 0.05s;}
+#beat-pulse.playing{background:var(--green);box-shadow:0 0 8px var(--green);}
+#beat-pulse.recording{background:#ff4466;box-shadow:0 0 8px #ff4466;}
+#beat-pulse.flash{background:#fff;box-shadow:0 0 12px #fff;}
+#midi-label{font-family:var(--mono);font-size:14px;font-weight:700;letter-spacing:.05em;color:var(--muted);flex:0 0 auto;cursor:pointer;}
+#midi-label.connected{color:var(--green);}
+#status-bpm{font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:700;color:#fff;letter-spacing:1px;line-height:1;flex:0 0 auto;padding:0 8px;}
+#status-bpm-lbl{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:1.5px;flex:0 0 auto;margin-left:-4px;}
 #midi-out{font-family:var(--mono);font-size:10px;color:var(--muted);min-width:180px;text-align:right;}
 
 /* TAB BAR */
-#tabbar{position:fixed;top:28px;left:0;right:0;height:var(--tab-h);background:var(--surface);border-bottom:1px solid var(--border);display:flex;z-index:99;}
+#tabbar{position:fixed;top:44px;left:0;right:0;height:var(--tab-h);background:var(--surface);border-bottom:1px solid var(--border);display:flex;z-index:99;}
+@keyframes tabwiggle{0%{transform:rotate(-1deg) scale(.98);}50%{transform:rotate(1deg) scale(.98);}100%{transform:rotate(-1deg) scale(.98);}}
+.tab.wiggle{animation:tabwiggle .35s ease-in-out infinite;background:#1c1c24;}
+.tab.dragging{opacity:.6;background:#2a2a35;z-index:200;}
+body.tab-edit-mode .tab{cursor:move;}
+body.tab-edit-mode #tabbar::after{content:'TAP A TAB TO EXIT EDIT MODE';position:absolute;top:100%;left:50%;transform:translateX(-50%);font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:2px;color:#ffaa33;background:#0d0d10;padding:3px 10px;border:1px solid #ffaa33;border-radius:4px;margin-top:4px;z-index:200;pointer-events:none;}
 .tab{flex:1;display:flex;align-items:center;justify-content:center;font-family:var(--sans);font-size:15px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-right:1px solid var(--border);cursor:pointer;transition:color .15s,background .15s;position:relative;}
 .tab:last-child{border-right:none;}
 .tab.active{color:var(--text);background:var(--surface2);}
@@ -52,7 +60,7 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-fam
 .tab[data-page="7"].active::after{background:var(--k4);}
 
 /* PAGES */
-#pages{position:fixed;top:calc(28px + var(--tab-h));left:0;right:0;bottom:0;overflow:hidden;}
+#pages{position:fixed;top:calc(44px + var(--tab-h));left:0;right:0;bottom:0;overflow:hidden;}
 .page{display:none;position:absolute;inset:0;padding:10px;overflow-y:auto;-webkit-overflow-scrolling:touch;}
 .page.active{display:block;}
 .sec{font-family:var(--mono);font-size:14px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px;}
@@ -67,9 +75,12 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-fam
 .k1{color:var(--k1);} .k1.on{background:#6c5fd422;border-color:var(--k1)!important;}
 .k2{color:var(--k2);} .k2.on{background:#1a9e6e22;border-color:var(--k2)!important;}
 .k3{color:var(--k3);} .k3.on{background:#d4551e22;border-color:var(--k3)!important;}
-.k4{color:var(--k4);} .k4.on{background:#c0781822;border-color:var(--k4)!important;}
+.k4{color:var(--k4);} .k4.on{background:#d423a622;border-color:var(--k4)!important;}
 .amber-on.on{background:#c0781822;border-color:var(--amber)!important;color:var(--amber);}
 .amber-on.on span{color:var(--amber);}
+.latch{color:#e8b91c;}
+.latch.on{background:#e8b91c22;border-color:#e8b91c!important;}
+.latch.on span{color:#fff;}
 
 /* FADERS */
 .fader-wrap{display:flex;flex-direction:column;align-items:center;gap:4px;}
@@ -107,7 +118,7 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-fam
 #page-master{display:flex;flex-direction:column;height:100%;gap:8px;}
 .master-ch{display:flex;flex-direction:column;gap:6px;min-height:0;}
 .master-ch .mute-solo{display:grid;grid-template-columns:1fr 1fr;gap:4px;flex:0 0 auto;}
-.master-ch .ms-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 4px;font-family:var(--mono);font-size:11px;letter-spacing:1px;text-align:center;cursor:pointer;touch-action:none;user-select:none;color:var(--muted);}
+.master-ch .ms-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:6px;min-height:86px;padding:12px 4px;font-family:var(--mono);font-size:22px;font-weight:700;letter-spacing:2px;text-align:center;cursor:pointer;touch-action:none;user-select:none;color:var(--muted);display:flex;align-items:center;justify-content:center;}
 .master-ch .ms-btn.active-m{background:#3a1010;border-color:#a04040;color:#ffaaaa;}
 .master-ch .ms-btn.active-s{background:#3a2a08;border-color:#d0a030;color:#ffd060;}
 .master-ch .fader-track-vert{flex:1;position:relative;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;cursor:pointer;touch-action:none;min-height:200px;}
@@ -232,7 +243,10 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-fam
 @keyframes clip-rec-pulse{from{border-color:var(--red);}to{border-color:#ff6666;}}
 .clip-cell .clip-icon{pointer-events:none;display:flex;align-items:center;justify-content:center;position:absolute;top:3px;right:3px;opacity:.85;}
 .clip-cell.empty .clip-icon{position:static;opacity:1;}
-.clip-scene-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;touch-action:none;display:flex;align-items:center;justify-content:center;transition:background 0.1s;}
+.clip-scene-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;touch-action:none;display:flex;align-items:center;justify-content:flex-start;padding:0 6px;gap:6px;transition:background 0.1s;overflow:hidden;}
+.clip-scene-btn .scene-icon{flex:0 0 auto;display:flex;align-items:center;justify-content:center;}
+.clip-scene-btn .scene-name{flex:1;font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:.5px;color:#bbb;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;text-align:left;}
+.clip-scene-btn:active{background:#ffffff15;}
 .clip-scene-btn:active{background:#ffffff18;}
 .clip-track-stops{display:grid;gap:4px;flex-shrink:0;height:48px;margin-top:6px;}
 .clip-track-stop{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;touch-action:none;display:flex;align-items:center;justify-content:center;padding:8px 4px;font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:1px;color:#aaa;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;}
@@ -243,11 +257,12 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-fam
 
 <div id="statusbar">
   <div id="midi-dot"></div>
+  <span id="midi-label" onclick="showIPPrompt()">BRIDGE OFFLINE</span>
   <div id="beat-pulse"></div>
-  <span id="midi-label" onclick="showIPPrompt()">Tap to set Mac IP…</span>
-  <span id="meta-bar" style="font-family:var(--mono);font-size:11px;color:var(--muted);flex:2;text-align:center"></span>
-  <button onclick="showIPPrompt()" style="background:#1a1a28;border:1px solid #3a3a50;border-radius:4px;color:#8888aa;font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:.08em;padding:3px 8px;cursor:pointer;flex-shrink:0;touch-action:none;">IP</button>
-  <button id="panic-btn" onclick="midiPanic()" style="background:#7a1010;border:1px solid #c02020;border-radius:4px;color:#ffaaaa;font-family:'Share Tech Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.1em;padding:3px 10px;cursor:pointer;flex-shrink:0;touch-action:none;">PANIC</button>
+  <span id="status-bpm">--</span><span id="status-bpm-lbl">BPM</span>
+  <span id="meta-bar" style="font-family:var(--mono);font-size:12px;color:var(--muted);flex:1;text-align:center"></span>
+  <button onclick="showIPPrompt()" style="background:#1a1a28;border:1px solid #3a3a50;border-radius:4px;color:#8888aa;font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:.08em;padding:5px 10px;cursor:pointer;flex-shrink:0;touch-action:none;">IP</button>
+  <button id="panic-btn" onclick="midiPanic()" style="background:#7a1010;border:1px solid #c02020;border-radius:4px;color:#ffaaaa;font-family:'Share Tech Mono',monospace;font-size:12px;font-weight:700;letter-spacing:.1em;padding:5px 12px;cursor:pointer;flex-shrink:0;touch-action:none;">PANIC</button>
   <span id="midi-out"></span>
 </div>
 
@@ -436,7 +451,7 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-fam
 // ═══════════════════════════════════════════
 let ws = null, wsConnected = false, wsReconnectTimer = null, wsReconnectIP = null;
 
-function setDot(on) { document.getElementById('midi-dot').classList.toggle('connected', on); }
+function setDot(on) { document.getElementById('midi-dot').classList.toggle('connected', on); document.getElementById('midi-label').classList.toggle('connected', on); }
 function setLabel(txt) { document.getElementById('midi-label').textContent = txt; }
 
 function connectWS(ip) {
@@ -448,9 +463,9 @@ function connectWS(ip) {
   setLabel(`Connecting to ${url}…`); setDot(false);
   const sock = new WebSocket(url);
   sock.binaryType = 'arraybuffer'; ws = sock;
-  sock.onopen = () => { if(sock!==ws)return; wsConnected=true; setDot(true); setLabel(`Bridge · ${ip}`); };
+  sock.onopen = () => { if(sock!==ws)return; wsConnected=true; setDot(true); setLabel('BRIDGE'); };
   sock.onclose = () => {
-    if(sock!==ws)return; wsConnected=false; setDot(false); setLabel(`Bridge disconnected — retrying…`);
+    if(sock!==ws)return; wsConnected=false; setDot(false); setLabel('OFFLINE');
     const delay = Math.min(5000, 1000+(sock._retries||0)*500);
     wsReconnectTimer = setTimeout(()=>{ if(wsReconnectIP){sock._retries=(sock._retries||0)+1; connectWS(wsReconnectIP);} }, delay);
   };
@@ -521,6 +536,7 @@ function onLiveState(s) {
     m4l.bpm = s.bpm; tempo = s.bpm;
     const d = document.getElementById('t-bpm-display'); if(d) d.textContent = Math.round(s.bpm);
     const t = document.getElementById('tempo-disp');    if(t) t.textContent = Math.round(s.bpm);
+    const sb = document.getElementById('status-bpm');   if(sb) sb.textContent = Math.round(s.bpm);
   }
   if (typeof s.transport === 'string') {
     const tState = s.transport === 'playing' ? 'PLAYING'
@@ -583,6 +599,16 @@ function onLiveState(s) {
     applyKbdMacros();
   }
 
+  // Scenes from Ableton (Session view) — populate Setlist when available alongside songs
+  if (Array.isArray(s.scenes)) {
+    const newSceneHash = s.scenes.map(x => (x.name || '<unnamed>') + '#' + x.idx).join('|');
+    if (newSceneHash !== m4l._lastScenesHash) {
+      m4l._lastScenesHash = newSceneHash;
+      m4l.scenes = s.scenes;
+      if (typeof renderClipScenes === 'function') renderClipScenes();
+    }
+  }
+
   // Re-render Setlist library if Ableton's song list changed (name added/edited/removed)
   if (Array.isArray(s.songs)) {
     const newHash = s.songs.map(x => x.name + '@' + x.time).join('|');
@@ -611,7 +637,6 @@ function onLiveState(s) {
   });
   syncTransportBtns(['sl-t-play'],  transportState === 'PLAYING');
   syncTransportBtns(['sl-t-stop'],  transportState === 'STOPPED');
-  syncTransportBtns(['sl-t-rec'],   transportState === 'RECORDING');
 }
 
 function onMIDIIn(bytes) {
@@ -856,18 +881,30 @@ function buildPads() {
     const el=document.createElement('div'); el.className='pad amber-on'; el.dataset.idx=i;
     const sp=document.createElement('span'); sp.textContent=PAD_NAMES[i]; el.appendChild(sp);
     let pressTimer=null;
+    let fired=false;
     el.addEventListener('pointerdown',e=>{
       e.preventDefault();
+      // FIRE IMMEDIATELY on press (visual + MIDI)
+      el.classList.add('hit');
+      sendNote(10,36+i,127);
+      fired=true;
+      // Long-press still triggers rename (note already played briefly)
       pressTimer=setTimeout(()=>{
         pressTimer=null;
         const name=prompt(`Rename pad ${i+1}:`,PAD_NAMES[i]);
-        if(name!==null&&name.trim()!==''){PAD_NAMES[i]=name.trim();sp.textContent=PAD_NAMES[i];localStorage.setItem('padNames',JSON.stringify(PAD_NAMES));}
-      },600);
+        if(name!==null&&name.trim()!==''){
+          PAD_NAMES[i]=name.trim(); sp.textContent=PAD_NAMES[i];
+          localStorage.setItem('padNames',JSON.stringify(PAD_NAMES));
+        }
+      },650);
     });
-    el.addEventListener('pointerup',e=>{
-      if(pressTimer!==null){clearTimeout(pressTimer);pressTimer=null;el.classList.add('hit');setTimeout(()=>el.classList.remove('hit'),100);sendNote(10,36+i,127);}
-    });
-    el.addEventListener('pointerleave',e=>{if(pressTimer!==null){clearTimeout(pressTimer);pressTimer=null;}});
+    const release = () => {
+      if(pressTimer!==null){clearTimeout(pressTimer);pressTimer=null;}
+      if(fired){ el.classList.remove('hit'); fired=false; }
+    };
+    el.addEventListener('pointerup',release);
+    el.addEventListener('pointerleave',release);
+    el.addEventListener('pointercancel',release);
     grid.appendChild(el);
   }
   const fx=document.getElementById('fx-btns');
@@ -947,12 +984,14 @@ function buildKbdPage(k) {
   const btns = document.getElementById(`kbtns${k}`);
   for(let b=0; b<16; b++) {
     const cc = 20+b;
+    const isLatch = b >= 8;
     const el = document.createElement('div');
-    el.className = `tog ${KBD[k].cls}`;
+    el.className = isLatch ? `tog latch` : `tog ${KBD[k].cls}`;
     el.style.minHeight = '86px';
     el.style.padding = '12px 4px';
     el.dataset.state = '0';
-    el.innerHTML = `<span style="font-size:18px">B${b+1}</span><span class="cc-lbl" style="font-size:13px">CC${cc}</span>`;
+    const label = isLatch ? `Latch ${b-7}` : `B${b+1}`;
+    el.innerHTML = `<span style="font-size:18px">${label}</span><span class="cc-lbl" style="font-size:13px">CC${cc}</span>`;
     el.addEventListener('pointerdown', e => {
       e.preventDefault();
       const on = el.dataset.state === '0';
@@ -1087,7 +1126,7 @@ let trackNames=Array(CLIP_TRACKS).fill(null).map((_,i)=>`Track ${i+1}`);
 function buildClipLauncher() {
   const root=document.getElementById('clip-launcher-root'); if(!root)return;
   root.innerHTML='';
-  const cols=`repeat(${CLIP_TRACKS},1fr) 48px`;
+  const cols=`repeat(${CLIP_TRACKS},1fr) 96px`;
 
   // Headers
   const hRow=document.createElement('div'); hRow.className='clip-track-headers'; hRow.style.gridTemplateColumns=cols;
@@ -1112,8 +1151,9 @@ function buildClipLauncher() {
       row.appendChild(cell);
     }
     const sceneBtn=document.createElement('div'); sceneBtn.className='clip-scene-btn';
-    sceneBtn.innerHTML=`<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="#6a6a80" stroke-width="2.5" stroke-linecap="round"><polygon points="3,3 17,10 3,17"/><line x1="17" y1="3" x2="17" y2="17"/></svg>`;
-    const _s=s; sceneBtn.addEventListener('touchstart',e=>{e.preventDefault();clipScene(_s);},{passive:false});
+    sceneBtn.id=`scene-btn-${s}`;
+    sceneBtn.innerHTML=`<div class="scene-icon"><svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="#6a6a80" stroke-width="2.5" stroke-linecap="round"><polygon points="3,3 17,10 3,17"/><line x1="17" y1="3" x2="17" y2="17"/></svg></div><div class="scene-name" id="scene-name-${s}"></div>`;
+    const _s=s; sceneBtn.addEventListener('pointerdown',e=>{e.preventDefault();clipScene(_s);sceneBtn.style.background='#ffffff20';setTimeout(()=>sceneBtn.style.background='',150);});
     row.appendChild(sceneBtn); rowsDiv.appendChild(row);
   }
 
@@ -1138,7 +1178,25 @@ function clipLaunch(scene,track){
   send([0x9F,note,127]); setTimeout(()=>send([0x8F,note,0]),80);
   updateClipCell(scene,track,2);
 }
-function clipScene(scene){sendCC(16,60+scene,127);for(let t=0;t<CLIP_TRACKS;t++){if(clipStates[scene][t]!==0)updateClipCell(scene,t,2);}}
+function clipScene(scene){
+  // Native: fire scene via Live API (preferred)
+  if (typeof wsConnected!=='undefined' && wsConnected && ws && ws.readyState===WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:'scene_fire', index: scene}));
+  }
+  // Fallback CC for setups without M4L
+  sendCC(16, 60+scene, 127);
+  for(let t=0;t<CLIP_TRACKS;t++){if(clipStates[scene][t]!==0)updateClipCell(scene,t,2);}
+}
+
+function renderClipScenes() {
+  if (!m4l.scenes) return;
+  for (let s = 0; s < CLIP_SCENES; s++) {
+    const lbl = document.getElementById(`scene-name-${s}`);
+    if (!lbl) continue;
+    const sc = m4l.scenes[s];
+    lbl.textContent = (sc && sc.name) ? sc.name : '';
+  }
+}
 function clipStopTrack(track){sendCC(16,52+track,127);}
 function clipStopAll(){sendCC(16,68,127);for(let s=0;s<CLIP_SCENES;s++)for(let t=0;t<CLIP_TRACKS;t++){if(clipStates[s][t]===2||clipStates[s][t]===3)updateClipCell(s,t,1);}}
 
@@ -1303,53 +1361,50 @@ function renderSetlistPage() {
       </div>
 
       <!-- TRANSPORT STRIP (mirrors Transport page with same SVG icons) -->
-      <div style="display:grid;grid-template-columns:repeat(9,1fr);gap:6px;height:54px;flex:0 0 auto;">
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;height:78px;flex:0 0 auto;">
         <div id="sl-t-play"  class="sl-tbtn" ontouchstart="transportPlay(event)" title="Play">
-          <svg viewBox="0 0 32 32" width="22" height="22"><polygon points="8,4 28,16 8,28" fill="var(--green)"/></svg>
+          <svg viewBox="0 0 32 32" width="34" height="34"><polygon points="8,4 28,16 8,28" fill="var(--green)"/></svg>
         </div>
         <div id="sl-t-stop"  class="sl-tbtn" ontouchstart="transportStop(event)" title="Stop">
-          <svg viewBox="0 0 32 32" width="22" height="22"><rect x="6" y="6" width="20" height="20" rx="2" fill="#aaa"/></svg>
-        </div>
-        <div id="sl-t-rec"   class="sl-tbtn sl-tbtn-rec" ontouchstart="transportRecord(event)" title="Record">
-          <svg viewBox="0 0 32 32" width="22" height="22"><circle cx="16" cy="16" r="10" fill="var(--red)"/></svg>
-        </div>
-        <div id="sl-t-over"  class="sl-tbtn" ontouchstart="transportOverdub(event)" title="Overdub">
-          <svg viewBox="0 0 32 32" width="22" height="22" fill="none" stroke="var(--amber)" stroke-width="2.5"><circle cx="16" cy="16" r="9"/><circle cx="16" cy="16" r="4" fill="var(--amber)"/></svg>
+          <svg viewBox="0 0 32 32" width="34" height="34"><rect x="6" y="6" width="20" height="20" rx="2" fill="#aaa"/></svg>
         </div>
         <div id="sl-t-metro" class="sl-tbtn" ontouchstart="transportMetronome(event)" title="Metronome">
-          <svg viewBox="0 0 32 32" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="10,28 22,28 20,4 12,4"/><line x1="13" y1="20" x2="20" y2="14"/></svg>
+          <svg viewBox="0 0 32 32" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="10,28 22,28 20,4 12,4"/><line x1="13" y1="20" x2="20" y2="14"/></svg>
         </div>
         <div id="sl-t-loop"  class="sl-tbtn" ontouchstart="transportLoop(event)" title="Loop">
-          <svg viewBox="0 0 32 32" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16 A10 10 0 0 1 26 16"/><polyline points="22,10 26,16 20,16"/><path d="M26 16 A10 10 0 0 1 6 16"/><polyline points="10,22 6,16 12,16"/></svg>
-        </div>
-        <div id="sl-t-punch" class="sl-tbtn" ontouchstart="transportPunch(event)" title="Punch In">
-          <svg viewBox="0 0 32 32" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="16" cy="16" r="10"/><line x1="16" y1="8" x2="16" y2="16"/><line x1="16" y1="16" x2="21" y2="21"/></svg>
+          <svg viewBox="0 0 32 32" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16 A10 10 0 0 1 26 16"/><polyline points="22,10 26,16 20,16"/><path d="M26 16 A10 10 0 0 1 6 16"/><polyline points="10,22 6,16 12,16"/></svg>
         </div>
         <div id="sl-t-undo"  class="sl-tbtn" ontouchstart="transportUndo(event)" title="Undo">
-          <svg viewBox="0 0 32 32" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16 A10 10 0 1 1 16 26"/><polyline points="6,8 6,16 14,16"/></svg>
+          <svg viewBox="0 0 32 32" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16 A10 10 0 1 1 16 26"/><polyline points="6,8 6,16 14,16"/></svg>
         </div>
         <div id="sl-t-redo"  class="sl-tbtn" ontouchstart="transportRedo(event)" title="Redo">
-          <svg viewBox="0 0 32 32" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M26 16 A10 10 0 1 0 16 26"/><polyline points="26,8 26,16 18,16"/></svg>
+          <svg viewBox="0 0 32 32" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M26 16 A10 10 0 1 0 16 26"/><polyline points="26,8 26,16 18,16"/></svg>
         </div>
       </div>
 
-      <!-- SECTION & SONG NAV -->
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;height:44px;flex:0 0 auto;">
-        <div id="sl-prev-sec"  class="sl-navbtn">
-          <svg viewBox="0 0 32 16" width="22" height="14" fill="currentColor"><polygon points="14,2 2,8 14,14"/></svg>
-          <span>SECTION</span>
+      <!-- MARKER + SONG NAV — same height as transport row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;height:78px;flex:0 0 auto;">
+        <div id="sl-prev-marker" class="sl-navbtn">
+          <svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="8" y1="6" x2="8" y2="26"/>
+            <polygon points="24,6 12,16 24,26" fill="var(--accent)"/>
+          </svg>
+          <span>PREV MARKER</span>
         </div>
-        <div id="sl-next-sec"  class="sl-navbtn">
-          <span>SECTION</span>
-          <svg viewBox="0 0 32 16" width="22" height="14" fill="currentColor"><polygon points="18,2 30,8 18,14"/></svg>
+        <div id="sl-next-marker" class="sl-navbtn">
+          <span>NEXT MARKER</span>
+          <svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="8,6 20,16 8,26" fill="var(--accent)"/>
+            <line x1="24" y1="6" x2="24" y2="26"/>
+          </svg>
         </div>
         <div id="sl-prev-song" class="sl-navbtn">
-          <svg viewBox="0 0 32 16" width="26" height="14" fill="currentColor"><polygon points="14,2 2,8 14,14"/><polygon points="28,2 16,8 28,14"/></svg>
+          <svg viewBox="0 0 32 16" width="32" height="16" fill="currentColor"><polygon points="14,2 2,8 14,14"/><polygon points="28,2 16,8 28,14"/></svg>
           <span>PREV SONG</span>
         </div>
         <div id="sl-next-song" class="sl-navbtn">
           <span>NEXT SONG</span>
-          <svg viewBox="0 0 32 16" width="26" height="14" fill="currentColor"><polygon points="4,2 16,8 4,14"/><polygon points="18,2 30,8 18,14"/></svg>
+          <svg viewBox="0 0 32 16" width="32" height="16" fill="currentColor"><polygon points="4,2 16,8 4,14"/><polygon points="18,2 30,8 18,14"/></svg>
         </div>
       </div>
     </div>
@@ -1743,8 +1798,8 @@ function updateSetlistProgress() {
 function wireSetlistControls() {
   const $ = id => document.getElementById(id);
 
-  $('sl-prev-sec') ?.addEventListener('pointerdown', e => { e.preventDefault(); if (wsConnected && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'locator_prev'})); });
-  $('sl-next-sec') ?.addEventListener('pointerdown', e => { e.preventDefault(); if (wsConnected && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'locator_next'})); });
+  $('sl-prev-marker') ?.addEventListener('pointerdown', e => { e.preventDefault(); if (wsConnected && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'locator_prev'})); });
+  $('sl-next-marker') ?.addEventListener('pointerdown', e => { e.preventDefault(); if (wsConnected && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'locator_next'})); });
 
   $('sl-prev-song')?.addEventListener('pointerdown', e => {
     e.preventDefault();
@@ -1804,20 +1859,115 @@ document.addEventListener('pointercancel', () => setTimeout(cleanupSetlistGhosts
 renderSetlistPage();
 
 // ═══════════════════════════════════════════
-//  TABS
+//  TABS — with long-press reorder
 // ═══════════════════════════════════════════
-document.querySelectorAll('.tab').forEach(tab=>{
-  tab.addEventListener('pointerdown',e=>{
-    e.preventDefault();
-    const p=tab.dataset.page;
-    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-    document.querySelectorAll('.page').forEach(pg=>pg.classList.remove('active'));
-    tab.classList.add('active');
-    const pg=document.getElementById(`page-${p}`); if(pg) pg.classList.add('active');
-    // Clean up any orphan drag ghosts from setlist
-    if (typeof cleanupSetlistGhosts === 'function') cleanupSetlistGhosts();
+let tabEditMode = false;
+
+// Apply a saved tab order from localStorage if present
+function applyTabOrder() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem('tabOrder') || 'null'); } catch(e) {}
+  if (!Array.isArray(saved)) return;
+  const bar = document.getElementById('tabbar'); if (!bar) return;
+  const byPage = {};
+  document.querySelectorAll('.tab').forEach(t => { byPage[t.dataset.page] = t; });
+  saved.forEach(pageId => { const t = byPage[String(pageId)]; if (t) bar.appendChild(t); });
+}
+function saveTabOrder() {
+  const order = Array.from(document.querySelectorAll('.tab')).map(t => t.dataset.page);
+  localStorage.setItem('tabOrder', JSON.stringify(order));
+}
+function setTabEditMode(on) {
+  tabEditMode = on;
+  document.body.classList.toggle('tab-edit-mode', on);
+  if (on) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.add('wiggle'));
+  } else {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('wiggle'));
+    saveTabOrder();
+  }
+}
+
+function attachTabHandlers() {
+  document.querySelectorAll('.tab').forEach(tab => {
+    let pressTimer = null;
+    let dragMode = false;
+    let startX = 0;
+
+    tab.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      startX = e.clientX;
+
+      if (tabEditMode) {
+        // In edit mode: pointerdown starts a drag immediately
+        dragMode = true;
+        try { tab.setPointerCapture(e.pointerId); } catch(_){}
+        tab.classList.add('dragging');
+        return;
+      }
+
+      // Not in edit mode: schedule long-press to ENTER edit mode
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        setTabEditMode(true);
+        // Optionally let this same press start dragging that tab right away
+        dragMode = true;
+        try { tab.setPointerCapture(e.pointerId); } catch(_){}
+        tab.classList.add('dragging');
+      }, 600);
+    });
+
+    tab.addEventListener('pointermove', e => {
+      if (!dragMode) {
+        // Cancel pending long-press if user moves significantly
+        if (pressTimer && Math.abs(e.clientX - startX) > 10) {
+          clearTimeout(pressTimer); pressTimer = null;
+        }
+        return;
+      }
+      // Drag: find the tab under the pointer and swap if different
+      const overTab = document.elementFromPoint(e.clientX, e.clientY);
+      if (!overTab || !overTab.classList || !overTab.classList.contains('tab')) return;
+      if (overTab === tab) return;
+      const bar = document.getElementById('tabbar');
+      const overRect = overTab.getBoundingClientRect();
+      const tabIdx = Array.from(bar.children).indexOf(tab);
+      const overIdx = Array.from(bar.children).indexOf(overTab);
+      if (tabIdx < overIdx) bar.insertBefore(tab, overTab.nextSibling);
+      else bar.insertBefore(tab, overTab);
+    });
+
+    const release = e => {
+      if (pressTimer !== null) {
+        // Released before long-press fired = tap action
+        clearTimeout(pressTimer); pressTimer = null;
+        if (tabEditMode) {
+          // Tap during edit mode exits edit mode
+          setTabEditMode(false);
+          return;
+        }
+        // Normal tap: switch to that page
+        const p = tab.dataset.page;
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
+        tab.classList.add('active');
+        const pg = document.getElementById(`page-${p}`); if (pg) pg.classList.add('active');
+        if (typeof cleanupSetlistGhosts === 'function') cleanupSetlistGhosts();
+        return;
+      }
+      if (dragMode) {
+        dragMode = false;
+        tab.classList.remove('dragging');
+        saveTabOrder();
+      }
+    };
+    tab.addEventListener('pointerup', release);
+    tab.addEventListener('pointercancel', release);
   });
-});
+}
+
+applyTabOrder();
+attachTabHandlers();
 
 // ═══════════════════════════════════════════
 //  INIT

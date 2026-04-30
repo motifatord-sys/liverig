@@ -20,6 +20,7 @@ var state = {
     current_section: "",
     tracks: [],
     clips: [],
+    scenes: [],   // [{name, color}]
     // Per-keyboard track macros: kbd_macros[trackIndex] = [{name, value, min, max}, ... up to 8]
     kbd_macros: [[],[],[],[]]
 };
@@ -32,7 +33,7 @@ var sessionTick = 0;
 var sessionWarned = false;
 var cueWarned = false;
 var macroWarned = false;
-var sessionCache = { tracks: [], clips: [], kbd_macros: [[],[],[],[]] };  // Build incrementally, swap when complete
+var sessionCache = { tracks: [], clips: [], scenes: [], kbd_macros: [[],[],[],[]] };  // Build incrementally, swap when complete
 
 function bang() {}
 function anything() {}
@@ -78,7 +79,7 @@ function recomputeCurrent() {
     state.current_section = sec;
 }
 
-// Query cue points — runs every 3 seconds. Lightweight: just names + times.
+// Query cue points and scene names — runs every 3 seconds. Lightweight.
 function refreshCuePoints() {
     try {
         var liveSet = new LiveAPI("live_set");
@@ -103,13 +104,27 @@ function refreshCuePoints() {
         state.locators = raw;
         state.songs    = songs;
         state.sections = sections;
-        // Log once when we first find data (so user knows it works)
+
+        // Scenes
+        var sceneCount = liveSet.getcount("scenes");
+        var scenes = [];
+        for (var sx = 0; sx < sceneCount; sx++) {
+            var sc = new LiveAPI("live_set scenes " + sx);
+            var snArr = sc.get("name");
+            var sn = (snArr && snArr.length) ? String(snArr[0]) : "";
+            var colArr = sc.get("color");
+            var col = (colArr && colArr.length) ? colArr[0] : 0;
+            // Live's default unnamed scene reads as empty string; we keep blanks for ordering
+            scenes.push({ name: sn, color: col, idx: sx });
+        }
+        state.scenes = scenes;
+
         if (!cueWarned && cueCount > 0) {
-            post("liverig_send: found " + cueCount + " cue points (" + songs.length + " songs, " + sections.length + " sections)\n");
+            post("liverig_send: found " + cueCount + " cue points (" + songs.length + " songs, " + sections.length + " sections), " + sceneCount + " scenes\n");
             cueWarned = true;
         }
     } catch(e) {
-        if (!sessionWarned) { post("liverig_send: cue query failed: " + e.message + "\n"); sessionWarned = true; }
+        if (!sessionWarned) { post("liverig_send: cue/scene query failed: " + e.message + "\n"); sessionWarned = true; }
     }
 }
 

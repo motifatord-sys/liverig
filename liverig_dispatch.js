@@ -1,16 +1,51 @@
-// liverig_dispatch.js — handles incoming SysEx from the bridge and calls Live API
-// Format: F0 7D <code> <value> F7 (sxformat strips F0/F7, gives us [125, code, value])
+// liverig_dispatch.js — receives SysEx bytes from sysexin (one int per inlet message)
+// Format: F0 7D <code> <value> F7  →  240 125 NN VV 247
 
 inlets = 1;
 outlets = 1;
 
+var LIVERIG_MFG_ID = 125;
+var sxBuffer = [];
+
 function bang() {}
 function anything() {}
 
-// Manufacturer ID 0x7D = 125 (educational/non-commercial)
-var LIVERIG_MFG_ID = 125;
+function msg_int(v) {
+    // Start of SysEx
+    if (v === 240) {
+        sxBuffer = [];
+        return;
+    }
+    // End of SysEx — process buffer
+    if (v === 247) {
+        if (sxBuffer.length >= 2 && sxBuffer[0] === LIVERIG_MFG_ID) {
+            var code  = sxBuffer[1] & 0x7F;
+            var value = (sxBuffer.length >= 3) ? (sxBuffer[2] & 0x7F) : 0;
+            post("liverig_dispatch: code=0x" + code.toString(16) + " val=" + value + "\n");
+            dispatch(code, value);
+        }
+        sxBuffer = [];
+        return;
+    }
+    // Middle bytes
+    sxBuffer.push(v & 0x7F);
+}
 
-// Code → action lookup
+// Also support list-style emission (some Max versions/objects send the whole frame at once)
+function list() {
+    var args = arrayfromargs(arguments);
+    var bytes = [];
+    for (var i = 0; i < args.length; i++) {
+        if (args[i] === 240 || args[i] === 247) continue;
+        bytes.push(args[i] & 0x7F);
+    }
+    if (bytes.length < 2 || bytes[0] !== LIVERIG_MFG_ID) return;
+    var code  = bytes[1];
+    var value = (bytes.length >= 3) ? bytes[2] : 0;
+    post("liverig_dispatch (list): code=0x" + code.toString(16) + " val=" + value + "\n");
+    dispatch(code, value);
+}
+
 function dispatch(code, value) {
     try {
         var song = new LiveAPI("live_set");
@@ -19,8 +54,7 @@ function dispatch(code, value) {
             case 0x30: // locator_jump (value = index, 0-127)
                 var cuePts = song.get("cue_points");
                 if (cuePts && value < cuePts.length / 2) {
-                    var cuePath = "live_set cue_points " + value;
-                    var cue = new LiveAPI(cuePath);
+                    var cue = new LiveAPI("live_set cue_points " + value);
                     cue.call("jump");
                 }
                 return;
@@ -29,6 +63,12 @@ function dispatch(code, value) {
                 return;
             case 0x32: // prev marker
                 song.call("jump_to_prev_cue");
+                return;
+            case 0x33: // scene fire (value = scene index)
+                try {
+                    var scene = new LiveAPI("live_set scenes " + value);
+                    scene.call("fire");
+                } catch(e2) { post("scene fire failed: " + e2.message + "\n"); }
                 return;
 
             // ── TRANSPORT ──
@@ -69,28 +109,6 @@ function dispatch(code, value) {
                 return;
         }
     } catch (e) {
-        post("liverig_dispatch error code=" + code + ": " + e.message + "\n");
+        post("liverig_dispatch error code=0x" + code.toString(16) + ": " + e.message + "\n");
     }
-}
-
-// Incoming list from midiparse outlet 6: may include F0 (240) and F7 (247) wrappers,
-// or may be stripped — handle both shapes.
-function list() {
-    var args = arrayfromargs(arguments);
-    if (args.length < 2) return;
-
-    // Strip F0/F7 wrappers if present
-    var bytes = [];
-    for (var i = 0; i < args.length; i++) {
-        if (args[i] === 240 || args[i] === 247) continue;
-        bytes.push(args[i]);
-    }
-    if (bytes.length < 2) return;
-
-    // First byte must be our manufacturer ID (0x7D = 125)
-    if (bytes[0] !== LIVERIG_MFG_ID) return;
-    var code  = bytes[1] & 0x7F;
-    var value = (bytes.length >= 3) ? (bytes[2] & 0x7F) : 0;
-    post("liverig_dispatch: code=0x" + code.toString(16) + " val=" + value + "\n");
-    dispatch(code, value);
 }

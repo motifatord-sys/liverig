@@ -229,6 +229,10 @@ async def handle_client(websocket, path=None):
                 elif msg_type == "locator_prev":
                     midi_out.send_message([0xF0, 0x7D, 0x32, 0x00, 0xF7])
 
+                elif msg_type == "scene_fire":
+                    idx = int(data.get("index", 0)) & 0x7F
+                    midi_out.send_message([0xF0, 0x7D, 0x33, idx, 0xF7])
+
                 elif msg_type == "transport_play":
                     midi_out.send_message([0xF0, 0x7D, 0x40, 0x00, 0xF7])
 
