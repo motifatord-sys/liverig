@@ -1,3 +1,5 @@
 liverig_state.json
 *.pyc
 __pycache__/
+.DS_Store
+LiveRig_RemoteScript.zip

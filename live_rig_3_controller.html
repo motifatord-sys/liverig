@@ -639,6 +639,93 @@ function onLiveState(s) {
   syncTransportBtns(['sl-t-stop'],  transportState === 'STOPPED');
 }
 
+// ── Remote Script feedback parser ────────────────────────────────────────────
+// Wire format: F0 7D 60 <fb_type> <data...> F7
+const RS = { cueAccum: [], sceneAccum: [] };
+function rsDecodeStr(bytes, offset){
+  if (offset >= bytes.length) return {text:'', next:offset};
+  const n = bytes[offset];
+  let s = '';
+  for (let i=0;i<n && offset+1+i<bytes.length;i++) s += String.fromCharCode(bytes[offset+1+i]);
+  return {text:s, next:offset+1+n};
+}
+function rsUint14(b1,b2){ return ((b1&0x7F)<<7)|(b2&0x7F); }
+function rsUint28(b1,b2,b3,b4){ return ((b1&0x7F)<<21)|((b2&0x7F)<<14)|((b3&0x7F)<<7)|(b4&0x7F); }
+
+function onRemoteScriptFeedback(bytes){
+  if (bytes.length < 5) return;
+  const fb = bytes[3];
+  const data = bytes.slice(4, bytes.length-1);
+
+  if (fb === 0x00) {
+    const state = data[0]||0;
+    transportState = state===2?'RECORDING':state===1?'PLAYING':'STOPPED';
+    m4l.transport = transportState.toLowerCase();
+    if (typeof updateTransportButtons === 'function') updateTransportButtons();
+    if (state===0) { try{clearInterval(beatPulseTimer);}catch(e){} beatPulseTimer=null; currentBeat=0; }
+    else { if (typeof restartBeat === 'function') restartBeat(); }
+  } else if (fb === 0x01) {
+    const bpm = rsUint14(data[0],data[1]) / 100.0;
+    m4l.bpm = bpm; tempo = bpm;
+    const sb = document.getElementById('status-bpm'); if(sb) sb.textContent = Math.round(bpm);
+    const tDisp = document.getElementById('t-bpm-display'); if(tDisp) tDisp.textContent = Math.round(bpm);
+    const t = document.getElementById('tempo-disp'); if(t) t.textContent = Math.round(bpm);
+  } else if (fb === 0x02) {
+    m4l.song_time = rsUint28(data[0],data[1],data[2],data[3]) / 1000.0;
+  } else if (fb === 0x03) {
+    m4l.song_len = rsUint28(data[0],data[1],data[2],data[3]) / 1000.0;
+  } else if (fb === 0x12) { RS.cueAccum = [];
+  } else if (fb === 0x10) {
+    const idx = data[0];
+    const t_ms = rsUint28(data[1],data[2],data[3],data[4]);
+    const {text:name} = rsDecodeStr(data, 5);
+    RS.cueAccum.push({idx, name, time: t_ms/1000.0});
+  } else if (fb === 0x13) {
+    const raw = [], songs = [], sections = [];
+    RS.cueAccum.sort((a,b)=>a.time-b.time);
+    for (const c of RS.cueAccum) {
+      raw.push({name:c.name, time:c.time});
+      if (c.name && c.name.toLowerCase().indexOf('song:') === 0) {
+        songs.push({name: c.name.slice(5).replace(/^\s+/,''), time:c.time});
+      } else if (c.name) {
+        sections.push({name:c.name, time:c.time});
+      }
+    }
+    m4l.locators = raw; m4l.songs = songs; m4l.sections = sections;
+    const newHash = songs.map(x => x.name + '@' + x.time).join('|');
+    if (newHash !== m4l._lastSongsHash) {
+      m4l._lastSongsHash = newHash;
+      if (typeof renderLibrary === 'function') renderLibrary();
+    }
+  } else if (fb === 0x22) { RS.sceneAccum = [];
+  } else if (fb === 0x20) {
+    const idx = data[0];
+    const {text:name} = rsDecodeStr(data, 1);
+    RS.sceneAccum.push({idx, name});
+  } else if (fb === 0x23) {
+    m4l.scenes = RS.sceneAccum.slice();
+    const newSceneHash = m4l.scenes.map(x => (x.name||'<unnamed>')+'#'+x.idx).join('|');
+    if (newSceneHash !== m4l._lastScenesHash) {
+      m4l._lastScenesHash = newSceneHash;
+      if (typeof renderClipScenes === 'function') renderClipScenes();
+    }
+  } else if (fb === 0x30) {
+    const idx = data[0];
+    const {text:name} = rsDecodeStr(data, 1);
+    m4l.selectedTrack = {idx, name};
+  } else if (fb === 0x40) {
+    const trackIdx = data[0], macroIdx = data[1];
+    const v14 = rsUint14(data[2], data[3]);
+    const {text:macroName} = rsDecodeStr(data, 4);
+    if (trackIdx >= 0 && trackIdx < 4 && macroIdx >= 0 && macroIdx < 8) {
+      if (!m4l.kbdMacros) m4l.kbdMacros = [[],[],[],[]];
+      if (!Array.isArray(m4l.kbdMacros[trackIdx])) m4l.kbdMacros[trackIdx] = [];
+      m4l.kbdMacros[trackIdx][macroIdx] = { name: macroName, value: v14, min: 0, max: 0x3FFF };
+      if (typeof applyKbdMacros === 'function') applyKbdMacros();
+    }
+  }
+}
+
 function onMIDIIn(bytes) {
   if(!bytes||bytes.length<2) return;
   const status=bytes[0]&0xF0, ch=(bytes[0]&0x0F)+1;
@@ -657,6 +744,8 @@ function onMIDIIn(bytes) {
   }
   if(bytes[0]===0xF0&&bytes[1]===0x7D&&bytes[bytes.length-1]===0xF7) {
     const type=bytes[2];
+    // Remote Script feedback (code 0x60 — see LiveRig.py FB_* constants)
+    if(type===0x60){ onRemoteScriptFeedback(bytes); return; }
     if(type===0x01){
       const bpm=parseFloat(bytes.slice(3,-1).map(b=>String.fromCharCode(b)).join(''));
       if(!isNaN(bpm)){m4l.bpm=bpm;tempo=bpm;restartBeat();const d=document.getElementById('t-bpm-display');if(d)d.textContent=Math.round(bpm);}
