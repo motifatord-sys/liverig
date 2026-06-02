@@ -108,7 +108,29 @@ body.tab-edit-mode #tabbar::after{content:'TAP A TAB TO EXIT EDIT MODE';position
 .pad.hit{background:#ffffff18;}
 
 /* SONG BUTTONS */
-.song-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;touch-action:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;height:100%;}
+.song-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;touch-action:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;height:100%;position:relative;overflow:hidden;}
+.song-btn.active{border-color:var(--accent);background:#1f1f30;}
+.song-btn .saved-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(40,140,40,0.85);color:#fff;font-family:'Share Tech Mono',monospace;font-size:24px;font-weight:700;letter-spacing:3px;opacity:0;pointer-events:none;transition:opacity .15s;}
+.song-btn .saved-overlay.show{opacity:1;}
+@keyframes capglow{0%,100%{background:#3a0c0c;border-color:#a02020;}50%{background:#7a1a1a;border-color:#ff5050;box-shadow:0 0 10px #ff5050;}}
+@keyframes rnmglow{0%,100%{background:#3a2a08;border-color:#a07020;}50%{background:#7a5510;border-color:#ffd060;box-shadow:0 0 10px #ffd060;}}
+body.patches-capture-mode .song-btn{animation:capglow 1s ease-in-out infinite;}
+body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
+.patches-action-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:13px;font-weight:700;letter-spacing:1.5px;color:#bbb;touch-action:none;user-select:none;-webkit-user-select:none;transition:background .15s,border-color .15s,color .15s;}
+.patches-action-btn:active{background:#ffffff15;}
+.patches-action-btn.armed-cap{background:#3a0c0c;border-color:#a02020;color:#ffaaaa;}
+.patches-action-btn.armed-rnm{background:#3a2a08;border-color:#a07020;color:#ffd060;}
+#patches-capture-dialog{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:200;}
+#patches-capture-dialog.show{display:flex;}
+#patches-capture-dialog .dlg{background:#1a1a25;border:1px solid var(--border2);border-radius:8px;padding:24px 28px;min-width:340px;max-width:480px;}
+#patches-capture-dialog .dlg h3{font-family:var(--mono);font-size:14px;letter-spacing:2px;color:var(--accent);margin:0 0 16px;}
+#patches-capture-dialog .dlg p{color:#bbb;font-size:14px;margin:0 0 14px;}
+#patches-capture-dialog .dlg label{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#0d0d18;border:1px solid var(--border2);border-radius:6px;margin-bottom:6px;cursor:pointer;font-size:14px;color:#ddd;}
+#patches-capture-dialog .dlg label input{width:18px;height:18px;cursor:pointer;}
+#patches-capture-dialog .dlg .btns{display:flex;gap:10px;margin-top:18px;justify-content:flex-end;}
+#patches-capture-dialog .dlg .btns button{padding:10px 22px;border-radius:6px;font-family:var(--mono);font-size:13px;font-weight:700;letter-spacing:1.5px;cursor:pointer;border:1px solid;}
+#patches-capture-dialog .dlg .btn-ok{background:#1a3a1a;border-color:#5ed06f;color:#5ed06f;}
+#patches-capture-dialog .dlg .btn-cancel{background:#2a2a35;border-color:var(--border2);color:#aaa;}
 .song-btn .sname{font-family:var(--sans);font-size:34px;font-weight:700;letter-spacing:.04em;pointer-events:none;}
 .song-btn .spc{font-family:var(--mono);font-size:13px;color:var(--muted);pointer-events:none;}
 .song-btn.active{border-color:var(--k2);background:#1a9e6e18;border-width:2px;}
@@ -431,8 +453,12 @@ body.tab-edit-mode #tabbar::after{content:'TAP A TAB TO EXIT EDIT MODE';position
   <!-- PATCHES -->
   <div id="page-3" class="page">
     <div style="height:100%;display:flex;flex-direction:column;gap:6px">
-      <div class="sec">Song presets — Program Change on all 4 keyboards simultaneously</div>
+      <div class="sec" id="patches-sec">Song presets — Program Change on all 4 keyboards simultaneously</div>
       <div id="song-grid" style="flex:1;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,1fr);gap:10px"></div>
+      <div id="patches-actions" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;height:64px;flex:0 0 auto;">
+        <div id="patches-capture-btn" class="patches-action-btn">CAPTURE CURRENT STATE</div>
+        <div id="patches-rename-btn" class="patches-action-btn">RENAME</div>
+      </div>
     </div>
   </div>
 
@@ -444,6 +470,22 @@ body.tab-edit-mode #tabbar::after{content:'TAP A TAB TO EXIT EDIT MODE';position
   <div id="page-10" class="page" style="padding:8px 10px;"></div>
 
 </div><!-- end #pages -->
+
+<!-- Capture confirmation dialog -->
+<div id="patches-capture-dialog">
+  <div class="dlg">
+    <h3>CAPTURE CURRENT STATE</h3>
+    <p>Select which keyboard pages to capture, then tap a song button to save the snapshot.</p>
+    <label><input type="checkbox" id="cap-kbd1" checked> KBD 1</label>
+    <label><input type="checkbox" id="cap-kbd2" checked> KBD 2</label>
+    <label><input type="checkbox" id="cap-kbd3" checked> KBD 3</label>
+    <label><input type="checkbox" id="cap-kbd4" checked> KBD 4</label>
+    <div class="btns">
+      <button class="btn-cancel" id="cap-cancel">Cancel</button>
+      <button class="btn-ok" id="cap-ok">Continue</button>
+    </div>
+  </div>
+</div>
 
 <script>
 // ═══════════════════════════════════════════
@@ -714,15 +756,41 @@ function onRemoteScriptFeedback(bytes){
     const {text:name} = rsDecodeStr(data, 1);
     m4l.selectedTrack = {idx, name};
   } else if (fb === 0x40) {
-    const trackIdx = data[0], macroIdx = data[1];
+    // Parameter value: kbdIdx, slot(0-7), v14_hi, v14_lo, nameLen, nameBytes
+    // Replaces the old "macro value" interpretation — same wire format,
+    // but now applies to ANY device parameter (not just macros).
+    const kbdIdx = data[0], slot = data[1];
     const v14 = rsUint14(data[2], data[3]);
-    const {text:macroName} = rsDecodeStr(data, 4);
-    if (trackIdx >= 0 && trackIdx < 4 && macroIdx >= 0 && macroIdx < 8) {
+    const {text:paramName} = rsDecodeStr(data, 4);
+    if (kbdIdx >= 0 && kbdIdx < 4 && slot >= 0 && slot < 8) {
       if (!m4l.kbdMacros) m4l.kbdMacros = [[],[],[],[]];
-      if (!Array.isArray(m4l.kbdMacros[trackIdx])) m4l.kbdMacros[trackIdx] = [];
-      m4l.kbdMacros[trackIdx][macroIdx] = { name: macroName, value: v14, min: 0, max: 0x3FFF };
+      if (!Array.isArray(m4l.kbdMacros[kbdIdx])) m4l.kbdMacros[kbdIdx] = [];
+      m4l.kbdMacros[kbdIdx][slot] = { name: paramName, value: v14, min: 0, max: 0x3FFF };
       if (typeof applyKbdMacros === 'function') applyKbdMacros();
     }
+  } else if (fb === 0x41) {
+    // Parameter list begin: kbdIdx, count
+    const kbdIdx = data[0], count = data[1];
+    if (kbdIdx >= 0 && kbdIdx < 4) {
+      if (!m4l.kbdMacros) m4l.kbdMacros = [[],[],[],[]];
+      // Reset the slot to expected count; values arrive as 0x40 messages
+      m4l.kbdMacros[kbdIdx] = new Array(count).fill(null);
+    }
+  } else if (fb === 0x42) {
+    // Parameter list end: kbdIdx — finalize render
+    const kbdIdx = data[0];
+    if (kbdIdx >= 0 && kbdIdx < 4 && typeof applyKbdMacros === 'function') {
+      applyKbdMacros();
+    }
+  } else if (fb === 0x43) {
+    // Device info: kbdIdx, nameLen, nameBytes, bankIdx, bankCount
+    const kbdIdx = data[0];
+    const {text:devName, next} = rsDecodeStr(data, 1);
+    const bankIdx = data[next] || 0;
+    const bankCount = data[next+1] || 1;
+    if (!m4l.kbdDeviceInfo) m4l.kbdDeviceInfo = [{},{},{},{}];
+    m4l.kbdDeviceInfo[kbdIdx] = { name: devName, bank: bankIdx, banks: bankCount };
+    if (typeof updateKbdDeviceHeader === 'function') updateKbdDeviceHeader(kbdIdx);
   }
 }
 
@@ -1009,39 +1077,250 @@ function buildPads() {
 }
 
 // ═══════════════════════════════════════════
-//  PATCHES PAGE
+//  PATCHES PAGE — with snapshot capture and rename modes
 // ═══════════════════════════════════════════
-let activeSong=-1;
-const SONG_NAMES=['Song 1','Song 2','Song 3','Song 4','Song 5','Song 6','Song 7','Song 8'];
+let activeSong = -1;
+const SONG_NAMES = ['Song 1','Song 2','Song 3','Song 4','Song 5','Song 6','Song 7','Song 8'];
 try{const s=localStorage.getItem('songNames');if(s)Object.assign(SONG_NAMES,JSON.parse(s));}catch(e){}
 
-function buildPatches() {
-  const grid=document.getElementById('song-grid');
-  SONG_NAMES.forEach((name,i)=>{
-    const el=document.createElement('div'); el.className='song-btn'; el.dataset.idx=i;
-    const sname=document.createElement('div'); sname.className='sname'; sname.style.color=['#6c5fd4','#1a9e6e','#d4551e','#c07818','#3ab8ff','#e040fb','#ff6b6b','#00d4aa'][i]; sname.textContent=name;
-    const spc=document.createElement('div'); spc.className='spc'; spc.textContent=`PC ${i}`;
-    el.append(sname,spc);
-    let pressTimer=null;
-    el.addEventListener('pointerdown',e=>{
-      e.preventDefault();
-      pressTimer=setTimeout(()=>{
-        pressTimer=null;
-        const n=prompt(`Rename song ${i+1}:`,SONG_NAMES[i]);
-        if(n!==null&&n.trim()!==''){SONG_NAMES[i]=n.trim();sname.textContent=SONG_NAMES[i];localStorage.setItem('songNames',JSON.stringify(SONG_NAMES));}
-      },600);
-    });
-    el.addEventListener('pointerup',e=>{
-      if(pressTimer!==null){
-        clearTimeout(pressTimer);pressTimer=null;
-        document.querySelectorAll('.song-btn').forEach(b=>b.classList.remove('active'));
-        el.classList.add('active'); activeSong=i;
-        for(let ch=1;ch<=4;ch++) sendPC(ch,i);
+// Snapshot data: PATCH_SNAPSHOTS[songIdx] = { kbds: { 0:{buttons:[16],faders:[8]}, ... } }
+// KBD indices missing from `kbds` are NOT restored on song tap.
+let PATCH_SNAPSHOTS = [{},{},{},{},{},{},{},{}];
+try{
+  const s=localStorage.getItem('patchSnapshots');
+  if(s){const parsed=JSON.parse(s); if(Array.isArray(parsed)) PATCH_SNAPSHOTS=parsed;}
+}catch(e){}
+function savePatchSnapshots(){
+  try{ localStorage.setItem('patchSnapshots', JSON.stringify(PATCH_SNAPSHOTS)); }catch(e){}
+}
+
+// Mode state for the patches page. Only one mode active at a time.
+let patchesMode = null;  // null | 'capture' | 'rename'
+let captureKbds = [true, true, true, true];  // which KBD pages to capture, from dialog
+
+function setPatchesMode(mode) {
+  patchesMode = mode;
+  document.body.classList.toggle('patches-capture-mode', mode === 'capture');
+  document.body.classList.toggle('patches-rename-mode',  mode === 'rename');
+  const capBtn = document.getElementById('patches-capture-btn');
+  const rnmBtn = document.getElementById('patches-rename-btn');
+  if (capBtn) capBtn.classList.toggle('armed-cap', mode === 'capture');
+  if (rnmBtn) rnmBtn.classList.toggle('armed-rnm', mode === 'rename');
+}
+
+function readKbdState(kbdIdx) {
+  // Read buttons (B1-B16 = CC20-35) and faders (CC10-17) for KBD page kbdIdx (0-3).
+  const buttons = [];
+  for (let b = 0; b < 16; b++) {
+    const el = document.querySelector(`#kbtns${kbdIdx} .tog:nth-child(${b+1})`);
+    buttons.push(el ? el.dataset.state === '1' : false);
+  }
+  const faders = [];
+  for (let f = 0; f < 8; f++) {
+    const valEl = document.getElementById(`kfdr-val-${kbdIdx}-${f}`);
+    const v = valEl ? parseInt(valEl.textContent, 10) : 96;
+    faders.push(isFinite(v) ? Math.max(0, Math.min(127, v)) : 96);
+  }
+  return { buttons, faders };
+}
+
+function applyKbdState(kbdIdx, state) {
+  if (!state) return;
+  const ch = kbdIdx + 1;
+  // Buttons — set state and send CC immediately
+  if (Array.isArray(state.buttons)) {
+    for (let b = 0; b < 16 && b < state.buttons.length; b++) {
+      const cc = 20 + b;
+      const on = !!state.buttons[b];
+      const el = document.querySelector(`#kbtns${kbdIdx} .tog:nth-child(${b+1})`);
+      if (el) {
+        el.dataset.state = on ? '1' : '0';
+        el.classList.toggle('on', on);
       }
+      sendCC(ch, cc, on ? 127 : 0);
+    }
+  }
+  // Faders — animate over 500ms with intermediate CC values so Ableton slides
+  if (Array.isArray(state.faders)) {
+    for (let f = 0; f < 8 && f < state.faders.length; f++) {
+      const cc = 10 + f;
+      const target = Math.max(0, Math.min(127, state.faders[f] | 0));
+      animateFader(kbdIdx, f, ch, cc, target, 500);
+    }
+  }
+}
+
+// Animate a fader from current value to target over duration ms,
+// sending intermediate CC values so Ableton's parameter slides smoothly.
+function animateFader(kbdIdx, f, ch, cc, target, duration) {
+  const fillEl = document.getElementById(`kfdr-fill-${kbdIdx}-${f}`);
+  const valEl  = document.getElementById(`kfdr-val-${kbdIdx}-${f}`);
+  if (!fillEl || !valEl) return;
+  const trackEl = document.getElementById(`kfdr-track-${kbdIdx}-${f}`);
+  // Don't override if user is currently dragging the fader
+  if (trackEl && trackEl.dataset.touching === '1') return;
+
+  const startVal = Math.max(0, Math.min(127, parseInt(valEl.textContent, 10) || 0));
+  const startTime = performance.now();
+  const ease = t => 1 - Math.pow(1 - t, 3);  // ease-out cubic
+  const intervalMs = 20;
+  let lastSent = -1;
+  const tick = (now) => {
+    const elapsed = now - startTime;
+    const t = Math.min(1, elapsed / duration);
+    const v = Math.round(startVal + (target - startVal) * ease(t));
+    if (v !== lastSent) {
+      lastSent = v;
+      fillEl.style.height = (v / 127 * 100).toFixed(1) + '%';
+      valEl.textContent = String(v);
+      sendCC(ch, cc, v);
+    }
+    if (t < 1) {
+      setTimeout(() => requestAnimationFrame(tick), intervalMs);
+    } else if (lastSent !== target) {
+      // Final sync
+      fillEl.style.height = (target / 127 * 100).toFixed(1) + '%';
+      valEl.textContent = String(target);
+      sendCC(ch, cc, target);
+    }
+  };
+  requestAnimationFrame(tick);
+}
+
+function captureSnapshotForSong(songIdx) {
+  const snap = { kbds: {} };
+  for (let k = 0; k < 4; k++) {
+    if (captureKbds[k]) snap.kbds[k] = readKbdState(k);
+  }
+  PATCH_SNAPSHOTS[songIdx] = snap;
+  savePatchSnapshots();
+}
+
+function restoreSnapshotForSong(songIdx) {
+  const snap = PATCH_SNAPSHOTS[songIdx];
+  if (!snap || !snap.kbds) return;
+  for (const k of Object.keys(snap.kbds)) {
+    applyKbdState(parseInt(k, 10), snap.kbds[k]);
+  }
+}
+
+function showSavedOverlay(el) {
+  let ov = el.querySelector('.saved-overlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.className = 'saved-overlay';
+    ov.textContent = 'SAVED!';
+    el.appendChild(ov);
+  } else {
+    ov.textContent = 'SAVED!';
+  }
+  // Force reflow so transition fires
+  // eslint-disable-next-line no-unused-expressions
+  ov.offsetHeight;
+  ov.classList.add('show');
+  setTimeout(() => ov.classList.remove('show'), 900);
+  setTimeout(() => { try { ov.remove(); } catch(e){} }, 1200);
+}
+
+function buildPatches() {
+  const grid = document.getElementById('song-grid');
+  SONG_NAMES.forEach((name, i) => {
+    const el = document.createElement('div');
+    el.className = 'song-btn';
+    el.dataset.idx = i;
+    const sname = document.createElement('div');
+    sname.className = 'sname';
+    sname.id = `song-name-${i}`;
+    sname.style.color = ['#6c5fd4','#1a9e6e','#d4551e','#d423a6','#3ab8ff','#e040fb','#ff6b6b','#00d4aa'][i];
+    sname.textContent = name;
+    const spc = document.createElement('div');
+    spc.className = 'spc';
+    spc.textContent = `PC ${i}`;
+    el.append(sname, spc);
+
+    el.addEventListener('pointerdown', e => { e.preventDefault(); });
+    el.addEventListener('pointerup', e => {
+      e.preventDefault();
+      // Capture mode: save snapshot to this song
+      if (patchesMode === 'capture') {
+        captureSnapshotForSong(i);
+        showSavedOverlay(el);
+        setPatchesMode(null);
+        return;
+      }
+      // Rename mode: prompt for new name
+      if (patchesMode === 'rename') {
+        const n = prompt(`Rename song ${i+1}:`, SONG_NAMES[i]);
+        if (n !== null && n.trim() !== '') {
+          SONG_NAMES[i] = n.trim();
+          sname.textContent = SONG_NAMES[i];
+          localStorage.setItem('songNames', JSON.stringify(SONG_NAMES));
+        }
+        setPatchesMode(null);
+        return;
+      }
+      // Normal tap: fire PC, restore snapshot
+      document.querySelectorAll('.song-btn').forEach(b => b.classList.remove('active'));
+      el.classList.add('active');
+      activeSong = i;
+      for (let ch = 1; ch <= 4; ch++) sendPC(ch, i);
+      restoreSnapshotForSong(i);
     });
-    el.addEventListener('pointerleave',e=>{if(pressTimer!==null){clearTimeout(pressTimer);pressTimer=null;}});
     grid.appendChild(el);
   });
+
+  // Wire up Capture and Rename action buttons
+  const capBtn = document.getElementById('patches-capture-btn');
+  const rnmBtn = document.getElementById('patches-rename-btn');
+  if (capBtn) {
+    capBtn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      // If already in capture mode, cancel
+      if (patchesMode === 'capture') { setPatchesMode(null); return; }
+      // If in rename mode, switch
+      if (patchesMode === 'rename') setPatchesMode(null);
+      // Open dialog
+      const dlg = document.getElementById('patches-capture-dialog');
+      if (dlg) dlg.classList.add('show');
+    });
+  }
+  if (rnmBtn) {
+    rnmBtn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (patchesMode === 'rename') { setPatchesMode(null); return; }
+      if (patchesMode === 'capture') setPatchesMode(null);
+      setPatchesMode('rename');
+    });
+  }
+
+  // Dialog wiring
+  const dlg = document.getElementById('patches-capture-dialog');
+  const okBtn = document.getElementById('cap-ok');
+  const cancelBtn = document.getElementById('cap-cancel');
+  if (okBtn) {
+    okBtn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      captureKbds = [
+        document.getElementById('cap-kbd1').checked,
+        document.getElementById('cap-kbd2').checked,
+        document.getElementById('cap-kbd3').checked,
+        document.getElementById('cap-kbd4').checked,
+      ];
+      if (!captureKbds.some(x => x)) {
+        // No KBDs selected — abort
+        if (dlg) dlg.classList.remove('show');
+        return;
+      }
+      if (dlg) dlg.classList.remove('show');
+      setPatchesMode('capture');
+    });
+  }
+  if (cancelBtn) {
+    cancelBtn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (dlg) dlg.classList.remove('show');
+    });
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -1345,6 +1624,18 @@ function updateClipNamesFromLive() {
 }
 
 // Apply Ableton Macro values to KBD page faders. Skips faders being actively touched.
+// Lightweight header update for KBD pages — displays current device name and bank
+// when the Remote Script announces a device change. The on-screen target is
+// optional; if no header element exists for the page, this silently no-ops.
+function updateKbdDeviceHeader(kbdIdx) {
+  const info = (m4l.kbdDeviceInfo && m4l.kbdDeviceInfo[kbdIdx]) || null;
+  if (!info) return;
+  const headerEl = document.getElementById(`kbd-device-header-${kbdIdx}`);
+  if (!headerEl) return;
+  const bankLabel = info.banks > 1 ? ` · BANK ${info.bank+1}/${info.banks}` : '';
+  headerEl.textContent = (info.name || '<no device>') + bankLabel;
+}
+
 function applyKbdMacros() {
   if (!m4l.kbdMacros) return;
   for (let k = 0; k < 4; k++) {
