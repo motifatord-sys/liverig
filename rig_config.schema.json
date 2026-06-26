@@ -1,0 +1,150 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://liverig/rig_config.schema.json",
+  "title": "LiveRig Configuration",
+  "description": "Defines a rig's keyboards, parameter banks, patches, and stems so the controller no longer assumes a fixed 4-keyboard / 8-patch / 4-stem layout.",
+  "type": "object",
+  "required": ["version", "keyboards", "patches"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Schema version, bump on breaking changes.",
+      "default": "1.0"
+    },
+    "rigName": {
+      "type": "string",
+      "description": "Friendly name for this rig config, e.g. 'Main Live Rig' or 'Festival Backup'."
+    },
+
+    "keyboards": {
+      "type": "array",
+      "description": "Replaces the hardcoded KBD 1-4 pages. One entry per physical/virtual keyboard page.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "bankSize"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable identifier, e.g. 'kbd1'. Used as a key elsewhere — do not reuse across keyboards."
+          },
+          "label": {
+            "type": "string",
+            "description": "Display name shown in the UI, e.g. 'KBD 1'."
+          },
+          "bankSize": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 8,
+            "description": "Number of parameters walked per bank when paging through a device's parameters."
+          },
+          "defaultTrackBinding": {
+            "type": ["string", "null"],
+            "description": "Track name or index this keyboard binds to by default on load. Null = unbound until user selects a track.",
+            "default": null
+          },
+          "buttonCount": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 16,
+            "description": "Number of on/off buttons exposed by this keyboard page (replaces hardcoded 16)."
+          },
+          "faderCount": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 8,
+            "description": "Number of continuous faders exposed by this keyboard page (replaces hardcoded 8)."
+          },
+          "faderRange": {
+            "type": "object",
+            "description": "MIDI CC value range for faders on this page.",
+            "properties": {
+              "min": { "type": "integer", "default": 0 },
+              "max": { "type": "integer", "default": 127 }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+
+    "patches": {
+      "type": "object",
+      "description": "Replaces hardcoded 8-patch assumption for snapshot/rename feature.",
+      "required": ["maxPatches"],
+      "additionalProperties": false,
+      "properties": {
+        "maxPatches": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 8,
+          "description": "Number of patch slots available for CAPTURE/RENAME."
+        },
+        "restoreAnimation": {
+          "type": "object",
+          "description": "Tuning for the fader-restore animation when a patch is recalled.",
+          "additionalProperties": false,
+          "properties": {
+            "durationMs": { "type": "integer", "default": 500 },
+            "easing": { "type": "string", "default": "ease-out-cubic" },
+            "stepIntervalMs": { "type": "integer", "default": 20 },
+            "stepCount": { "type": "integer", "default": 25 }
+          }
+        },
+        "captureScope": {
+          "type": "array",
+          "description": "Which keyboard ids are eligible as a capture/restore scope. Defaults to all keyboard ids in this config.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "stems": {
+      "type": "array",
+      "description": "Replaces hardcoded 4-stem assumption. Empty/omitted if this rig doesn't use stem control.",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "trackName"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "trackName": {
+            "type": "string",
+            "description": "Ableton track name this stem control targets."
+          },
+          "defaultVolume": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 127,
+            "default": 100
+          }
+        }
+      }
+    },
+
+    "listeners": {
+      "type": "object",
+      "description": "Global guardrails learned the hard way — keep these enforced regardless of rig size.",
+      "additionalProperties": false,
+      "properties": {
+        "useSchedulePollForSongTime": {
+          "type": "boolean",
+          "default": true,
+          "description": "current_song_time fires per audio block; must be polled via schedule_message, never subscribed directly."
+        },
+        "songTimePollHz": {
+          "type": "integer",
+          "default": 10
+        },
+        "wrapListenersInTryExcept": {
+          "type": "boolean",
+          "default": true,
+          "description": "Every listener subscription must be defensively wrapped to avoid 'Observer already connected' errors."
+        }
+      }
+    }
+  }
+}

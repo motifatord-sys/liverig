@@ -37,8 +37,55 @@ where <type>:
 """
 from __future__ import absolute_import, print_function, unicode_literals
 
+import json
+import os
+
 import Live
 from _Framework.ControlSurface import ControlSurface
+
+# ── rig_config.json loading ───────────────────────────────────────────────────
+# Generalizes the old hardcoded "4 keyboards / 8-param banks" assumption.
+# Falls back to those exact defaults if no config file is found or it's
+# malformed, so an absent/broken config never breaks the script.
+_DEFAULT_RIG_CONFIG = {
+    "keyboards": [
+        {"id": "kbd1", "label": "KBD 1", "bankSize": 8},
+        {"id": "kbd2", "label": "KBD 2", "bankSize": 8},
+        {"id": "kbd3", "label": "KBD 3", "bankSize": 8},
+        {"id": "kbd4", "label": "KBD 4", "bankSize": 8},
+    ]
+}
+
+# Checked in order; first one found wins. Covers both "script reads the repo
+# copy directly" (dev) and "script reads a copy placed next to it" (installed).
+_CONFIG_SEARCH_PATHS = [
+    os.path.expanduser("~/Desktop/liverig/rig_config.json"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "rig_config.json"),
+]
+
+
+def _load_rig_config(log=None):
+    """Load rig_config.json from the first path that exists and parses cleanly.
+    Returns _DEFAULT_RIG_CONFIG (a copy of the 4x8 layout) on any failure.
+    """
+    for path in _CONFIG_SEARCH_PATHS:
+        try:
+            if not os.path.isfile(path):
+                continue
+            with open(path, "r") as f:
+                cfg = json.load(f)
+            keyboards = cfg.get("keyboards")
+            if not keyboards:
+                raise ValueError("rig_config.json has no 'keyboards' array")
+            if log:
+                log("rig_config loaded from %s (%d keyboards)" % (path, len(keyboards)))
+            return cfg
+        except Exception as e:
+            if log:
+                log("rig_config load failed at %s: %s" % (path, e))
+    if log:
+        log("rig_config not found in any search path; using built-in 4x8 default")
+    return _DEFAULT_RIG_CONFIG
 
 # ── SysEx codes (incoming, from bridge to script) ────────────────────────────
 SX_LOCATOR_JUMP    = 0x30
@@ -83,6 +130,10 @@ class LiveRig(ControlSurface):
         self._suppress_send_midi = False
         self._suggested_input_port = "LiveRig Bridge"
         self._suggested_output_port = "LiveRig Bridge"
+
+        rig_config = _load_rig_config(log=self.log_message)
+        self._kbd_count = len(rig_config["keyboards"])
+        self._bank_sizes = [kbd.get("bankSize", 8) for kbd in rig_config["keyboards"]]
 
         with self.component_guard():
             self.log_message("LiveRig Remote Script loaded.")
@@ -260,14 +311,15 @@ class LiveRig(ControlSurface):
         self._unbind_macro_listeners()
         try:
             tracks = self.song().tracks
-            for ti in range(min(4, len(tracks))):
+            for ti in range(min(self._kbd_count, len(tracks))):
                 track = tracks[ti]
                 rack = self._find_first_rack(track)
                 if rack is None:
                     continue
                 params = rack.parameters
-                # Macros are params[1..8]
-                for mi in range(1, min(9, len(params))):
+                bank_size = self._bank_sizes[ti] if ti < len(self._bank_sizes) else 8
+                # Macros are params[1..bank_size]
+                for mi in range(1, min(bank_size + 1, len(params))):
                     param = params[mi]
                     track_idx = ti
                     macro_idx = mi - 1  # 0-based for the wire format
@@ -477,11 +529,12 @@ class LiveRig(ControlSurface):
         # Simpler: re-scan and emit
         try:
             tracks = self.song().tracks
-            for ti in range(min(4, len(tracks))):
+            for ti in range(min(self._kbd_count, len(tracks))):
                 rack = self._find_first_rack(tracks[ti])
                 if rack is None:
                     continue
-                for mi in range(1, min(9, len(rack.parameters))):
+                bank_size = self._bank_sizes[ti] if ti < len(self._bank_sizes) else 8
+                for mi in range(1, min(bank_size + 1, len(rack.parameters))):
                     self._emit_macro_value(ti, mi - 1, rack.parameters[mi])
         except Exception as e:
             self.log_message("emit all macros error: " + str(e))
