@@ -96,7 +96,7 @@ export function activate(activation: ActivationContext) {
         }
       }
 
-      const payload = JSON.stringify({ config: existingConfig, trackNames });
+      const payload = encodeURIComponent(JSON.stringify({ config: existingConfig, trackNames }));
       const encodedHtml = encodeURIComponent(
         (modalInterface as string).replace("__INITIAL_DATA__", payload)
       );
