@@ -22,8 +22,8 @@ Extensions may only read/write:
 So the extension **cannot directly save `rig_config.json` into `~/Desktop/liverig/`.** Plan around this rather than fighting it:
 
 1. The extension reads/writes its working config at `context.environment.storageDirectory/rig_config.json`.
-2. A separate, already-trusted process moves it into place. The cleanest option: extend `LiveRig_Wired_Start.sh`'s existing Python heredoc (which already consolidates all Desktop-folder I/O into one trusted interpreter call) to also check the extension's known storage directory and copy a newer config over if found. This keeps "only one binary touches the Desktop folder" intact — the lesson learned earlier this project from the repeated macOS permission-prompt bug.
-3. Alternative fallback if (2) is awkward: the modal dialog shows the final JSON in a read-only textarea with a "Copy to Clipboard" button, and David pastes it into `rig_config.json` himself. Less elegant, but zero filesystem risk and works today without coordinating two codebases.
+2. **DECIDED (2026-06-26): the launcher-script copy-over is the real, final solution — build this.** Extend `LiveRig_Wired_Start.sh`'s existing Python heredoc (which already consolidates all Desktop-folder I/O into one trusted interpreter call) to also check the extension's known storage directory and copy a newer config over if found (e.g. compare mtimes, copy if the extension's copy is newer than `~/Desktop/liverig/rig_config.json`). This keeps "only one binary touches the Desktop folder" intact — the lesson learned earlier this project from the repeated macOS permission-prompt bug — and means David never has to do a manual step to get a new config onto the rig; it's picked up automatically on next launch.
+3. The clipboard "Copy to Clipboard" textarea fallback is fine as a **temporary placeholder only** if you want to ship and validate the modal dialog UI before wiring up the launcher-script side — but it should not be the shipped end state. Don't stop there.
 
 Don't try to shell out or use raw Node `fs` to write outside the allowed directories "because it currently works" — the docs explicitly call this an unsupported workaround that will break when stricter sandboxing ships.
 
@@ -121,7 +121,7 @@ await fs.writeFile(configPath, JSON.stringify(rigConfig, null, 2));
 3. Wire up reading `song.tracks` and rendering the track list inside the modal's HTML form.
 4. Build the form fields against `rig_config.schema.json` (already on `main`/`refactor/rig-config` in this repo — use it as the literal contract, don't redefine field names independently).
 5. Write the assembled config to `context.environment.storageDirectory/rig_config.json`.
-6. Solve the "get it onto the Desktop folder" handoff — either the launcher-script copy step or the clipboard fallback described above. Decide with David before building both.
+6. Wire up the launcher-script copy-over (decided, see above) — extend `LiveRig_Wired_Start.sh` to pull a newer config from the extension's `storageDirectory` into `~/Desktop/liverig/rig_config.json` on launch. This is the real handoff mechanism, not the clipboard fallback.
 
 ## Schema contract reminder
 
