@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LiveRig Setup</title>
+  <script>
+    const isWebKitMessageHandlerAvailable = window.webkit &&
+      window.webkit.messageHandlers &&
+      window.webkit.messageHandlers.live;
+    const isWebView2 = window.chrome && window.chrome.webview;
+
+    function doSendMessage(message) {
+      if (isWebKitMessageHandlerAvailable) {
+        window.webkit.messageHandlers.live.postMessage(message);
+      } else if (isWebView2) {
+        window.chrome.webview.postMessage(message);
+      }
+    }
+
+    function closeWithResult(result) {
+      doSendMessage({ method: "close_and_send", params: [result !== null ? JSON.stringify(result) : null] });
+    }
+
+    // ── State ──────────────────────────────────────────────────────────────
+    let config = null;
+    let trackNames = [];
+
+    function init() {
+      try {
+        const raw = JSON.parse(decodeURIComponent("__INITIAL_DATA__"));
+        config = raw.config;
+        trackNames = raw.trackNames || [];
+      } catch (e) {
+        config = {
+          version: "1.0",
+          rigName: "Main Live Rig",
+          keyboards: [
+            { id: "kbd1", label: "KBD 1", bankSize: 8, defaultTrackBinding: null, buttonCount: 16, faderCount: 8, faderRange: { min: 0, max: 127 } },
+            { id: "kbd2", label: "KBD 2", bankSize: 8, defaultTrackBinding: null, buttonCount: 16, faderCount: 8, faderRange: { min: 0, max: 127 } },
+            { id: "kbd3", label: "KBD 3", bankSize: 8, defaultTrackBinding: null, buttonCount: 16, faderCount: 8, faderRange: { min: 0, max: 127 } },
+            { id: "kbd4", label: "KBD 4", bankSize: 8, defaultTrackBinding: null, buttonCount: 16, faderCount: 8, faderRange: { min: 0, max: 127 } },
+          ],
+          patches: { maxPatches: 8, restoreAnimation: { durationMs: 500, easing: "ease-out-cubic", stepIntervalMs: 20, stepCount: 25 }, captureScope: ["kbd1","kbd2","kbd3","kbd4"] },
+          stems: [],
+          listeners: { useSchedulePollForSongTime: true, songTimePollHz: 10, wrapListenersInTryExcept: true },
+        };
+        trackNames = [];
+      }
+      render();
+    }
+
+    // ── Track select helper ────────────────────────────────────────────────
+    function trackSelectHtml(selectedValue, id, includeNone = true) {
+      const opts = includeNone ? [`<option value="">— unbound —</option>`] : [];
+      for (const name of trackNames) {
+        const sel = selectedValue === name ? " selected" : "";
+        opts.push(`<option value="${esc(name)}"${sel}>${esc(name)}</option>`);
+      }
+      return `<select class="alx-input" id="${id}" onchange="syncFromSelect('${id}')">${opts.join("")}</select>`;
+    }
+
+    function esc(s) {
+      return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    }
+
+    // ── Render ─────────────────────────────────────────────────────────────
+    function render() {
+      document.getElementById("app").innerHTML = buildHtml();
+    }
+
+    function buildHtml() {
+      const kbdRows = config.keyboards.map((kbd, i) => `
+        <tr>
+          <td><input class="alx-input" type="text" value="${esc(kbd.label)}" oninput="config.keyboards[${i}].label=this.value" style="width:80px"></td>
+          <td><input class="alx-input" type="text" value="${esc(kbd.id)}" oninput="config.keyboards[${i}].id=this.value;syncCaptureScope()" style="width:70px"></td>
+          <td>${trackSelectHtml(kbd.defaultTrackBinding || "", `kbd-track-${i}`, true)}</td>
+          <td><input class="alx-input num" type="number" min="1" max="32" value="${kbd.bankSize}" oninput="config.keyboards[${i}].bankSize=+this.value" style="width:55px"></td>
+          <td><input class="alx-input num" type="number" min="0" max="32" value="${kbd.buttonCount}" oninput="config.keyboards[${i}].buttonCount=+this.value" style="width:50px"></td>
+          <td><input class="alx-input num" type="number" min="0" max="32" value="${kbd.faderCount}" oninput="config.keyboards[${i}].faderCount=+this.value" style="width:50px"></td>
+          <td>
+            <div class="row-mini">
+              <input class="alx-input num" type="number" min="0" max="127" value="${kbd.faderRange ? kbd.faderRange.min : 0}" oninput="config.keyboards[${i}].faderRange.min=+this.value" style="width:45px">
+              <span style="color:var(--c-text-secondary)">–</span>
+              <input class="alx-input num" type="number" min="0" max="127" value="${kbd.faderRange ? kbd.faderRange.max : 127}" oninput="config.keyboards[${i}].faderRange.max=+this.value" style="width:45px">
+            </div>
+          </td>
+          <td><button class="alx-button danger" onclick="removeKbd(${i})">✕</button></td>
+        </tr>`).join("");
+
+      const stemRows = (config.stems || []).map((s, i) => `
+        <tr>
+          <td><input class="alx-input" type="text" value="${esc(s.label)}" oninput="config.stems[${i}].label=this.value" style="width:90px"></td>
+          <td><input class="alx-input" type="text" value="${esc(s.id)}" oninput="config.stems[${i}].id=this.value" style="width:70px"></td>
+          <td>${trackSelectHtml(s.trackName, `stem-track-${i}`, false)}</td>
+          <td><input class="alx-input num" type="number" min="0" max="127" value="${s.defaultVolume !== undefined ? s.defaultVolume : 100}" oninput="config.stems[${i}].defaultVolume=+this.value" style="width:55px"></td>
+          <td><button class="alx-button danger" onclick="removeStem(${i})">✕</button></td>
+        </tr>`).join("");
+
+      return `
+        <div class="header">
+          <span class="title">LiveRig Setup</span>
+          <div class="rig-name-row">
+            <label class="alx-label-inline">Rig name</label>
+            <input class="alx-input" type="text" value="${esc(config.rigName || "")}" oninput="config.rigName=this.value" style="width:220px">
+          </div>
+        </div>
+
+        <div class="section-label">Keyboards</div>
+        <div class="table-scroll">
+          <table class="alx-table">
+            <thead>
+              <tr>
+                <th>Label</th><th>ID</th><th>Default track</th><th>Bank sz</th><th>Buttons</th><th>Faders</th><th>CC range</th><th></th>
+              </tr>
+            </thead>
+            <tbody>${kbdRows}</tbody>
+          </table>
+        </div>
+        <button class="alx-button" onclick="addKbd()" style="margin-top:6px">+ Add keyboard</button>
+
+        <div class="section-label" style="margin-top:14px">Stems</div>
+        <div class="table-scroll">
+          <table class="alx-table">
+            <thead>
+              <tr><th>Label</th><th>ID</th><th>Track</th><th>Default vol</th><th></th></tr>
+            </thead>
+            <tbody>${stemRows.length ? stemRows : '<tr><td colspan="5" style="color:var(--c-text-secondary);text-align:center;padding:8px 0">No stems configured</td></tr>'}</tbody>
+          </table>
+        </div>
+        <button class="alx-button" onclick="addStem()" style="margin-top:6px">+ Add stem</button>
+
+        <div class="section-label" style="margin-top:14px">Patches</div>
+        <div class="row-mini" style="gap:16px;align-items:center">
+          <label class="alx-label-inline">Max patches</label>
+          <input class="alx-input num" type="number" min="1" max="64" value="${config.patches.maxPatches}" oninput="config.patches.maxPatches=+this.value" style="width:70px">
+          <label class="alx-label-inline" style="margin-left:12px">Animation ms</label>
+          <input class="alx-input num" type="number" min="0" max="5000" value="${config.patches.restoreAnimation ? config.patches.restoreAnimation.durationMs : 500}" oninput="if(!config.patches.restoreAnimation)config.patches.restoreAnimation={durationMs:500,easing:'ease-out-cubic',stepIntervalMs:20,stepCount:25};config.patches.restoreAnimation.durationMs=+this.value" style="width:70px">
+        </div>
+
+        <div class="footer">
+          <button class="alx-button" onclick="closeWithResult(null)">Cancel</button>
+          <button class="alx-button primary" onclick="save()">Save Config</button>
+        </div>
+      `;
+    }
+
+    // ── Mutations ──────────────────────────────────────────────────────────
+    function syncFromSelect(id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const val = el.value;
+      if (id.startsWith("kbd-track-")) {
+        const i = parseInt(id.replace("kbd-track-",""));
+        config.keyboards[i].defaultTrackBinding = val || null;
+      } else if (id.startsWith("stem-track-")) {
+        const i = parseInt(id.replace("stem-track-",""));
+        config.stems[i].trackName = val;
+      }
+    }
+
+    function syncCaptureScope() {
+      config.patches.captureScope = config.keyboards.map(k => k.id).filter(Boolean);
+    }
+
+    function addKbd() {
+      const n = config.keyboards.length + 1;
+      config.keyboards.push({ id: `kbd${n}`, label: `KBD ${n}`, bankSize: 8, defaultTrackBinding: null, buttonCount: 16, faderCount: 8, faderRange: { min: 0, max: 127 } });
+      syncCaptureScope();
+      render();
+    }
+
+    function removeKbd(i) {
+      config.keyboards.splice(i, 1);
+      syncCaptureScope();
+      render();
+    }
+
+    function addStem() {
+      if (!config.stems) config.stems = [];
+      const n = config.stems.length + 1;
+      config.stems.push({ id: `stem${n}`, label: `Stem ${n}`, trackName: trackNames[0] || "", defaultVolume: 100 });
+      render();
+    }
+
+    function removeStem(i) {
+      config.stems.splice(i, 1);
+      render();
+    }
+
+    function save() {
+      syncCaptureScope();
+      closeWithResult(config);
+    }
+
+    document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeWithResult(null);
+    });
+  </script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    * { margin: 0; }
+    input, button, select { font: inherit; }
+
+    :root {
+      --p-live-ui-bg: hsl(0,0%,21%);
+      --p-live-control-bg: hsl(0,0%,16%);
+      --p-live-input-bg: hsl(0,0%,12%);
+      --p-live-text-primary: hsl(0,0%,71%);
+      --p-live-control-border: hsl(0,0%,7%);
+      --p-live-text-secondary: hsl(0,0%,41%);
+      --p-live-accent-primary: hsl(31,100%,67%);
+      --p-live-control-text--enabled: hsl(0,0%,7%);
+
+      --c-bg: hsl(0,0%,21%);
+      --c-text-primary: hsl(0,0%,71%);
+      --c-text-secondary: hsl(0,0%,41%);
+      --c-control-bg: hsl(0,0%,16%);
+      --c-control-bg-hover: hsl(0,0%,18%);
+      --c-control-border: hsl(0,0%,7%);
+      --c-control-outline: hsl(0,0%,41%);
+      --c-input-bg: hsl(0,0%,12%);
+      --c-accent: hsl(31,100%,67%);
+      --c-danger: hsl(0,70%,40%);
+      --c-danger-hover: hsl(0,70%,50%);
+    }
+
+    html {
+      background: var(--c-bg);
+      color: var(--c-text-primary);
+      font-family: "AbletonSansSmall", system-ui, sans-serif;
+      font-size: 11.5px;
+      font-weight: 500;
+      -webkit-font-smoothing: antialiased;
+      height: 100%;
+    }
+
+    body {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      overflow: hidden;
+      padding: 14px 16px 0;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 10px;
+      flex-shrink: 0;
+    }
+
+    .title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--c-accent);
+      white-space: nowrap;
+    }
+
+    .rig-name-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+    }
+
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--c-text-secondary);
+      margin-bottom: 4px;
+      flex-shrink: 0;
+    }
+
+    .table-scroll {
+      overflow-x: auto;
+      flex-shrink: 0;
+    }
+
+    .alx-table {
+      border-collapse: collapse;
+      width: 100%;
+      min-width: 560px;
+    }
+
+    .alx-table th {
+      text-align: left;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--c-text-secondary);
+      padding: 3px 6px 3px 0;
+      white-space: nowrap;
+    }
+
+    .alx-table td {
+      padding: 2px 6px 2px 0;
+      vertical-align: middle;
+    }
+
+    .alx-label-inline {
+      color: var(--c-text-secondary);
+      white-space: nowrap;
+      font-size: 10.5px;
+    }
+
+    .alx-input {
+      background: var(--c-input-bg);
+      color: var(--c-text-primary);
+      border: 1px solid var(--c-control-border);
+      height: 20px;
+      padding: 0 0.33em;
+      outline-offset: 0;
+    }
+
+    .alx-input:focus {
+      border-color: var(--c-control-border);
+      outline: 2px solid var(--c-control-outline);
+    }
+
+    .alx-input.num {
+      text-align: right;
+    }
+
+    select.alx-input {
+      padding-right: 4px;
+      cursor: pointer;
+    }
+
+    .alx-button {
+      background: var(--c-control-bg);
+      color: var(--c-text-primary);
+      border: 1px solid var(--c-control-border);
+      height: 20px;
+      padding: 0 1em;
+      border-radius: 1em;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+      font-size: 10.5px;
+      line-height: 1;
+    }
+
+    .alx-button:hover { background: var(--c-control-bg-hover); }
+    .alx-button:focus { outline: 2px solid var(--c-control-outline); }
+
+    .alx-button.primary {
+      background: var(--c-accent);
+      color: hsl(0,0%,7%);
+      font-weight: 700;
+    }
+    .alx-button.primary:hover { filter: brightness(1.1); }
+
+    .alx-button.danger {
+      background: var(--c-danger);
+      color: #ffcccc;
+      border-color: transparent;
+      padding: 0 0.6em;
+    }
+    .alx-button.danger:hover { background: var(--c-danger-hover); }
+
+    .row-mini {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .footer {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      padding: 10px 0 12px;
+      flex-shrink: 0;
+      margin-top: auto;
+      border-top: 1px solid hsl(0,0%,14%);
+    }
+  </style>
+</head>
+<body>
+  <div id="app">Loading…</div>
+</body>
+</html>

@@ -9,6 +9,7 @@ BRIDGE="$SCRIPT_DIR/liverig_bridge_wired.py"
 HTML_SRC="$SCRIPT_DIR/live_rig_3_controller.html"
 HTML_SERVED="/tmp/liverig_controller_served.html"
 RIG_CONFIG_SRC="$SCRIPT_DIR/rig_config.json"
+EXT_STORAGE_DIR="$HOME/Library/Application Support/Ableton/Extensions/LiveRig Setup Tool/storage"
 RIG_CONFIG_SERVED="/tmp/rig_config.json"
 LOG="/tmp/liverig_bridge.log"
 HTTP_LOG="/tmp/liverig_http.log"
@@ -115,18 +116,34 @@ echo "BRIDGE_HOST=$BRIDGE_HOST"
 # ~/Desktop/liverig makes macOS treat each one as a distinct requester for
 # the protected "Desktop Folder" permission, which is what was causing the
 # repeated access prompts on every relaunch.
-"$PYTHON" - "$HTML_SRC" "$BRIDGE_HOST" "$HTML_SERVED" "$RIG_CONFIG_SRC" "$RIG_CONFIG_SERVED" << 'PYEOF'
+"$PYTHON" - "$HTML_SRC" "$BRIDGE_HOST" "$HTML_SERVED" "$RIG_CONFIG_SRC" "$RIG_CONFIG_SERVED" "$EXT_STORAGE_DIR" << 'PYEOF'
 import sys
-html_src, bridge_host, html_served, rig_src, rig_served = sys.argv[1:6]
+html_src, bridge_host, html_served, rig_src, rig_served, ext_storage = sys.argv[1:7]
 
 with open(html_src, "r") as f:
     data = f.read().replace("{{BRIDGE_HOST}}", bridge_host)
 with open(html_served, "w") as f:
     f.write(data)
 
+# If the LiveRig Setup Tool extension wrote a newer rig_config.json into its
+# storageDirectory, copy it into ~/Desktop/liverig/ before the bridge starts.
+# This is the handoff mechanism: extension -> Desktop folder, via this one
+# trusted Python process (avoids repeated macOS Desktop permission prompts).
+import os, shutil
+ext_config = os.path.join(ext_storage, "rig_config.json")
+if os.path.isfile(ext_config):
+    ext_mtime = os.path.getmtime(ext_config)
+    rig_mtime = os.path.getmtime(rig_src) if os.path.isfile(rig_src) else 0
+    if ext_mtime > rig_mtime:
+        shutil.copy2(ext_config, rig_src)
+        print("INFO: Synced newer rig_config.json from extension storage (%s)" % ext_config)
+    else:
+        print("INFO: Extension config is not newer than rig_config.json — no sync needed.")
+elif not os.path.isfile(ext_config):
+    print("INFO: No extension config found at %s — using existing rig_config.json." % ext_config)
+
 # Controller page fetches rig_config.json relative to the http.server root
 # (/tmp) — keep a fresh copy there every launch so it never goes stale.
-import os
 if os.path.isfile(rig_src):
     with open(rig_src, "rb") as f:
         cfg = f.read()
