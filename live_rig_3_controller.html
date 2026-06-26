@@ -476,10 +476,7 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
   <div class="dlg">
     <h3>CAPTURE CURRENT STATE</h3>
     <p>Select which keyboard pages to capture, then tap a song button to save the snapshot.</p>
-    <label><input type="checkbox" id="cap-kbd1" checked> KBD 1</label>
-    <label><input type="checkbox" id="cap-kbd2" checked> KBD 2</label>
-    <label><input type="checkbox" id="cap-kbd3" checked> KBD 3</label>
-    <label><input type="checkbox" id="cap-kbd4" checked> KBD 4</label>
+    <div id="cap-kbd-checkboxes"><!-- populated from RIG_CONFIG --></div>
     <div class="btns">
       <button class="btn-cancel" id="cap-cancel">Cancel</button>
       <button class="btn-ok" id="cap-ok">Continue</button>
@@ -1077,15 +1074,53 @@ function buildPads() {
 }
 
 // ═══════════════════════════════════════════
+//  RIG CONFIG — loaded from rig_config.json, served by the same
+//  http.server that serves this page (LiveRig_Wired_Start.sh, port 8080).
+//  Falls back to the original hardcoded 4-keyboard/8-patch layout if the
+//  file is missing or malformed, so absence of the file changes nothing.
+//
+//  NOTE: the markup below still has exactly 4 fixed KBD page slots
+//  (page-4..page-7) and a 4-tab bar. KBD_COUNT here drives per-keyboard
+//  button/fader/capture counts; supporting a keyboard COUNT other than 4
+//  needs new page-N divs + tabs added to the markup — a separate follow-up.
+// ═══════════════════════════════════════════
+const RIG_CONFIG_DEFAULT = {
+  keyboards: [
+    {id:'kbd1',label:'KBD 1',bankSize:8,buttonCount:16,faderCount:8},
+    {id:'kbd2',label:'KBD 2',bankSize:8,buttonCount:16,faderCount:8},
+    {id:'kbd3',label:'KBD 3',bankSize:8,buttonCount:16,faderCount:8},
+    {id:'kbd4',label:'KBD 4',bankSize:8,buttonCount:16,faderCount:8},
+  ],
+  patches: { maxPatches: 8, captureScope: ['kbd1','kbd2','kbd3','kbd4'] }
+};
+let RIG_CONFIG = RIG_CONFIG_DEFAULT;
+try {
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', 'rig_config.json', false); // sync — tiny same-machine file, runs once at load
+  xhr.send(null);
+  if (xhr.status === 200 && xhr.responseText) {
+    const parsed = JSON.parse(xhr.responseText);
+    if (parsed && Array.isArray(parsed.keyboards) && parsed.keyboards.length) RIG_CONFIG = parsed;
+  }
+} catch(e) { /* keep default — page must never fail to load over this */ }
+
+const KBD_COUNT     = Math.min(4, RIG_CONFIG.keyboards.length);
+const BANK_SIZES    = RIG_CONFIG.keyboards.map(k => k.bankSize ?? 8);
+const BUTTON_COUNTS = RIG_CONFIG.keyboards.map(k => k.buttonCount ?? 16);
+const FADER_COUNTS  = RIG_CONFIG.keyboards.map(k => k.faderCount ?? 8);
+const MAX_PATCHES   = (RIG_CONFIG.patches && RIG_CONFIG.patches.maxPatches) || 8;
+
+// ═══════════════════════════════════════════
 //  PATCHES PAGE — with snapshot capture and rename modes
 // ═══════════════════════════════════════════
 let activeSong = -1;
-const SONG_NAMES = ['Song 1','Song 2','Song 3','Song 4','Song 5','Song 6','Song 7','Song 8'];
+const SONG_COLORS = ['#6c5fd4','#1a9e6e','#d4551e','#d423a6','#3ab8ff','#e040fb','#ff6b6b','#00d4aa'];
+const SONG_NAMES = Array.from({length: MAX_PATCHES}, (_, i) => `Song ${i+1}`);
 try{const s=localStorage.getItem('songNames');if(s)Object.assign(SONG_NAMES,JSON.parse(s));}catch(e){}
 
-// Snapshot data: PATCH_SNAPSHOTS[songIdx] = { kbds: { 0:{buttons:[16],faders:[8]}, ... } }
+// Snapshot data: PATCH_SNAPSHOTS[songIdx] = { kbds: { 0:{buttons:[...],faders:[...]}, ... } }
 // KBD indices missing from `kbds` are NOT restored on song tap.
-let PATCH_SNAPSHOTS = [{},{},{},{},{},{},{},{}];
+let PATCH_SNAPSHOTS = Array.from({length: MAX_PATCHES}, () => ({}));
 try{
   const s=localStorage.getItem('patchSnapshots');
   if(s){const parsed=JSON.parse(s); if(Array.isArray(parsed)) PATCH_SNAPSHOTS=parsed;}
@@ -1096,7 +1131,7 @@ function savePatchSnapshots(){
 
 // Mode state for the patches page. Only one mode active at a time.
 let patchesMode = null;  // null | 'capture' | 'rename'
-let captureKbds = [true, true, true, true];  // which KBD pages to capture, from dialog
+let captureKbds = Array(KBD_COUNT).fill(true);  // which KBD pages to capture, from dialog
 
 function setPatchesMode(mode) {
   patchesMode = mode;
@@ -1109,14 +1144,16 @@ function setPatchesMode(mode) {
 }
 
 function readKbdState(kbdIdx) {
-  // Read buttons (B1-B16 = CC20-35) and faders (CC10-17) for KBD page kbdIdx (0-3).
+  // Read buttons (B1-Bn = CC20+) and faders (CC10+) for KBD page kbdIdx (0-based).
+  const buttonCount = BUTTON_COUNTS[kbdIdx] ?? 16;
+  const faderCount = FADER_COUNTS[kbdIdx] ?? 8;
   const buttons = [];
-  for (let b = 0; b < 16; b++) {
+  for (let b = 0; b < buttonCount; b++) {
     const el = document.querySelector(`#kbtns${kbdIdx} .tog:nth-child(${b+1})`);
     buttons.push(el ? el.dataset.state === '1' : false);
   }
   const faders = [];
-  for (let f = 0; f < 8; f++) {
+  for (let f = 0; f < faderCount; f++) {
     const valEl = document.getElementById(`kfdr-val-${kbdIdx}-${f}`);
     const v = valEl ? parseInt(valEl.textContent, 10) : 96;
     faders.push(isFinite(v) ? Math.max(0, Math.min(127, v)) : 96);
@@ -1127,9 +1164,11 @@ function readKbdState(kbdIdx) {
 function applyKbdState(kbdIdx, state) {
   if (!state) return;
   const ch = kbdIdx + 1;
+  const buttonCount = BUTTON_COUNTS[kbdIdx] ?? 16;
+  const faderCount = FADER_COUNTS[kbdIdx] ?? 8;
   // Buttons — set state and send CC immediately
   if (Array.isArray(state.buttons)) {
-    for (let b = 0; b < 16 && b < state.buttons.length; b++) {
+    for (let b = 0; b < buttonCount && b < state.buttons.length; b++) {
       const cc = 20 + b;
       const on = !!state.buttons[b];
       const el = document.querySelector(`#kbtns${kbdIdx} .tog:nth-child(${b+1})`);
@@ -1142,7 +1181,7 @@ function applyKbdState(kbdIdx, state) {
   }
   // Faders — animate over 500ms with intermediate CC values so Ableton slides
   if (Array.isArray(state.faders)) {
-    for (let f = 0; f < 8 && f < state.faders.length; f++) {
+    for (let f = 0; f < faderCount && f < state.faders.length; f++) {
       const cc = 10 + f;
       const target = Math.max(0, Math.min(127, state.faders[f] | 0));
       animateFader(kbdIdx, f, ch, cc, target, 500);
@@ -1189,7 +1228,7 @@ function animateFader(kbdIdx, f, ch, cc, target, duration) {
 
 function captureSnapshotForSong(songIdx) {
   const snap = { kbds: {} };
-  for (let k = 0; k < 4; k++) {
+  for (let k = 0; k < KBD_COUNT; k++) {
     if (captureKbds[k]) snap.kbds[k] = readKbdState(k);
   }
   PATCH_SNAPSHOTS[songIdx] = snap;
@@ -1222,7 +1261,24 @@ function showSavedOverlay(el) {
   setTimeout(() => { try { ov.remove(); } catch(e){} }, 1200);
 }
 
+function buildCaptureCheckboxes() {
+  const box = document.getElementById('cap-kbd-checkboxes');
+  if (!box) return;
+  box.innerHTML = '';
+  for (let k = 0; k < KBD_COUNT; k++) {
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.id = `cap-kbd${k+1}`;
+    input.checked = true;
+    label.appendChild(input);
+    label.append(' ' + (RIG_CONFIG.keyboards[k]?.label || `KBD ${k+1}`));
+    box.appendChild(label);
+  }
+}
+
 function buildPatches() {
+  buildCaptureCheckboxes();
   const grid = document.getElementById('song-grid');
   SONG_NAMES.forEach((name, i) => {
     const el = document.createElement('div');
@@ -1231,7 +1287,7 @@ function buildPatches() {
     const sname = document.createElement('div');
     sname.className = 'sname';
     sname.id = `song-name-${i}`;
-    sname.style.color = ['#6c5fd4','#1a9e6e','#d4551e','#d423a6','#3ab8ff','#e040fb','#ff6b6b','#00d4aa'][i];
+    sname.style.color = SONG_COLORS[i % SONG_COLORS.length];
     sname.textContent = name;
     const spc = document.createElement('div');
     spc.className = 'spc';
@@ -1263,7 +1319,7 @@ function buildPatches() {
       document.querySelectorAll('.song-btn').forEach(b => b.classList.remove('active'));
       el.classList.add('active');
       activeSong = i;
-      for (let ch = 1; ch <= 4; ch++) sendPC(ch, i);
+      for (let ch = 1; ch <= KBD_COUNT; ch++) sendPC(ch, i);
       restoreSnapshotForSong(i);
     });
     grid.appendChild(el);
@@ -1300,12 +1356,11 @@ function buildPatches() {
   if (okBtn) {
     okBtn.addEventListener('pointerdown', e => {
       e.preventDefault();
-      captureKbds = [
-        document.getElementById('cap-kbd1').checked,
-        document.getElementById('cap-kbd2').checked,
-        document.getElementById('cap-kbd3').checked,
-        document.getElementById('cap-kbd4').checked,
-      ];
+      captureKbds = [];
+      for (let k = 0; k < KBD_COUNT; k++) {
+        const el = document.getElementById(`cap-kbd${k+1}`);
+        captureKbds.push(el ? el.checked : true);
+      }
       if (!captureKbds.some(x => x)) {
         // No KBDs selected — abort
         if (dlg) dlg.classList.remove('show');
@@ -2068,7 +2123,7 @@ function activateCuedSong() {
       ws.send(JSON.stringify({type:'locator_jump', index: locIdx}));
     }
   } else if (typeof song.pc === 'number') {
-    for (let ch = 1; ch <= 4; ch++) sendPC(ch, song.pc & 0x7F);
+    for (let ch = 1; ch <= KBD_COUNT; ch++) sendPC(ch, song.pc & 0x7F);
     if (wsConnected && ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({type:'song_activate', pc: song.pc}));
     }
@@ -2368,7 +2423,12 @@ buildMaster();
 buildLooper();
 buildPads();
 buildPatches();
-for(let k=0;k<4;k++) buildKbdPage(k);
+for(let k=0;k<KBD_COUNT;k++) buildKbdPage(k);
+// Hide tabs/pages for any KBD slots beyond what rig_config.json defines.
+for(let k=KBD_COUNT;k<4;k++){
+  const tab = document.querySelector(`.tab[data-page="${4+k}"]`);
+  if (tab) tab.style.display = 'none';
+}
 buildClipLauncher();
 initMIDI();
 </script>

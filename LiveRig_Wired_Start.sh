@@ -8,6 +8,8 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 BRIDGE="$SCRIPT_DIR/liverig_bridge_wired.py"
 HTML_SRC="$SCRIPT_DIR/live_rig_3_controller.html"
 HTML_SERVED="/tmp/liverig_controller_served.html"
+RIG_CONFIG_SRC="$SCRIPT_DIR/rig_config.json"
+RIG_CONFIG_SERVED="/tmp/rig_config.json"
 LOG="/tmp/liverig_bridge.log"
 HTTP_LOG="/tmp/liverig_http.log"
 LAUNCHER_LOG="/tmp/liverig_launcher.log"
@@ -107,7 +109,32 @@ fi
 echo "BRIDGE_HOST=$BRIDGE_HOST"
 
 # ── 5. Inject hostname into HTML and serve it ─────────────────────────────────
-sed "s|{{BRIDGE_HOST}}|$BRIDGE_HOST|g" "$HTML_SRC" > "$HTML_SERVED"
+# Done via $PYTHON (not sed/cp) so the ONLY binary that ever reads from the
+# Desktop folder is the Python interpreter macOS already has a standing grant
+# for. Shelling out to separate tools like sed/cp to touch files under
+# ~/Desktop/liverig makes macOS treat each one as a distinct requester for
+# the protected "Desktop Folder" permission, which is what was causing the
+# repeated access prompts on every relaunch.
+"$PYTHON" - "$HTML_SRC" "$BRIDGE_HOST" "$HTML_SERVED" "$RIG_CONFIG_SRC" "$RIG_CONFIG_SERVED" << 'PYEOF'
+import sys
+html_src, bridge_host, html_served, rig_src, rig_served = sys.argv[1:6]
+
+with open(html_src, "r") as f:
+    data = f.read().replace("{{BRIDGE_HOST}}", bridge_host)
+with open(html_served, "w") as f:
+    f.write(data)
+
+# Controller page fetches rig_config.json relative to the http.server root
+# (/tmp) — keep a fresh copy there every launch so it never goes stale.
+import os
+if os.path.isfile(rig_src):
+    with open(rig_src, "rb") as f:
+        cfg = f.read()
+    with open(rig_served, "wb") as f:
+        f.write(cfg)
+else:
+    print("WARNING: rig_config.json not found at %s — controller will fall back to built-in defaults." % rig_src)
+PYEOF
 
 cd /tmp
 "$PYTHON" -m http.server $HTTP_PORT > "$HTTP_LOG" 2>&1 &
