@@ -157,6 +157,12 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
 .aux-loops{color:#a466d4;}
 .aux-stems{color:#3dbf9b;}
 
+/* STEMS shortcut column on Master + dedicated Stems tab */
+.master-ch-nav{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;touch-action:none;user-select:none;}
+.master-ch-nav-label{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px;letter-spacing:3px;color:#3dbf9b;}
+.master-ch-nav-hint{font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.08em;}
+.tab[data-page="11"].active::after{background:#3dbf9b;}
+
 /* ── SETLIST v2 ──────────────────────────────────────── */
 .sl-lib-card{display:grid;grid-template-columns:28px 1fr 40px;align-items:center;gap:8px;padding:8px 10px;background:#111117;border:1px solid #222;border-radius:6px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;}
 .sl-lib-card *{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;}
@@ -188,17 +194,19 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
 /* LOOPER */
 .looper-left{flex:1;display:flex;flex-direction:column;gap:10px;}
 .looper-right{width:230px;display:flex;flex-direction:column;gap:8px;}
-.loop-row{display:grid;grid-template-columns:150px 1fr 90px 120px 120px;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid var(--border);}
+.loop-row{display:grid;grid-template-columns:130px 110px 1fr 80px 90px 90px 90px 90px;gap:8px;align-items:center;padding:14px 0;border-bottom:1px solid var(--border);}
 .loop-row:last-child{border-bottom:none;}
 .loop-name{font-family:var(--sans);font-size:22px;font-weight:700;letter-spacing:.04em;}
 .loop-bar-wrap{height:54px;background:var(--surface2);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;}
 .loop-bar{height:100%;width:0%;border-radius:var(--radius);transition:width .1s linear;}
 .loop-state{font-family:var(--mono);font-size:16px;text-align:center;font-weight:bold;}
+.loop-quant{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:12px;font-weight:bold;padding:10px 4px;text-align:center;}
 .loop-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);padding:14px 8px;cursor:pointer;font-family:var(--mono);font-size:14px;font-weight:bold;text-align:center;touch-action:none;letter-spacing:.06em;}
 .loop-btn:active{background:var(--border2);}
 .loop-btn.rec-btn{color:var(--red);}
 .loop-btn.play-btn{color:var(--green);}
 .loop-btn.stop-btn{color:#ff6060;}
+.loop-btn.undo-btn{color:#aaa;}
 .beat-row{display:flex;gap:8px;justify-content:center;}
 .beat{width:18px;height:18px;border-radius:50%;background:var(--surface2);border:1px solid var(--border2);transition:background .05s;}
 .beat.lit{background:var(--accent);box-shadow:0 0 6px var(--accent);}
@@ -290,6 +298,7 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
 
 <div id="tabbar">
   <div class="tab active" data-page="0">Master</div>
+  <div class="tab" data-page="11">Stems</div>
   <div class="tab" data-page="10">Setlist</div>
   <div class="tab" data-page="8">Transport</div>
   <div class="tab" data-page="3">Patches</div>
@@ -309,6 +318,14 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
     <div id="page-master">
       <div class="sec">Master Volumes</div>
       <div id="master-faders-row" style="flex:1;display:grid;grid-template-columns:repeat(8,1fr);gap:10px;min-height:0;"></div>
+    </div>
+  </div>
+
+  <!-- STEMS -->
+  <div id="page-11" class="page">
+    <div id="page-stems" style="display:flex;flex-direction:column;height:100%;gap:8px;">
+      <div class="sec">Stem Channels</div>
+      <div id="stems-faders-row" style="flex:1;display:grid;grid-template-columns:repeat(8,1fr);gap:10px;min-height:0;"></div>
     </div>
   </div>
 
@@ -788,6 +805,68 @@ function onRemoteScriptFeedback(bytes){
     if (!m4l.kbdDeviceInfo) m4l.kbdDeviceInfo = [{},{},{},{}];
     m4l.kbdDeviceInfo[kbdIdx] = { name: devName, bank: bankIdx, banks: bankCount };
     if (typeof updateKbdDeviceHeader === 'function') updateKbdDeviceHeader(kbdIdx);
+  } else if (fb === 0x44) {
+    // KBD track color: kbdIdx, r14_hi, r14_lo, g14_hi, g14_lo, b14_hi, b14_lo
+    const kbdIdx = data[0];
+    const r = rsUint14(data[1], data[2]) & 0xFF;
+    const g = rsUint14(data[3], data[4]) & 0xFF;
+    const b = rsUint14(data[5], data[6]) & 0xFF;
+    if (kbdIdx >= 0 && kbdIdx < 4) {
+      const hex = '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+      if (!m4l.kbdColors) m4l.kbdColors = [null,null,null,null];
+      m4l.kbdColors[kbdIdx] = hex;
+      // --k1..--k4 drive both the KBD tab underline (.tab[data-page="N"].active::after)
+      // and the Master page K1-K4 column fill/text (.fill-kN / .kN) — overriding the
+      // CSS custom property here updates both without restructuring either.
+      document.documentElement.style.setProperty('--k' + (kbdIdx + 1), hex);
+    }
+  } else if (fb === 0x45) {
+    // KBD track name: kbdIdx, nameLen, nameBytes
+    const kbdIdx = data[0];
+    const {text:trackName} = rsDecodeStr(data, 1);
+    if (kbdIdx >= 0 && kbdIdx < 4) {
+      if (!m4l.kbdNames) m4l.kbdNames = [null,null,null,null];
+      m4l.kbdNames[kbdIdx] = trackName;
+      if (typeof updateMasterKbdLabel === 'function') updateMasterKbdLabel(kbdIdx, trackName);
+    }
+  } else if (fb === 0x46) {
+    // Stem track color: stemIdx, r14_hi, r14_lo, g14_hi, g14_lo, b14_hi, b14_lo
+    const stemIdx = data[0];
+    const r = rsUint14(data[1], data[2]) & 0xFF;
+    const g = rsUint14(data[3], data[4]) & 0xFF;
+    const b = rsUint14(data[5], data[6]) & 0xFF;
+    if (stemIdx >= 0 && stemIdx < 8) {
+      const hex = '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+      if (!m4l.stemColors) m4l.stemColors = new Array(8).fill(null);
+      m4l.stemColors[stemIdx] = hex;
+      if (typeof updateStemColor === 'function') updateStemColor(stemIdx, hex);
+    }
+  } else if (fb === 0x47) {
+    // Stem track name: stemIdx, nameLen, nameBytes
+    const stemIdx = data[0];
+    const {text:trackName} = rsDecodeStr(data, 1);
+    if (stemIdx >= 0 && stemIdx < 8) {
+      if (!m4l.stemNames) m4l.stemNames = new Array(8).fill(null);
+      m4l.stemNames[stemIdx] = trackName;
+      if (typeof updateStemLabel === 'function') updateStemLabel(stemIdx, trackName);
+    }
+  } else if (fb === 0x48) {
+    // Loop state feedback: loopIdx, state (0=stop, 1=record, 2=play) --
+    // the true Ableton Looper device state, not just our optimistic
+    // button-press guess. Corrects loopRec/Play/Stop's local UI update.
+    const loopIdx = data[0];
+    const state = data[1];
+    if (loopIdx >= 0 && loopIdx < 4 && typeof updateLooperState === 'function') {
+      updateLooperState(loopIdx, state);
+    }
+  } else if (fb === 0x49) {
+    // Loop Quantization feedback: loopIdx, quantIdx -- real device value,
+    // confirms/corrects the dropdown if it was changed in Ableton directly.
+    const loopIdx = data[0];
+    const quantIdx = data[1];
+    if (loopIdx >= 0 && loopIdx < 4 && typeof updateLooperQuant === 'function') {
+      updateLooperQuant(loopIdx, quantIdx);
+    }
   }
 }
 
@@ -871,23 +950,48 @@ function updateBeatPulseColor() {
 // ═══════════════════════════════════════════
 //  MASTER PAGE
 // ═══════════════════════════════════════════
+function kbdMasterLabel(k) {
+  // Prefer the real Ableton track name fed back over SysEx (0x45); fall back
+  // to the rig_config.json keyboard label, then a generic placeholder.
+  if (m4l.kbdNames && m4l.kbdNames[k]) return m4l.kbdNames[k];
+  return RIG_CONFIG.keyboards[k]?.label || `K${k + 1}`;
+}
+
+function updateMasterKbdLabel(kbdIdx, name) {
+  const span = document.querySelector(`.master-ch[data-kbd-idx="${kbdIdx}"] .fader-label-vert span`);
+  if (span) span.textContent = name || kbdMasterLabel(kbdIdx);
+}
+
 function buildMaster() {
   // 8 channels: K1-K4 (volume, CC7 ch1-4) + Click/Guide/Loops/Stems (CC20-23 ch5)
   const CHANNELS = [
-    {label:'K1',     fillCls:'fill-k1',        colorCls:'k1',         ch:1,  cc:7,  muteCc:1,  soloCc:2},
-    {label:'K2',     fillCls:'fill-k2',        colorCls:'k2',         ch:2,  cc:7,  muteCc:1,  soloCc:2},
-    {label:'K3',     fillCls:'fill-k3',        colorCls:'k3',         ch:3,  cc:7,  muteCc:1,  soloCc:2},
-    {label:'K4',     fillCls:'fill-k4',        colorCls:'k4',         ch:4,  cc:7,  muteCc:1,  soloCc:2},
+    {label:kbdMasterLabel(0), kbdIdx:0, fillCls:'fill-k1',        colorCls:'k1',         ch:1,  cc:7,  muteCc:1,  soloCc:2},
+    {label:kbdMasterLabel(1), kbdIdx:1, fillCls:'fill-k2',        colorCls:'k2',         ch:2,  cc:7,  muteCc:1,  soloCc:2},
+    {label:kbdMasterLabel(2), kbdIdx:2, fillCls:'fill-k3',        colorCls:'k3',         ch:3,  cc:7,  muteCc:1,  soloCc:2},
+    {label:kbdMasterLabel(3), kbdIdx:3, fillCls:'fill-k4',        colorCls:'k4',         ch:4,  cc:7,  muteCc:1,  soloCc:2},
     {label:'CLICK',  fillCls:'fill-aux-click', colorCls:'aux-click',  ch:5,  cc:20, muteCc:24, soloCc:28},
     {label:'GUIDE',  fillCls:'fill-aux-guide', colorCls:'aux-guide',  ch:5,  cc:21, muteCc:25, soloCc:29},
     {label:'LOOPS',  fillCls:'fill-aux-loops', colorCls:'aux-loops',  ch:5,  cc:22, muteCc:26, soloCc:30},
-    {label:'STEMS',  fillCls:'fill-aux-stems', colorCls:'aux-stems',  ch:5,  cc:23, muteCc:27, soloCc:31},
+    {label:'STEMS',  colorCls:'aux-stems', nav:'11'},
   ];
   const host = document.getElementById('master-faders-row');
   host.innerHTML = '';
   CHANNELS.forEach(c => {
     const col = document.createElement('div');
     col.className = `master-ch ${c.colorCls}`;
+    if (c.kbdIdx !== undefined) col.dataset.kbdIdx = c.kbdIdx;
+
+    if (c.nav) {
+      // Shortcut column (e.g. STEMS) — taps jump to a dedicated tab instead
+      // of acting as a fader, since 8 named stem channels don't fit this row.
+      col.classList.add('master-ch-nav');
+      const lbl = document.createElement('div'); lbl.className = 'master-ch-nav-label'; lbl.textContent = c.label;
+      const hint = document.createElement('div'); hint.className = 'master-ch-nav-hint'; hint.textContent = '8 CH ▸';
+      col.append(lbl, hint);
+      col.addEventListener('pointerdown', e => { e.preventDefault(); switchToPage(c.nav); });
+      host.appendChild(col);
+      return;
+    }
 
     // Mute/Solo row (above fader)
     const ms = document.createElement('div'); ms.className = 'mute-solo';
@@ -929,6 +1033,87 @@ function buildMaster() {
   });
 }
 
+// ═══════════════════════════════════════════
+//  STEMS PAGE (dedicated tab — config-driven channel count, 10 as of
+//  2026-06-29)
+// ═══════════════════════════════════════════
+// Own CC scheme on channel 6 (non-overlapping with KBD1-4 ch1-4, Master
+// aux row ch5, and global transport/loop controls on ch16). CC per stem
+// si is fader=si+1, mute=11+si, solo=21+si — at 10 stems that's
+//   faders: CC1-10   mute: CC11-20   solo: CC21-30
+const STEM_DEFAULT_COLOR = '#3dbf9b';
+
+function stemLabel(si) {
+  // Prefer the real Ableton track name fed back over SysEx (0x47); fall
+  // back to the rig_config.json stem label, then a generic placeholder.
+  if (m4l.stemNames && m4l.stemNames[si]) return m4l.stemNames[si];
+  return RIG_CONFIG.stems?.[si]?.label || `Stem ${si + 1}`;
+}
+
+function stemColor(si) {
+  return (m4l.stemColors && m4l.stemColors[si]) || STEM_DEFAULT_COLOR;
+}
+
+function updateStemLabel(si, name) {
+  const span = document.querySelector(`.stem-ch[data-stem-idx="${si}"] .fader-label-vert span`);
+  if (span) span.textContent = name || stemLabel(si);
+}
+
+function updateStemColor(si, hex) {
+  const col = document.querySelector(`.stem-ch[data-stem-idx="${si}"]`);
+  if (!col) return;
+  const fill = col.querySelector('.fader-fill-vert');
+  if (fill) fill.style.background = hex;
+}
+
+function buildStems() {
+  const STEM_COUNT = (RIG_CONFIG.stems || []).length || 8;
+  const host = document.getElementById('stems-faders-row');
+  host.innerHTML = '';
+  host.style.gridTemplateColumns = `repeat(${STEM_COUNT},1fr)`;
+  for (let si = 0; si < STEM_COUNT; si++) {
+    const ch = 6, cc = si + 1, muteCc = 11 + si, soloCc = 21 + si;
+    const col = document.createElement('div');
+    col.className = 'master-ch stem-ch';
+    col.dataset.stemIdx = si;
+
+    const ms = document.createElement('div'); ms.className = 'mute-solo';
+    const mBtn = document.createElement('div');
+    mBtn.className = 'ms-btn'; mBtn.textContent = 'M'; mBtn.dataset.state = '0';
+    mBtn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const on = mBtn.dataset.state === '0';
+      mBtn.dataset.state = on ? '1' : '0';
+      mBtn.classList.toggle('active-m', on);
+      sendCC(ch, muteCc, on ? 127 : 0);
+    });
+    const sBtn = document.createElement('div');
+    sBtn.className = 'ms-btn'; sBtn.textContent = 'S'; sBtn.dataset.state = '0';
+    sBtn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const on = sBtn.dataset.state === '0';
+      sBtn.dataset.state = on ? '1' : '0';
+      sBtn.classList.toggle('active-s', on);
+      sendCC(ch, soloCc, on ? 127 : 0);
+    });
+    ms.append(mBtn, sBtn);
+
+    const track = document.createElement('div'); track.className = 'fader-track-vert';
+    const fill = document.createElement('div'); fill.className = 'fader-fill-vert'; fill.style.height = '75%'; fill.style.background = stemColor(si);
+    const lblWrap = document.createElement('div'); lblWrap.className = 'fader-label-vert';
+    const lblSpan = document.createElement('span'); lblSpan.textContent = stemLabel(si);
+    lblWrap.appendChild(lblSpan);
+    track.append(fill, lblWrap);
+
+    const val = document.createElement('div'); val.className = 'fader-val-vert'; val.textContent = '96';
+
+    fdrTouch(track, fill, val, pct => sendCC(ch, cc, Math.round(pct * 127)));
+
+    col.append(ms, track, val);
+    host.appendChild(col);
+  }
+}
+
 function fdrTouch(track, fill, valEl, cb) {
   let lastVal = -1;
   function update(e) {
@@ -954,12 +1139,27 @@ let tempo=120, beatTimer=null, beatIdx=0, lastTap=0, tapTimesLooper=[];
 const LOOP_COLORS=['#6c5fd4','#1a9e6e','#d4551e','#c07818'];
 let loopState=['idle','idle','idle','idle'];
 let loopProgress=[0,0,0,0];
+// Real Looper device Quantization value_items, in their actual enum order
+// (confirmed via diagnostic param dump -- index sent here must match this
+// order exactly since it's written straight into the device's param).
+const LOOP_QUANT_ITEMS=['Global','None','8 Bars','4 Bars','2 Bars','1 Bar','1/2','1/2T','1/4','1/4T','1/8','1/8T','1/16','1/16T','1/32'];
+// Only whole-bar settings give us a known loop duration to animate against --
+// Ableton doesn't expose an actual playhead/position for the Looper, so
+// progress for anything else (Global/None/sub-bar) can't be calculated and
+// is left static.
+const LOOP_QUANT_BEATS={'8 Bars':32,'4 Bars':16,'2 Bars':8,'1 Bar':4};
+let loopQuantIdx=[0,0,0,0];
+let loopRecStart=[0,0,0,0];
 
 function buildLooper() {
   const rows=document.getElementById('loop-rows');
   for(let k=0;k<4;k++){
     const row=document.createElement('div'); row.className='loop-row';
     const name=document.createElement('div'); name.className='loop-name'; name.style.color=LOOP_COLORS[k]; name.textContent=`Loop ${k+1}`;
+    const quantSel=document.createElement('select'); quantSel.className='loop-quant'; quantSel.id=`loop-quant-${k}`;
+    LOOP_QUANT_ITEMS.forEach((label,i)=>{ const opt=document.createElement('option'); opt.value=i; opt.textContent=label; quantSel.appendChild(opt); });
+    quantSel.value=loopQuantIdx[k];
+    quantSel.addEventListener('change',()=>{ setLoopQuant(k,parseInt(quantSel.value,10)); });
     const barWrap=document.createElement('div'); barWrap.className='loop-bar-wrap';
     const bar=document.createElement('div'); bar.className='loop-bar'; bar.id=`loop-bar-${k}`; bar.style.background=LOOP_COLORS[k];
     barWrap.appendChild(bar);
@@ -970,8 +1170,11 @@ function buildLooper() {
     playBtn.addEventListener('touchstart',e=>{e.preventDefault();loopPlay(k);},{passive:false});
     const stopBtn=document.createElement('div'); stopBtn.className='loop-btn stop-btn'; stopBtn.textContent='STOP';
     stopBtn.addEventListener('touchstart',e=>{e.preventDefault();loopStop(k);},{passive:false});
-    row.append(name,barWrap,state,recBtn,playBtn); rows.appendChild(row);
+    const undoBtn=document.createElement('div'); undoBtn.className='loop-btn undo-btn'; undoBtn.textContent='UNDO';
+    undoBtn.addEventListener('touchstart',e=>{e.preventDefault();loopUndo(k);},{passive:false});
+    row.append(name,quantSel,barWrap,state,recBtn,playBtn,stopBtn,undoBtn); rows.appendChild(row);
   }
+  startLoopProgressTimer();
   const tempoFader=document.getElementById('tempo-fader-track');
   const tempoFill=document.getElementById('tempo-fill');
   const tempoDisp=document.getElementById('tempo-disp');
@@ -1018,9 +1221,92 @@ function tapTempoLooper() {
 
 function nudgeTempo(d){tempo=Math.max(20,Math.min(300,tempo+d));document.getElementById('tempo-disp').textContent=tempo;sendCC(16,d>0?90:91,127);restartBeat();}
 
-function loopRec(k){loopState[k]='rec';const el=document.getElementById(`loop-state-${k}`);if(el)el.textContent='REC';sendCC(16,80+k,127);}
-function loopPlay(k){loopState[k]='play';const el=document.getElementById(`loop-state-${k}`);if(el)el.textContent='PLAY';sendCC(16,80+k,64);}
-function loopStop(k){loopState[k]='idle';const el=document.getElementById(`loop-state-${k}`);if(el)el.textContent='IDLE';const bar=document.getElementById(`loop-bar-${k}`);if(bar)bar.style.width='0%';sendCC(16,84+k,127);}
+// Loop1-4 control — native Looper-device control via the bridge's JSON
+// WebSocket "native action" pattern (same mechanism as sendTransportNative),
+// NOT plain MIDI CC. Ableton's native Looper device exposes one combined
+// State enum (Stop/Record/Play), which doesn't map cleanly to discrete
+// momentary CC button presses via Cmd+M — the script instead sets the
+// State parameter directly via the Live Object Model. Local UI updates
+// here are optimistic and get corrected by the loop-state feedback
+// handler (fb 0x48 -> updateLooperState) once Ableton confirms the real
+// device state.
+function sendLoopNative(action,k){
+  if (typeof wsConnected !== 'undefined' && wsConnected && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:'loop_'+action, index:k}));
+  }
+}
+function loopRec(k){loopState[k]='rec';const el=document.getElementById(`loop-state-${k}`);if(el)el.textContent='REC';sendLoopNative('rec',k);}
+function loopPlay(k){loopState[k]='play';const el=document.getElementById(`loop-state-${k}`);if(el)el.textContent='PLAY';sendLoopNative('play',k);}
+function loopStop(k){loopState[k]='idle';const el=document.getElementById(`loop-state-${k}`);if(el)el.textContent='IDLE';const bar=document.getElementById(`loop-bar-${k}`);if(bar)bar.style.width='0%';sendLoopNative('stop',k);}
+function loopUndo(k){sendLoopNative('undo',k);}
+
+// Looper Quantization control -- the real device "Quantization" param
+// (same control as the dropdown on the device's own UI), which is the
+// closest thing the Live API exposes to a bar-length selector. Sent via
+// the same JSON WebSocket native-action channel as sendLoopNative.
+function setLoopQuant(k,idx){
+  loopQuantIdx[k]=idx;
+  if (typeof wsConnected !== 'undefined' && wsConnected && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:'loop_quant', index:k, value:idx}));
+  }
+}
+// Corrects/syncs the dropdown with the real device Quantization value,
+// fed back from LiveRig.py via SysEx fb 0x49 (loop_idx, quant_idx).
+function updateLooperQuant(k,idx){
+  loopQuantIdx[k]=idx;
+  const sel=document.getElementById(`loop-quant-${k}`);
+  if(sel) sel.value=idx;
+}
+
+// Corrects the optimistic UI above with the real Ableton Looper device
+// state, fed back from LiveRig.py via SysEx fb 0x48 (loop_idx, state).
+// state: 0=stop, 1=record, 2=play (matches the FB_TRANSPORT convention).
+function updateLooperState(k,state){
+  const stateNames=['idle','rec','play'];
+  const stateLabels=['IDLE','REC','PLAY'];
+  const prevState=loopState[k];
+  loopState[k]=stateNames[state]||'idle';
+  const el=document.getElementById(`loop-state-${k}`);
+  if(el) el.textContent=stateLabels[state]||'IDLE';
+  if(state===1){
+    // Fresh transition into rec (confirmed by Ableton, not just our
+    // optimistic press) -- anchor the progress-bar phase calculation here.
+    if(prevState!=='rec') loopRecStart[k]=Date.now();
+  } else if(state===0){
+    loopRecStart[k]=0;
+    const bar=document.getElementById(`loop-bar-${k}`);
+    if(bar) bar.style.width='0%';
+  }
+}
+
+// Estimated loop progress animation. Ableton's Looper device does not
+// expose a playhead/position or its "Record N bars" auto-stop length via
+// the Live API at all (confirmed via diagnostic param dump + Ableton
+// forum research) -- so this is a best-effort visual computed client-side
+// from BPM and the selected whole-bar Quantization setting, anchored to
+// the feedback-confirmed rec-start timestamp. It is NOT a true readout;
+// for Global/None/sub-bar Quantization settings the loop length can't be
+// determined, so the bar is left static in those cases.
+let loopProgressTimerStarted=false;
+function startLoopProgressTimer(){
+  if(loopProgressTimerStarted) return;
+  loopProgressTimerStarted=true;
+  setInterval(()=>{
+    for(let k=0;k<4;k++){
+      if(loopState[k]!=='rec' && loopState[k]!=='play') continue;
+      if(!loopRecStart[k]) continue;
+      const quantLabel=LOOP_QUANT_ITEMS[loopQuantIdx[k]];
+      const beats=LOOP_QUANT_BEATS[quantLabel];
+      if(!beats) continue; // unknowable length, leave bar static
+      const secPerBeat=60/tempo;
+      const durationSec=beats*secPerBeat;
+      const elapsedSec=(Date.now()-loopRecStart[k])/1000;
+      const pct=Math.min(100,((elapsedSec%durationSec)/durationSec)*100);
+      const bar=document.getElementById(`loop-bar-${k}`);
+      if(bar) bar.style.width=pct+'%';
+    }
+  },50);
+}
 
 // ═══════════════════════════════════════════
 //  PADS PAGE
@@ -2323,6 +2609,15 @@ function setTabEditMode(on) {
   }
 }
 
+function switchToPage(p) {
+  const tab = document.querySelector(`.tab[data-page="${p}"]`);
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
+  if (tab) tab.classList.add('active');
+  const pg = document.getElementById(`page-${p}`); if (pg) pg.classList.add('active');
+  if (typeof cleanupSetlistGhosts === 'function') cleanupSetlistGhosts();
+}
+
 function attachTabHandlers() {
   document.querySelectorAll('.tab').forEach(tab => {
     let pressTimer = null;
@@ -2382,12 +2677,7 @@ function attachTabHandlers() {
           return;
         }
         // Normal tap: switch to that page
-        const p = tab.dataset.page;
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
-        tab.classList.add('active');
-        const pg = document.getElementById(`page-${p}`); if (pg) pg.classList.add('active');
-        if (typeof cleanupSetlistGhosts === 'function') cleanupSetlistGhosts();
+        switchToPage(tab.dataset.page);
         return;
       }
       if (dragMode) {
@@ -2420,6 +2710,7 @@ function initMIDI() {
 }
 
 buildMaster();
+buildStems();
 buildLooper();
 buildPads();
 buildPatches();

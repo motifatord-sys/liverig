@@ -263,6 +263,28 @@ async def handle_client(websocket, path=None):
                 elif msg_type == "transport_redo":
                     midi_out.send_message([0xF0, 0x7D, 0x49, 0x00, 0xF7])
 
+                elif msg_type == "loop_rec":
+                    idx = int(data.get("index", 0)) & 0x7F
+                    midi_out.send_message([0xF0, 0x7D, 0x4B, idx, 0xF7])
+
+                elif msg_type == "loop_play":
+                    idx = int(data.get("index", 0)) & 0x7F
+                    midi_out.send_message([0xF0, 0x7D, 0x4C, idx, 0xF7])
+
+                elif msg_type == "loop_stop":
+                    idx = int(data.get("index", 0)) & 0x7F
+                    midi_out.send_message([0xF0, 0x7D, 0x4D, idx, 0xF7])
+
+                elif msg_type == "loop_undo":
+                    idx = int(data.get("index", 0)) & 0x7F
+                    midi_out.send_message([0xF0, 0x7D, 0x4E, idx, 0xF7])
+
+                elif msg_type == "loop_quant":
+                    idx = int(data.get("index", 0)) & 0x07
+                    qval = int(data.get("value", 0)) & 0x0F
+                    packed = ((idx << 4) | qval) & 0x7F
+                    midi_out.send_message([0xF0, 0x7D, 0x4F, packed, 0xF7])
+
                 elif msg_type == "song_activate":
                     pc = int(data.get("pc", 0)) & 0x7F
                     for ch in range(4):

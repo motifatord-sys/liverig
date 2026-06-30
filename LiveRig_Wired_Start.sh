@@ -198,8 +198,27 @@ root = tk.Tk()
 root.title("LiveRig Bridge")
 root.geometry("520x520")
 root.configure(bg="#1a1a1f")
+
+# Force this window to the front. A Python process launched in the
+# background by a double-clicked AppleScript app doesn't get macOS
+# "frontmost" status automatically, so without this the window can render
+# behind every other app/Space with no visible way to bring it forward
+# (this is what was reading as "LiveRig won't open / keeps crashing" even
+# though the bridge + http server were running fine).
+try:
+    import subprocess
+    subprocess.run(
+        ["osascript", "-e",
+         'tell application "System Events" to set frontmost of '
+         '(first process whose unix id is %d) to true' % os.getpid()],
+        check=False, timeout=3
+    )
+except Exception:
+    pass
+root.attributes('-topmost', True)
 root.lift()
-root.after(150, lambda: root.attributes('-topmost', False))
+root.focus_force()
+root.after(400, lambda: root.attributes('-topmost', False))
 
 frm = tk.Frame(root, bg="#1a1a1f", padx=20, pady=20)
 frm.pack(fill="both", expand=True)
