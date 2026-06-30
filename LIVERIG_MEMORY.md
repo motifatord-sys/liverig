@@ -2,7 +2,7 @@
 
 > This file replaces `SESSION_BACKUP.md` (stale as of 2026-05-01) as the canonical project memory. It lives in the repo so it's read/write for Claude every session — no manual paste-in required. Updated on request ("Jesus Saves") or at natural session boundaries.
 
-**Last updated:** 2026-06-30 (FX Return faders on Master page, automatic mute/solo via Remote Script, JS TDZ crash fix — Master page fully rendering all 11 channels)
+**Last updated:** 2026-06-30 (FX Return faders on Master page, automatic mute/solo via Remote Script, JS TDZ crash fix — Master page fully rendering all 11 channels; verified `feature/extensions-sdk-setup` PR #2 already merged to `main` and the `_dump_looper_params` call site already removed)
 
 ## App bundle architecture — CRITICAL deployment fact
 
@@ -22,7 +22,7 @@ LiveRig is a custom iPad-based MIDI controller for Ableton Live, using Safari as
 - **Repo:** `https://github.com/motifatord-sys/liverig` (local: `~/Desktop/liverig/`)
 - **GitHub auth:** Fine-grained PAT scoped to liverig repo (Contents read+write), via macOS Keychain / `osxkeychain`
 
-## Current state — rig_config.json refactor: MERGED. Extensions SDK setup-tool: built, fixed, pipeline verified.
+## Current state — rig_config.json refactor: MERGED. Extensions SDK setup-tool: MERGED.
 
 - **`refactor/rig-config` is merged to `main`** (merge commit `407d641`). This is the live state of the project, not a pending PR.
   - Controller HTML (`live_rig_3_controller.html`): confirmed via deliberate `maxPatches: 6` visible test, then reverted to 8.
@@ -32,7 +32,7 @@ LiveRig is a custom iPad-based MIDI controller for Ableton Live, using Safari as
   - **Launcher fix:** `LiveRig_Wired_Start.sh` consolidated all Desktop-folder file I/O into a single Python heredoc, fixing repeated macOS Desktop-permission prompts.
   - **Known limitation, not yet fixed:** controller HTML still has 4 fixed page divs (`page-4`..`page-7`) and a 4-tab bar. `KBD_COUNT` can shrink below 4 cleanly but growing beyond 4 needs new markup — flagged for future work.
 
-- **`feature/extensions-sdk-setup` — built by Claude Code, reconciled and bug-fixed by this chat, pipeline verified end-to-end. Not yet merged.**
+- **`feature/extensions-sdk-setup` — built by Claude Code, reconciled and bug-fixed by this chat, pipeline verified end-to-end. MERGED to `main` as squash commit `c4c9430` ("Extensions SDK setup tool + Looper Quantization + menu bar launcher (#2)") — confirmed 2026-06-30 via `git log`, no divergence between the old feature branch tip and `main`.**
   - New `liverig-setup-tool/` Ableton Extension: right-click any audio/MIDI track in Live Beta → "Configure LiveRig…" → modal form for rig name, KBD1-4 track bindings/bank size/buttons/faders/CC range, stems (label/track/default volume), max patches + animation ms.
   - Writes its working copy to `context.environment.storageDirectory/rig_config.json` (the SDK sandbox forbids writing directly to `~/Desktop/liverig/`).
   - `LiveRig_Wired_Start.sh` extended with a sync step: on every launch, compares mtimes of the extension's storage copy vs. `~/Desktop/liverig/rig_config.json` and `shutil.copy2`s the newer one over — this is the real (non-clipboard) handoff mechanism, decided 2026-06-26.
@@ -44,10 +44,9 @@ LiveRig is a custom iPad-based MIDI controller for Ableton Live, using Safari as
 
 ## On the horizon
 
-- **Immediate next step:** verify `LiveRig.py` picks up the synced config after David's Live restart (check `Log.txt`), then verify the iPad controller UI reflects it.
-- Once verified, open/merge the PR for `feature/extensions-sdk-setup` → `main` (merges second, after `refactor/rig-config`, per `BRANCHING_STRATEGY.md`).
+- Both branches (`refactor/rig-config`, `feature/extensions-sdk-setup`) are merged to `main`. No open PRs.
 - **>4 keyboard support:** requires restructuring static page/tab markup in `live_rig_3_controller.html` — deferred, no timeline.
-- See `BRANCHING_STRATEGY.md` for fork points, merge order, and conflict zones.
+- See `BRANCHING_STRATEGY.md` for fork points, merge order, and conflict zones (historical reference now that both branches are merged).
 
 ## Key learnings & principles (additions 2026-06-30)
 
@@ -153,23 +152,25 @@ Fix: moved `const RIG_CONFIG_DEFAULT`, `let RIG_CONFIG`, and the XHR load try/ca
 - **`liverig_bridge_wired.py`:** `loop_rec`/`loop_play`/`loop_stop`/`loop_undo` + new `loop_quant` JSON message types (carries `{index, value}`, packs into the `SX_LOOP_QUANT` value byte). `midi_in_callback` is a generic SysEx→WebSocket passthrough, so no bridge change was needed for the new `FB_LOOP_QUANT` feedback to reach the HTML.
 - **`live_rig_3_controller.html`:** Looper row UI rebuilt — each of the 4 rows now has: name, a **Quantization `<select>` dropdown** (all 15 real device values, wired via `setLoopQuant`/`updateLooperQuant`, fb 0x49), an estimated progress bar, state label, REC/PLAY/STOP/UNDO buttons. `loopRecStart[]` anchors progress-phase calculation to the feedback-confirmed (not optimistic) rec-start moment, captured in `updateLooperState`. A 50ms `setInterval` (`startLoopProgressTimer`) computes `pct = (elapsed % durationSec) / durationSec * 100` from `tempo` + the selected Quantization's beat count (`LOOP_QUANT_BEATS`, only defined for the 4 whole-bar options — Global/None/sub-bar settings leave the bar static since duration can't be determined client-side). This is explicitly an estimate, agreed with David as an acceptable approximation given the API ceiling above.
 - **Verified working live by David** (transport-fix confirmed: "ok it looks like its working"). Quantization dropdown + progress bar built and syntax-checked this session; **not yet confirmed live by David** — next step is reloading the Remote Script + refreshing the iPad page and testing.
-- **Still pending cleanup:** remove the temporary `_dump_looper_params(0)` diagnostic call from `_connect_listeners` once no longer needed — currently harmless but not meant to be permanent.
+- **Cleanup done:** the temporary `_dump_looper_params(0)` call site in `_connect_listeners` has already been removed (confirmed 2026-06-30 via grep — only the unused method definition remains in `LiveRig.py`; safe to delete the dead method body whenever convenient, no rush).
 
 ## Pending tasks (carried forward, not yet superseded)
 
-1. **Remove the temporary `_dump_looper_params(0)` diagnostic call** from `_connect_listeners` in `LiveRig.py` — harmless but not meant to be permanent.
-2. **Open/merge PR for `feature/extensions-sdk-setup` → `main`.**
-3. Decide whether to delete superseded `SESSION_BACKUP.md` from repo root (archive copy already safe at `~/Documents/LiveRig_Archive/SESSION_BACKUP_2026-05-01.md`).
-4. Restructure controller HTML markup to support >4 keyboards (currently capped by static page/tab divs).
-5. Build "blue hand" mode — KBD pages auto-bind to currently-selected track's first 8 device params.
-6. Multi-computer routing UI (Option A architecture) — when needed.
-7. **For Claude Code, Extensions SDK setup-tool (`liverig-setup-tool/`):** stems section already has track-assignment UI (fixed: null trackName now shows "— unbound —" option, commit `bc62b75`). Full stems binding via the setup-tool modal is now functional — no longer requires hand-editing `rig_config.json`.
+~~Remove the temporary `_dump_looper_params(0)` diagnostic call~~ — done, call site already gone (dead method body still in file, low-priority delete-whenever).
+~~Open/merge PR for `feature/extensions-sdk-setup` → `main`~~ — done, merged as `c4c9430`.
+
+1. Decide whether to delete superseded `SESSION_BACKUP.md` from repo root (archive copy already safe at `~/Documents/LiveRig_Archive/SESSION_BACKUP_2026-05-01.md`). Still present at repo root as of 2026-06-30.
+2. Restructure controller HTML markup to support >4 keyboards (currently capped by static page/tab divs).
+3. Build "blue hand" mode — KBD pages auto-bind to currently-selected track's first 8 device params.
+4. Multi-computer routing UI (Option A architecture) — when needed.
+5. Optional: delete the now-dead `_dump_looper_params` method body from `LiveRig.py` (no live call site remains).
+6. There's a stray local branch `claude/keen-mestorf-aedfa5` with an associated worktree under `.claude/worktrees/` — diff vs. `main` is empty, looks like leftover scaffolding from a prior Claude Code session. Safe to delete unless David wants it kept.
 
 ## How to resume in a new chat
 
 1. Read this file first — it's the live state, not `SESSION_BACKUP.md`.
 2. The Master page is fully working as of 2026-06-30: 11 channels (KBD 1-4, CLICK/GUIDE/LOOPS, REV 1/REV 2/DLY 1/DLY 2), mute/solo automatic via Remote Script. No open regressions.
-3. Continue from "Pending tasks" above — top items are cleanup (`_dump_looper_params`) and opening the PR for `feature/extensions-sdk-setup`.
+3. Continue from "Pending tasks" above — both former top items (looper diagnostic cleanup, extensions-sdk-setup PR) are done; next up is the `SESSION_BACKUP.md` deletion decision and >4 keyboard markup restructure.
 4. Respect channel isolation and architectural decisions listed above.
 5. Don't reintroduce removed features (Record/Punch/Overdub on Setlist, STEMS nav button on Master, etc.) without confirming with David first.
 6. Use `~/Library/Preferences/Ableton/Live 12.4.2/Log.txt` for Ableton log checks — not the old 12.3.8 folder.
