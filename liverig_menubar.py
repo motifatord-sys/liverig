@@ -8,10 +8,10 @@ import os
 import sys
 from pathlib import Path
 
-BRIDGE_LOG = "/tmp/liverig_bridge.log"
-HTTP_LOG   = "/tmp/liverig_http.log"
-PID_FILE   = "/tmp/liverig_bridge.pid"
-HTTP_PID   = "/tmp/liverig_http.pid"
+BRIDGE_LOG = "/private/tmp/liverig_bridge.log"
+HTTP_LOG   = "/private/tmp/liverig_http.log"
+PID_FILE   = "/private/tmp/liverig_bridge.pid"
+HTTP_PID   = "/private/tmp/liverig_http.pid"
 HTTP_PORT  = 8080
 WS_PORT    = 8765
 
@@ -63,7 +63,7 @@ class LiveRigMenu(rumps.App):
 
         # Inject hostname into HTML → /tmp
         src  = str(self.support / "live_rig_3_controller.html")
-        dest = "/tmp/liverig_controller_served.html"
+        dest = "/private/tmp/liverig_controller_served.html"
         with open(dest, "w") as fh:
             subprocess.run(
                 ["sed", f"s|{{{{BRIDGE_HOST}}}}|{self.host}|g", src],
@@ -89,7 +89,7 @@ class LiveRigMenu(rumps.App):
         with open(HTTP_LOG, "w") as log:
             self.http = subprocess.Popen(
                 [python, "-m", "http.server", str(HTTP_PORT)],
-                cwd="/tmp", stdout=log, stderr=log
+                cwd="/private/tmp", stdout=log, stderr=log
             )
         Path(HTTP_PID).write_text(str(self.http.pid))
 
