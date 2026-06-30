@@ -2,7 +2,16 @@
 
 > This file replaces `SESSION_BACKUP.md` (stale as of 2026-05-01) as the canonical project memory. It lives in the repo so it's read/write for Claude every session — no manual paste-in required. Updated on request ("Jesus Saves") or at natural session boundaries.
 
-**Last updated:** 2026-06-30 (Looper feature fully working end-to-end: transport-stopped bug fixed, full 9-param Looper device map confirmed, Quantization dropdown + estimated progress bar built and deployed)
+**Last updated:** 2026-06-30 (FX Return faders on Master page, automatic mute/solo via Remote Script, JS TDZ crash fix — Master page fully rendering all 11 channels)
+
+## App bundle architecture — CRITICAL deployment fact
+
+- `/Applications/LiveRig.app/Contents/MacOS/LiveRig` is a **shell launcher script**, NOT a binary.
+- On **every launch**, it runs `cp -f "$RESOURCES/live_rig_3_controller.html" "$SUPPORT/"` and similarly for `liverig_bridge_wired.py` and `liverig_menubar.py`.
+- **Bundle Resources (`/Applications/LiveRig.app/Contents/Resources/`) is the true source of truth** — `Application Support/LiveRig/` always gets overwritten.
+- To deploy HTML/Python changes: update `~/Desktop/liverig/` source files, copy to bundle Resources (use a Python script — cp and rsync silently appear to succeed but the launcher's cp overwrites on next launch), then restart the app.
+- `liverig_menubar.py` reads `live_rig_3_controller.html` from Application Support, injects `{{BRIDGE_HOST}}` → writes to `/private/tmp/liverig_controller_served.html` — this is what the HTTP server (port 8080) actually serves.
+- **Always use `/private/tmp/` not `/tmp/`** — macOS symlinks `/tmp` → `/private/tmp` but `sed >` file writes through `/tmp` can silently fail. All paths in `liverig_menubar.py` use `/private/tmp/` (fixed commit `44f365d`).
 
 ## Purpose & context
 
@@ -39,6 +48,13 @@ LiveRig is a custom iPad-based MIDI controller for Ableton Live, using Safari as
 - Once verified, open/merge the PR for `feature/extensions-sdk-setup` → `main` (merges second, after `refactor/rig-config`, per `BRANCHING_STRATEGY.md`).
 - **>4 keyboard support:** requires restructuring static page/tab markup in `live_rig_3_controller.html` — deferred, no timeline.
 - See `BRANCHING_STRATEGY.md` for fork points, merge order, and conflict zones.
+
+## Key learnings & principles (additions 2026-06-30)
+
+- **JavaScript temporal dead zone (TDZ):** `let` and `const` variables are hoisted but NOT initialized — accessing them before their declaration line throws `ReferenceError: Cannot access 'X' before initialization`. This can crash an entire `<script>` block silently if the throw happens in top-level code. Static HTML (like section headers) still renders but any JS-generated DOM is missing. Always check Chrome DevTools Console first when a dynamically-built section is blank but the page otherwise loads.
+- **`/private/tmp` vs `/tmp` on macOS:** `/tmp` is a symlink to `/private/tmp`. Writing via `/tmp/` path can fail silently (particularly with `sed >` redirection). Always use `/private/tmp/` directly for reliable writes.
+- **LiveRig bundle is source of truth:** editing `~/Desktop/liverig/live_rig_3_controller.html` is not enough — the bundle Resources file must also be updated, or the change will be overwritten on next app launch. Use Python `shutil.copy2()` to update both atomically.
+- **Chrome extension's `read_console_messages` is the fastest debug path** for JS errors in the served page — far faster than asking the user to open DevTools manually.
 
 ## Key learnings & principles
 
@@ -86,6 +102,46 @@ LiveRig is a custom iPad-based MIDI controller for Ableton Live, using Safari as
 - GitHub (`motifatord-sys/liverig`)
 - Claude Code (Extensions SDK branch work)
 
+## Master page — FX Return faders + automatic mute/solo (2026-06-30, commit `bfaccdb`)
+
+### What was built
+Master page now shows **11 channels** (was 8 + a STEMS nav button):
+- KBD 1-4 (dynamic labels from `kbdMasterLabel()`)
+- CLICK, GUIDE, LOOPS (aux row, CH5)
+- **REV 1, REV 2** (return tracks A+B, purple `#9060e0`) — NEW
+- **DLY 1, DLY 2** (return tracks C+D, orange `#e09030`) — NEW
+
+STEMS quick-nav button removed from Master page (saved as commented code in `buildMaster()` for future use).
+
+### CC scheme for FX returns (CH7, 0-indexed channel 6)
+- Faders: CC 1-4 (REV1, REV2, DLY1, DLY2)
+- Mutes: CC 5-8
+- Solos: CC 9-12
+Registered in `LiveRig.py`'s `build_midi_map()` — no Cmd+M mapping required.
+
+### Automatic mute/solo via Remote Script
+All KBD and stem track mute/solo is now handled via `build_midi_map()` + `_dispatch_cc()` in `LiveRig.py` — **no Cmd+M mapping needed by the user**. Confirmed working by David.
+
+`build_midi_map()` registers:
+- CH1-4 CC1+CC2 (KBD mute/solo)
+- CH6 stem mutes/solos (CC range dynamic from STEM_COUNT)
+- CH7 CC1-12 (FX return vol+mute+solo)
+
+`_dispatch_cc(channel, cc, val)` routes each incoming CC to the correct Ableton track object via `song.return_tracks[ri]` for returns (A=0, B=1, C=2, D=3).
+
+### CSS additions
+```css
+.fill-fx-rv{background:#9060e0;}
+.fill-fx-dly{background:#e09030;}
+.fx-rv{color:#9060e0;}
+.fx-dly{color:#e09030;}
+```
+
+### Critical JS TDZ bug found and fixed (commit `5a22d4f`)
+`buildMaster()` was never being called — the entire script crashed at line 1063 before reaching the call site. Root cause: `const STEM_COUNT = (RIG_CONFIG.stems || []).length || 8` referenced `let RIG_CONFIG` which was declared 350 lines later (temporal dead zone). The "MASTER VOLUMES" label was static HTML so it appeared, but the dynamic fader columns were never appended.
+
+Fix: moved `const RIG_CONFIG_DEFAULT`, `let RIG_CONFIG`, and the XHR load try/catch block from line ~1412 to just before the STEMS section (~line 1062), so `RIG_CONFIG` is declared before any top-level code references it. `buildMaster()` now executes, `master-faders-row` gets 11 children, grid is `repeat(11, 1fr)`. Confirmed in Chrome DevTools: no JS errors, all 11 channels visible.
+
 ## Looper feature — built 2026-06-29, fully working end-to-end as of 2026-06-30
 
 - **Design locked in by David:** separate dedicated loop tracks (not KBD1-4); native Ableton Looper device control via the Live Object Model (not Cmd+M MIDI Map — the Looper device's single combined State enum doesn't map to discrete momentary CC buttons).
@@ -101,20 +157,20 @@ LiveRig is a custom iPad-based MIDI controller for Ableton Live, using Safari as
 
 ## Pending tasks (carried forward, not yet superseded)
 
-1. **Test the new Looper Quantization dropdown + estimated progress bar live** — reload the Remote Script, hard-refresh the iPad page, change Quantization on a loop and confirm the dropdown sticks both ways (UI→device and device→UI), and confirm the progress bar animates correctly during REC/PLAY for the 4 whole-bar settings.
-2. **Remove the temporary `_dump_looper_params(0)` diagnostic call** from `_connect_listeners` in `LiveRig.py` now that the full parameter map is confirmed and documented above.
-3. **Open/merge PR for `feature/extensions-sdk-setup` → `main`.**
-4. Decide whether to delete superseded `SESSION_BACKUP.md` from repo root (archive copy already safe at `~/Documents/LiveRig_Archive/SESSION_BACKUP_2026-05-01.md`).
-5. Restructure controller HTML markup to support >4 keyboards (currently capped by static page/tab divs).
-6. Build "blue hand" mode — KBD pages auto-bind to currently-selected track's first 8 device params.
-7. Build mixer listeners for mute/solo/volume on Master page.
-8. Multi-computer routing UI (Option A architecture) — when needed.
-9. **For Claude Code, Extensions SDK setup-tool (`liverig-setup-tool/`):** the modal currently only exposes KBD1-4 track bindings for editing. `rig_config.json`'s `stems[]` array drives a real "Stems" tab in the controller HTML with per-stem fader/mute/solo + live name/color feedback. The setup-tool's modal needs a matching "Stems" section so David can edit each `stems[].trackName` binding the same way he already edits KBD1-4 bindings — currently the only way to change a stem's bound track is hand-editing `rig_config.json` directly.
+1. **Remove the temporary `_dump_looper_params(0)` diagnostic call** from `_connect_listeners` in `LiveRig.py` — harmless but not meant to be permanent.
+2. **Open/merge PR for `feature/extensions-sdk-setup` → `main`.**
+3. Decide whether to delete superseded `SESSION_BACKUP.md` from repo root (archive copy already safe at `~/Documents/LiveRig_Archive/SESSION_BACKUP_2026-05-01.md`).
+4. Restructure controller HTML markup to support >4 keyboards (currently capped by static page/tab divs).
+5. Build "blue hand" mode — KBD pages auto-bind to currently-selected track's first 8 device params.
+6. Multi-computer routing UI (Option A architecture) — when needed.
+7. **For Claude Code, Extensions SDK setup-tool (`liverig-setup-tool/`):** stems section already has track-assignment UI (fixed: null trackName now shows "— unbound —" option, commit `bc62b75`). Full stems binding via the setup-tool modal is now functional — no longer requires hand-editing `rig_config.json`.
 
 ## How to resume in a new chat
 
 1. Read this file first — it's the live state, not `SESSION_BACKUP.md`.
-2. Continue from "Pending tasks" above — top item is confirming the Remote Script picked up the synced Extensions SDK config.
-3. Respect channel isolation and architectural decisions listed above.
-4. Don't reintroduce removed features (Record/Punch/Overdub on Setlist, etc.) without confirming with David first.
-5. Use `~/Library/Preferences/Ableton/Live 12.4.2/Log.txt` for Ableton log checks — not the old 12.3.8 folder.
+2. The Master page is fully working as of 2026-06-30: 11 channels (KBD 1-4, CLICK/GUIDE/LOOPS, REV 1/REV 2/DLY 1/DLY 2), mute/solo automatic via Remote Script. No open regressions.
+3. Continue from "Pending tasks" above — top items are cleanup (`_dump_looper_params`) and opening the PR for `feature/extensions-sdk-setup`.
+4. Respect channel isolation and architectural decisions listed above.
+5. Don't reintroduce removed features (Record/Punch/Overdub on Setlist, STEMS nav button on Master, etc.) without confirming with David first.
+6. Use `~/Library/Preferences/Ableton/Live 12.4.2/Log.txt` for Ableton log checks — not the old 12.3.8 folder.
+7. **Deployment pipeline**: edit `~/Desktop/liverig/` source → copy to bundle Resources → restart LiveRig app. Check `/private/tmp/liverig_controller_served.html` timestamp to confirm the menubar script re-generated the served file. Use Chrome extension's `read_console_messages` to verify no JS errors before telling David to check the iPad.
