@@ -9,6 +9,7 @@ BRIDGE="$SCRIPT_DIR/liverig_bridge_wired.py"
 HTML_SRC="$SCRIPT_DIR/live_rig_3_controller.html"
 HTML_SERVED="/tmp/liverig_controller_served.html"
 RIG_CONFIG_SRC="$SCRIPT_DIR/rig_config.json"
+EXT_STORAGE_DIR="$HOME/Library/Application Support/Ableton/Extensions/LiveRig Setup Tool/storage"
 RIG_CONFIG_SERVED="/tmp/rig_config.json"
 LOG="/tmp/liverig_bridge.log"
 HTTP_LOG="/tmp/liverig_http.log"
@@ -115,18 +116,34 @@ echo "BRIDGE_HOST=$BRIDGE_HOST"
 # ~/Desktop/liverig makes macOS treat each one as a distinct requester for
 # the protected "Desktop Folder" permission, which is what was causing the
 # repeated access prompts on every relaunch.
-"$PYTHON" - "$HTML_SRC" "$BRIDGE_HOST" "$HTML_SERVED" "$RIG_CONFIG_SRC" "$RIG_CONFIG_SERVED" << 'PYEOF'
+"$PYTHON" - "$HTML_SRC" "$BRIDGE_HOST" "$HTML_SERVED" "$RIG_CONFIG_SRC" "$RIG_CONFIG_SERVED" "$EXT_STORAGE_DIR" << 'PYEOF'
 import sys
-html_src, bridge_host, html_served, rig_src, rig_served = sys.argv[1:6]
+html_src, bridge_host, html_served, rig_src, rig_served, ext_storage = sys.argv[1:7]
 
 with open(html_src, "r") as f:
     data = f.read().replace("{{BRIDGE_HOST}}", bridge_host)
 with open(html_served, "w") as f:
     f.write(data)
 
+# If the LiveRig Setup Tool extension wrote a newer rig_config.json into its
+# storageDirectory, copy it into ~/Desktop/liverig/ before the bridge starts.
+# This is the handoff mechanism: extension -> Desktop folder, via this one
+# trusted Python process (avoids repeated macOS Desktop permission prompts).
+import os, shutil
+ext_config = os.path.join(ext_storage, "rig_config.json")
+if os.path.isfile(ext_config):
+    ext_mtime = os.path.getmtime(ext_config)
+    rig_mtime = os.path.getmtime(rig_src) if os.path.isfile(rig_src) else 0
+    if ext_mtime > rig_mtime:
+        shutil.copy2(ext_config, rig_src)
+        print("INFO: Synced newer rig_config.json from extension storage (%s)" % ext_config)
+    else:
+        print("INFO: Extension config is not newer than rig_config.json — no sync needed.")
+elif not os.path.isfile(ext_config):
+    print("INFO: No extension config found at %s — using existing rig_config.json." % ext_config)
+
 # Controller page fetches rig_config.json relative to the http.server root
 # (/tmp) — keep a fresh copy there every launch so it never goes stale.
-import os
 if os.path.isfile(rig_src):
     with open(rig_src, "rb") as f:
         cfg = f.read()
@@ -181,8 +198,27 @@ root = tk.Tk()
 root.title("LiveRig Bridge")
 root.geometry("520x520")
 root.configure(bg="#1a1a1f")
+
+# Force this window to the front. A Python process launched in the
+# background by a double-clicked AppleScript app doesn't get macOS
+# "frontmost" status automatically, so without this the window can render
+# behind every other app/Space with no visible way to bring it forward
+# (this is what was reading as "LiveRig won't open / keeps crashing" even
+# though the bridge + http server were running fine).
+try:
+    import subprocess
+    subprocess.run(
+        ["osascript", "-e",
+         'tell application "System Events" to set frontmost of '
+         '(first process whose unix id is %d) to true' % os.getpid()],
+        check=False, timeout=3
+    )
+except Exception:
+    pass
+root.attributes('-topmost', True)
 root.lift()
-root.after(150, lambda: root.attributes('-topmost', False))
+root.focus_force()
+root.after(400, lambda: root.attributes('-topmost', False))
 
 frm = tk.Frame(root, bg="#1a1a1f", padx=20, pady=20)
 frm.pack(fill="both", expand=True)

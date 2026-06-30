@@ -3,3 +3,6 @@ liverig_state.json
 __pycache__/
 .DS_Store
 LiveRig_RemoteScript.zip
+liverig_backup_*.zip
+outputs/
+.claude/

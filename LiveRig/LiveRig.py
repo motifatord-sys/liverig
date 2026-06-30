@@ -34,6 +34,24 @@ where <type>:
   0x30 = selected track     | data: index, name length, name bytes
   0x40 = macro value        | data: track_idx, macro_idx, value14_high, value14_low,
                                      name length, name bytes
+  0x44 = kbd track color    | data: kbd_idx, r14_high, r14_low, g14_high, g14_low,
+                                     b14_high, b14_low (each channel 0-255 in 14-bit)
+  0x45 = kbd track name     | data: kbd_idx, name length, name bytes
+  0x46 = stem track color   | data: stem_idx, r14_high, r14_low, g14_high, g14_low,
+                                     b14_high, b14_low (each channel 0-255 in 14-bit)
+  0x47 = stem track name    | data: stem_idx, name length, name bytes
+  0x48 = loop state         | data: loop_idx, state (0=stop, 1=record, 2=play)
+
+Looper (dedicated loop tracks, native Ableton Looper device control):
+inbound codes 0x4B-0x4E carry a loop index (0-3, per rig_config.json's
+"loopers" array) as the value byte, and drive the bound track's Looper
+device "State" parameter directly via the Live Object Model -- not
+Ableton's MIDI Map Mode, which can't cleanly express the Looper's
+single combined State enum as discrete button presses.
+  0x4B = loop rec    | value: loop_idx
+  0x4C = loop play   | value: loop_idx
+  0x4D = loop stop    | value: loop_idx
+  0x4E = loop undo   | value: loop_idx (pulses the device's Undo param)
 """
 from __future__ import absolute_import, print_function, unicode_literals
 
@@ -103,6 +121,11 @@ SX_TAP_TEMPO       = 0x47
 SX_UNDO            = 0x48
 SX_REDO            = 0x49
 SX_REQUEST_FULL_STATE = 0x4A   # bridge asks script to re-emit all state
+SX_LOOP_REC        = 0x4B   # value: loop_idx
+SX_LOOP_PLAY       = 0x4C   # value: loop_idx
+SX_LOOP_STOP       = 0x4D   # value: loop_idx
+SX_LOOP_UNDO       = 0x4E   # value: loop_idx
+SX_LOOP_QUANT      = 0x4F   # value: (loop_idx<<4)|quant_idx
 
 # ── SysEx codes (outgoing, script to bridge) ─────────────────────────────────
 SX_FB_PREFIX       = 0x60
@@ -118,6 +141,12 @@ FB_SCENE_LIST_BEGIN = 0x22
 FB_SCENE_LIST_END  = 0x23
 FB_SELECTED_TRACK  = 0x30
 FB_MACRO_VALUE     = 0x40
+FB_KBD_COLOR       = 0x44
+FB_KBD_NAME        = 0x45
+FB_STEM_COLOR      = 0x46
+FB_STEM_NAME       = 0x47
+FB_LOOP_STATE      = 0x48
+FB_LOOP_QUANT      = 0x49   # data: loop_idx, quant_idx
 
 LIVERIG_MFG_ID     = 0x7D
 
@@ -134,6 +163,30 @@ class LiveRig(ControlSurface):
         rig_config = _load_rig_config(log=self.log_message)
         self._kbd_count = len(rig_config["keyboards"])
         self._bank_sizes = [kbd.get("bankSize", 8) for kbd in rig_config["keyboards"]]
+        # defaultTrackBinding: track name (str) or index (int) or None/unbound.
+        # Resolved to an actual track index at bind-time via _resolve_kbd_track_index,
+        # since the Live Set's track order can differ from KBD slot order.
+        self._track_bindings = [kbd.get("defaultTrackBinding") for kbd in rig_config["keyboards"]]
+
+        # Stems: named tracks (e.g. backing-track stems) bound by trackName,
+        # independent of the KBD1-4 slots. Color/name feedback only -- volume/
+        # mute/solo control is plain CC via Ableton's own MIDI Map, same as
+        # everything else on the Master page.
+        stems = rig_config.get("stems") or []
+        self._stem_count = len(stems)
+        self._stem_track_bindings = [s.get("trackName") for s in stems]
+        self._stem_labels = [s.get("label") for s in stems]
+
+        # Loopers: separate dedicated loop tracks, bound by trackName (no
+        # positional fallback, same as stems). Control is direct Live Object
+        # Model manipulation of each track's native Looper device "State"
+        # parameter -- not plain MIDI CC -- because the Looper device exposes
+        # one combined State enum (Stop/Record/Play) rather than discrete
+        # momentary buttons, which doesn't map cleanly via Ableton's Cmd+M.
+        loopers = rig_config.get("loopers") or []
+        self._looper_count = len(loopers)
+        self._looper_track_bindings = [l.get("trackName") for l in loopers]
+        self._looper_labels = [l.get("label") for l in loopers]
 
         with self.component_guard():
             self.log_message("LiveRig Remote Script loaded.")
@@ -191,7 +244,52 @@ class LiveRig(ControlSurface):
         try: self._rebind_macro_listeners()
         except Exception as e: self.log_message("rebind_macro init: " + str(e))
 
-        # Re-bind macros if track devices change
+        # Per-track color listeners for KBD1-4 (so KBD tab / Master column
+        # accents can follow whatever Ableton track color the user assigned)
+        self._kbd_color_listeners = []
+        try: self._rebind_kbd_color_listeners()
+        except Exception as e: self.log_message("rebind_kbd_color init: " + str(e))
+        try: self._emit_all_kbd_colors()
+        except Exception as e: self.log_message("emit_all_kbd_colors init: " + str(e))
+
+        # Per-track name listeners for KBD1-4 (so Master page K1-K4 labels
+        # show the real Ableton track name instead of a static placeholder)
+        self._kbd_name_listeners = []
+        try: self._rebind_kbd_name_listeners()
+        except Exception as e: self.log_message("rebind_kbd_name init: " + str(e))
+        try: self._emit_all_kbd_names()
+        except Exception as e: self.log_message("emit_all_kbd_names init: " + str(e))
+
+        # Per-track color/name listeners for the stems list (independent of
+        # KBD1-4, bound by rig_config's stems[].trackName)
+        self._stem_color_listeners = []
+        self._stem_name_listeners = []
+        try: self._rebind_stem_color_listeners()
+        except Exception as e: self.log_message("rebind_stem_color init: " + str(e))
+        try: self._emit_all_stem_colors()
+        except Exception as e: self.log_message("emit_all_stem_colors init: " + str(e))
+        try: self._rebind_stem_name_listeners()
+        except Exception as e: self.log_message("rebind_stem_name init: " + str(e))
+        try: self._emit_all_stem_names()
+        except Exception as e: self.log_message("emit_all_stem_names init: " + str(e))
+
+        # Looper device "State" param listeners for loop1-4 (separate
+        # dedicated loop tracks, bound via rig_config.json loopers[].trackName)
+        # so the iPad UI shows true REC/PLAY/STOP rather than only the
+        # optimistic state set locally on button-press.
+        self._looper_state_listeners = []
+        self._looper_state_maps = {}
+        try: self._rebind_looper_state_listeners()
+        except Exception as e: self.log_message("rebind_looper_state init: " + str(e))
+        try: self._emit_all_looper_states()
+        except Exception as e: self.log_message("emit_all_looper_states init: " + str(e))
+        self._looper_quant_listeners = []
+        try: self._rebind_looper_quant_listeners()
+        except Exception as e: self.log_message("rebind_looper_quant init: " + str(e))
+        try: self._emit_all_looper_quants()
+        except Exception as e: self.log_message("emit_all_looper_quants init: " + str(e))
+
+        # Re-bind macros/colors/names/stems if track devices change
         safe_add("tracks", lambda: song.add_tracks_listener(self._on_tracks_changed))
 
         # 10 Hz song-time poll
@@ -219,6 +317,18 @@ class LiveRig(ControlSurface):
         try: self._unbind_scene_listeners()
         except Exception: pass
         try: self._unbind_macro_listeners()
+        except Exception: pass
+        try: self._unbind_kbd_color_listeners()
+        except Exception: pass
+        try: self._unbind_kbd_name_listeners()
+        except Exception: pass
+        try: self._unbind_stem_color_listeners()
+        except Exception: pass
+        try: self._unbind_stem_name_listeners()
+        except Exception: pass
+        try: self._unbind_looper_state_listeners()
+        except Exception: pass
+        try: self._unbind_looper_quant_listeners()
         except Exception: pass
         ControlSurface.disconnect(self)
 
@@ -262,6 +372,18 @@ class LiveRig(ControlSurface):
     def _on_tracks_changed(self):
         self._rebind_macro_listeners()
         self._emit_all_macros()
+        self._rebind_kbd_color_listeners()
+        self._emit_all_kbd_colors()
+        self._rebind_kbd_name_listeners()
+        self._emit_all_kbd_names()
+        self._rebind_stem_color_listeners()
+        self._emit_all_stem_colors()
+        self._rebind_stem_name_listeners()
+        self._emit_all_stem_names()
+        self._rebind_looper_state_listeners()
+        self._emit_all_looper_states()
+        self._rebind_looper_quant_listeners()
+        self._emit_all_looper_quants()
 
     # ── Cue-point name listeners (rebind on add/remove) ─────────────────────
     def _rebind_cue_listeners(self):
@@ -303,30 +425,134 @@ class LiveRig(ControlSurface):
                 pass
         self._scene_name_listeners = []
 
-    # ── Macro listeners for KBD1-4 (tracks 0-3) ─────────────────────────────
+    # ── Generic slot -> actual track resolution ──────────────────────────────
+    def _resolve_track_binding(self, binding, label, fallback_idx):
+        """Resolve a binding value (track name str, literal index, or None) to
+        an actual index into self.song().tracks. `label` is just for logging
+        (e.g. "kbd0" or "stem3"). `fallback_idx` is returned (clamped to a
+        valid track index, or None) when the binding is unbound or a name
+        match isn't found -- pass the KBD slot index for KBD1-4 (preserves
+        the old positional behavior), or None for stems (no positional
+        convention makes sense there).
+        """
+        tracks = self.song().tracks
+        def clamped_fallback():
+            if fallback_idx is not None and 0 <= fallback_idx < len(tracks):
+                return fallback_idx
+            return None
+        if binding is None:
+            result = clamped_fallback()
+            self.log_message("%s resolve: unbound, fallback -> %s" % (label, result))
+            return result
+        if isinstance(binding, (int, float)):
+            idx = int(binding)
+            result = idx if 0 <= idx < len(tracks) else clamped_fallback()
+            self.log_message("%s resolve: index binding %s -> %s" % (label, idx, result))
+            return result
+        # String: case-insensitive name match
+        name = str(binding).strip().lower()
+        for idx, track in enumerate(tracks):
+            try:
+                if (track.name or "").strip().lower() == name:
+                    self.log_message("%s resolve: name '%s' matched track %d ('%s')" % (label, binding, idx, track.name))
+                    return idx
+            except Exception:
+                continue
+        # No match — fall back, preserving old KBD positional behavior
+        result = clamped_fallback()
+        all_names = [getattr(t, "name", "?") for t in tracks]
+        self.log_message("%s resolve: name '%s' NOT FOUND among tracks %s -> fallback %s" % (label, binding, all_names, result))
+        return result
+
+    def _resolve_kbd_track_index(self, ti):
+        """Resolve KBD slot `ti` (0-3) to an actual track index, using
+        rig_config's defaultTrackBinding. Falls back to the old positional
+        behavior (track index == KBD slot) if unbound or no match is found,
+        so sets that don't use defaultTrackBinding keep working unchanged.
+        """
+        binding = self._track_bindings[ti] if ti < len(self._track_bindings) else None
+        return self._resolve_track_binding(binding, "kbd%d" % ti, fallback_idx=ti)
+
+    def _resolve_stem_track_index(self, si):
+        """Resolve stem slot `si` to an actual track index, using rig_config's
+        stems[si].trackName. No positional fallback -- stems are a distinct
+        list with no natural correspondence to track order, so an unbound or
+        unmatched stem just resolves to None (skipped) instead of guessing.
+        """
+        binding = self._stem_track_bindings[si] if si < len(self._stem_track_bindings) else None
+        return self._resolve_track_binding(binding, "stem%d" % si, fallback_idx=None)
+
+    def _resolve_looper_track_index(self, li):
+        """Resolve loop slot `li` to an actual track index, using
+        rig_config's loopers[li].trackName. No positional fallback -- loop
+        tracks are dedicated and have no natural correspondence to KBD/stem
+        order, so an unbound or unmatched loop slot just resolves to None
+        (skipped) instead of guessing.
+        """
+        binding = self._looper_track_bindings[li] if li < len(self._looper_track_bindings) else None
+        return self._resolve_track_binding(binding, "loop%d" % li, fallback_idx=None)
+
+    # ── Macro listeners for KBD1-4 ──────────────────────────────────────────
+    def _select_macro_params(self, device, bank_size):
+        """Choose up to `bank_size` parameters to treat as fader-bound
+        'macros' for feedback purposes.
+
+        Racks have a fixed, curated Macro 1..bank_size convention -- always
+        continuous by design -- so we mirror params[1..bank_size] back to the
+        iPad faders for live visual feedback.
+
+        Bare plugins/instruments have no such convention, and most users
+        (including this rig) map individual plugin parameters directly to
+        buttons/faders via Ableton's own MIDI Map mode -- a 1:1 assignment
+        that Live's Python API has no way to introspect from a Control
+        Surface script. Guessing "the first N continuous parameters" risks
+        picking a parameter that's actually mapped to a button instead,
+        which would make a fader visually mirror whatever the button is
+        doing. So for non-Rack devices we deliberately return nothing: no
+        feedback, but also zero risk of cross-talk between controls. Control
+        routing itself (CC -> parameter) is untouched either way -- it's
+        handled entirely by Ableton's own MIDI Map, not this script.
+        """
+        if not self._is_rack(device):
+            return []
+        try:
+            params = device.parameters
+        except Exception:
+            return []
+        return list(enumerate(params[1:bank_size + 1]))
+
     def _rebind_macro_listeners(self):
-        """Rebind macro-value listeners for the first 4 tracks if they have an
-        Instrument Rack. Macros are device parameters 1-8 (param 0 = Device On).
+        """Rebind macro-value listeners for each KBD slot's bound track.
+        Only tracks with an Instrument/Audio/MIDI Rack get live fader
+        feedback (their Macro 1..bank_size parameters). Bare plugins are
+        controlled entirely via Ableton's own MIDI Map (CC -> parameter,
+        set up by the user) and get no feedback listener, so there's no way
+        for this script to latch onto a parameter that's actually mapped to
+        a button. Track resolution honors defaultTrackBinding.
         """
         self._unbind_macro_listeners()
         try:
-            tracks = self.song().tracks
-            for ti in range(min(self._kbd_count, len(tracks))):
-                track = tracks[ti]
-                rack = self._find_first_rack(track)
-                if rack is None:
+            for ti in range(self._kbd_count):
+                track_idx = self._resolve_kbd_track_index(ti)
+                if track_idx is None:
+                    self.log_message("kbd%d macro bind: no track resolved, skipping" % ti)
                     continue
-                params = rack.parameters
+                track = self.song().tracks[track_idx]
+                device = self._find_first_device(track)
+                if device is None:
+                    self.log_message("kbd%d macro bind: track '%s' has no devices, skipping" % (ti, getattr(track, "name", "?")))
+                    continue
+                kind = "rack" if self._is_rack(device) else "plugin"
                 bank_size = self._bank_sizes[ti] if ti < len(self._bank_sizes) else 8
-                # Macros are params[1..bank_size]
-                for mi in range(1, min(bank_size + 1, len(params))):
-                    param = params[mi]
-                    track_idx = ti
-                    macro_idx = mi - 1  # 0-based for the wire format
-                    listener = lambda p=param, t=track_idx, m=macro_idx: \
+                bound_count = 0
+                for macro_idx, param in self._select_macro_params(device, bank_size):
+                    kbd_idx = ti  # wire format still uses the KBD slot, not the track index
+                    listener = lambda p=param, t=kbd_idx, m=macro_idx: \
                         self._emit_macro_value(t, m, p)
                     param.add_value_listener(listener)
                     self._macro_listeners.append((param, listener))
+                    bound_count += 1
+                self.log_message("kbd%d macro bind: track '%s', %s '%s', bound %d listeners" % (ti, getattr(track, "name", "?"), kind, getattr(device, "name", "?"), bound_count))
         except Exception as e:
             self.log_message("rebind macros error: " + str(e))
 
@@ -338,15 +564,408 @@ class LiveRig(ControlSurface):
                 pass
         self._macro_listeners = []
 
-    def _find_first_rack(self, track):
+    @staticmethod
+    def _is_rack(dev):
+        cls = getattr(dev, "class_name", "") or ""
+        return "GroupDevice" in cls  # Instrument/Audio/MidiEffectGroupDevice
+
+    def _find_first_device(self, track):
+        """Return the first device on `track`, preferring a Rack if one is
+        present anywhere in the chain (so a Rack later in the device list
+        still wins over an earlier plain plugin), else the first device of
+        any kind. Returns None if the track has no devices at all."""
+        try:
+            devices = list(track.devices)
+            if not devices:
+                return None
+            for dev in devices:
+                if self._is_rack(dev):
+                    return dev
+            return devices[0]
+        except Exception:
+            return None
+
+    # ── Track-color listeners for KBD1-4 ────────────────────────────────────
+    def _rebind_kbd_color_listeners(self):
+        """Rebind color-change listeners for each KBD slot's bound track
+        (resolved the same way as macros) so the iPad UI can mirror whatever
+        color the user assigned to that track in Ableton."""
+        self._unbind_kbd_color_listeners()
+        try:
+            for ti in range(self._kbd_count):
+                track_idx = self._resolve_kbd_track_index(ti)
+                if track_idx is None:
+                    self.log_message("kbd%d color bind: no track resolved, skipping" % ti)
+                    continue
+                track = self.song().tracks[track_idx]
+                kbd_idx = ti
+                listener = lambda t=kbd_idx: self._emit_kbd_color(t)
+                track.add_color_listener(listener)
+                self._kbd_color_listeners.append((track, listener))
+                self.log_message("kbd%d color bind: track '%s' color=%s" % (ti, getattr(track, "name", "?"), getattr(track, "color", "?")))
+        except Exception as e:
+            self.log_message("rebind kbd color error: " + str(e))
+
+    def _unbind_kbd_color_listeners(self):
+        for track, listener in self._kbd_color_listeners:
+            try:
+                track.remove_color_listener(listener)
+            except Exception:
+                pass
+        self._kbd_color_listeners = []
+
+    # ── Track-name listeners for KBD1-4 ─────────────────────────────────────
+    def _rebind_kbd_name_listeners(self):
+        """Rebind name-change listeners for each KBD slot's bound track
+        (resolved the same way as macros/colors) so the iPad UI's Master
+        page K1-K4 labels can show the real Ableton track name."""
+        self._unbind_kbd_name_listeners()
+        try:
+            for ti in range(self._kbd_count):
+                track_idx = self._resolve_kbd_track_index(ti)
+                if track_idx is None:
+                    self.log_message("kbd%d name bind: no track resolved, skipping" % ti)
+                    continue
+                track = self.song().tracks[track_idx]
+                kbd_idx = ti
+                listener = lambda t=kbd_idx: self._emit_kbd_name(t)
+                track.add_name_listener(listener)
+                self._kbd_name_listeners.append((track, listener))
+                self.log_message("kbd%d name bind: track '%s'" % (ti, getattr(track, "name", "?")))
+        except Exception as e:
+            self.log_message("rebind kbd name error: " + str(e))
+
+    def _unbind_kbd_name_listeners(self):
+        for track, listener in self._kbd_name_listeners:
+            try:
+                track.remove_name_listener(listener)
+            except Exception:
+                pass
+        self._kbd_name_listeners = []
+
+    # ── Track-color listeners for stems[] (Master page stem channels) ───────
+    def _rebind_stem_color_listeners(self):
+        """Rebind color-change listeners for each stem's bound track
+        (resolved via rig_config.json stems[].trackName, no positional
+        fallback) so the iPad UI can mirror the track's Ableton color."""
+        self._unbind_stem_color_listeners()
+        try:
+            for si in range(self._stem_count):
+                track_idx = self._resolve_stem_track_index(si)
+                if track_idx is None:
+                    self.log_message("stem%d color bind: no track resolved, skipping" % si)
+                    continue
+                track = self.song().tracks[track_idx]
+                stem_idx = si
+                listener = lambda t=stem_idx: self._emit_stem_color(t)
+                track.add_color_listener(listener)
+                self._stem_color_listeners.append((track, listener))
+                self.log_message("stem%d color bind: track '%s' color=%s" % (si, getattr(track, "name", "?"), getattr(track, "color", "?")))
+        except Exception as e:
+            self.log_message("rebind stem color error: " + str(e))
+
+    def _unbind_stem_color_listeners(self):
+        for track, listener in self._stem_color_listeners:
+            try:
+                track.remove_color_listener(listener)
+            except Exception:
+                pass
+        self._stem_color_listeners = []
+
+    # ── Track-name listeners for stems[] (Master page stem channels) ────────
+    def _rebind_stem_name_listeners(self):
+        """Rebind name-change listeners for each stem's bound track
+        (resolved the same way as stem colors) so the iPad UI's stem
+        channel labels can show the real Ableton track name."""
+        self._unbind_stem_name_listeners()
+        try:
+            for si in range(self._stem_count):
+                track_idx = self._resolve_stem_track_index(si)
+                if track_idx is None:
+                    self.log_message("stem%d name bind: no track resolved, skipping" % si)
+                    continue
+                track = self.song().tracks[track_idx]
+                stem_idx = si
+                listener = lambda t=stem_idx: self._emit_stem_name(t)
+                track.add_name_listener(listener)
+                self._stem_name_listeners.append((track, listener))
+                self.log_message("stem%d name bind: track '%s'" % (si, getattr(track, "name", "?")))
+        except Exception as e:
+            self.log_message("rebind stem name error: " + str(e))
+
+    def _unbind_stem_name_listeners(self):
+        for track, listener in self._stem_name_listeners:
+            try:
+                track.remove_name_listener(listener)
+            except Exception:
+                pass
+        self._stem_name_listeners = []
+
+    # ── Looper device control (loop1-4, native Live Object Model control) ───
+    def _find_looper_device(self, track):
+        """Return the first Looper device found on `track`, or None.
+        Matches by class_name (stable across renaming) rather than the
+        device's display name."""
         try:
             for dev in track.devices:
-                cls = getattr(dev, "class_name", "") or ""
-                if "GroupDevice" in cls:  # Instrument/Audio/MidiEffectGroupDevice
+                if getattr(dev, "class_name", "") == "Looper":
                     return dev
         except Exception:
             pass
         return None
+
+    def _dump_looper_params(self, li):
+        """One-shot diagnostic: log every parameter on loop slot `li`'s
+        Looper device (name, value, min, max, value_items) so we can see
+        exactly what Ableton's API actually exposes -- bar-length selector,
+        position/progress, etc -- instead of guessing. Temporary/debug."""
+        try:
+            track_idx = self._resolve_looper_track_index(li)
+            if track_idx is None:
+                self.log_message("loop%d param dump: no track resolved" % li)
+                return
+            track = self.song().tracks[track_idx]
+            device = self._find_looper_device(track)
+            if device is None:
+                self.log_message("loop%d param dump: no Looper device" % li)
+                return
+            self.log_message("loop%d param dump: device='%s' class='%s' %d params" % (
+                li, getattr(device, "name", "?"), getattr(device, "class_name", "?"), len(device.parameters)))
+            for i, p in enumerate(device.parameters):
+                items = None
+                try:
+                    items = list(p.value_items) if p.value_items else None
+                except Exception:
+                    items = None
+                self.log_message("loop%d param[%d]: name='%s' value=%s min=%s max=%s is_quantized=%s items=%s" % (
+                    li, i, p.name, p.value, p.min, p.max, getattr(p, "is_quantized", "?"), items))
+        except Exception as e:
+            self.log_message("loop%d param dump error: %s" % (li, e))
+
+    def _get_looper_state_map(self, device):
+        """Find the Looper device's 'State' parameter and map its named
+        value_items (e.g. 'Stop'/'Record'/'Play') to enum indices via a
+        case-insensitive substring match, rather than hardcoding indices --
+        Ableton's exact enum ordering for this parameter isn't something we
+        should assume. Returns (param, {'rec':i,'play':i,'stop':i}); param
+        is None and the dict is empty if not found."""
+        try:
+            for p in device.parameters:
+                if (p.name or "").strip().lower() != "state":
+                    continue
+                items = [str(v).strip().lower() for v in (p.value_items or [])]
+                idx_map = {}
+                for i, name in enumerate(items):
+                    if "rec" in name:
+                        idx_map["rec"] = i
+                    elif "play" in name:
+                        idx_map["play"] = i
+                    elif "stop" in name:
+                        idx_map["stop"] = i
+                return p, idx_map
+        except Exception as e:
+            self.log_message("looper state map error: " + str(e))
+        return None, {}
+
+    def _looper_set_state(self, li, target):
+        """Set loop slot `li`'s Looper device State param to `target`
+        ('rec'|'play'|'stop'). No-ops (with a log line) if the track,
+        device, or parameter can't be resolved -- never guesses."""
+        try:
+            track_idx = self._resolve_looper_track_index(li)
+            if track_idx is None:
+                self.log_message("loop%d set_state(%s): no track resolved, skipping" % (li, target))
+                return
+            track = self.song().tracks[track_idx]
+            device = self._find_looper_device(track)
+            if device is None:
+                self.log_message("loop%d set_state(%s): no Looper device on track '%s', skipping" % (li, target, getattr(track, "name", "?")))
+                return
+            param, idx_map = self._get_looper_state_map(device)
+            if param is None or target not in idx_map:
+                self.log_message("loop%d set_state(%s): Looper 'State' param/value not found, skipping" % (li, target))
+                return
+            before = param.value
+            target_val = idx_map[target]
+            # The Looper's State param is a no-op via the Live API while the
+            # song transport is stopped (confirmed: Ableton/M4L community --
+            # writes are silently ignored unless Live's global transport is
+            # already running). Auto-start it, mirroring what pressing the
+            # device's own on-screen button does.
+            try:
+                if not self.song().is_playing:
+                    self.log_message("loop%d set_state(%s): transport stopped, starting playback" % (li, target))
+                    self.song().start_playing()
+            except Exception as e:
+                self.log_message("loop%d set_state(%s): start_playing failed: %s" % (li, target, e))
+            self.log_message("loop%d set_state(%s): device='%s' param='%s' is_enabled=%s min=%s max=%s before=%s target=%s" % (
+                li, target, getattr(device, "name", "?"), param.name,
+                getattr(param, "is_enabled", "?"), param.min, param.max, before, target_val))
+            param.value = target_val
+            after = param.value
+            self.log_message("loop%d set_state(%s): after=%s (%s)" % (
+                li, target, after, "OK" if after == target_val else "DID NOT STICK"))
+        except Exception as e:
+            self.log_message("loop%d set_state(%s) error: %s" % (li, target, e))
+
+    def _looper_clear_pulse_param(self, param):
+        try:
+            param.value = 0
+        except Exception:
+            pass
+
+    def _looper_undo(self, li):
+        """Momentarily pulse the Looper device's 'Undo' param (0->1->0) if
+        present. Deliberately has no fallback to song-level undo -- that
+        would undo unrelated edits elsewhere in the set, not just the loop."""
+        try:
+            track_idx = self._resolve_looper_track_index(li)
+            if track_idx is None:
+                self.log_message("loop%d undo: no track resolved, skipping" % li)
+                return
+            track = self.song().tracks[track_idx]
+            device = self._find_looper_device(track)
+            if device is None:
+                self.log_message("loop%d undo: no Looper device on track '%s', skipping" % (li, getattr(track, "name", "?")))
+                return
+            for p in device.parameters:
+                if (p.name or "").strip().lower() == "undo":
+                    p.value = 1
+                    self.schedule_message(1, lambda p=p: self._looper_clear_pulse_param(p))
+                    return
+            self.log_message("loop%d undo: Looper 'Undo' param not found, skipping" % li)
+        except Exception as e:
+            self.log_message("loop%d undo error: %s" % (li, e))
+
+    # ── Looper State-param listeners (feedback: true REC/PLAY/STOP) ─────────
+    def _rebind_looper_state_listeners(self):
+        self._unbind_looper_state_listeners()
+        self._looper_state_maps = {}
+        try:
+            for li in range(self._looper_count):
+                track_idx = self._resolve_looper_track_index(li)
+                if track_idx is None:
+                    self.log_message("loop%d state bind: no track resolved, skipping" % li)
+                    continue
+                track = self.song().tracks[track_idx]
+                device = self._find_looper_device(track)
+                if device is None:
+                    self.log_message("loop%d state bind: no Looper device on track '%s', skipping" % (li, getattr(track, "name", "?")))
+                    continue
+                param, idx_map = self._get_looper_state_map(device)
+                if param is None:
+                    self.log_message("loop%d state bind: Looper 'State' param not found, skipping" % li)
+                    continue
+                self._looper_state_maps[li] = idx_map
+                loop_idx = li
+                listener = lambda l=loop_idx: self._emit_looper_state(l)
+                param.add_value_listener(listener)
+                self._looper_state_listeners.append((param, listener))
+                self.log_message("loop%d state bind: track '%s', map=%s" % (li, getattr(track, "name", "?"), idx_map))
+        except Exception as e:
+            self.log_message("rebind looper state error: " + str(e))
+
+    def _unbind_looper_state_listeners(self):
+        for param, listener in self._looper_state_listeners:
+            try:
+                param.remove_value_listener(listener)
+            except Exception:
+                pass
+        self._looper_state_listeners = []
+
+    # ── Looper Quantization control (bar-length selector) ───────────────────
+    def _get_looper_quant_param(self, device):
+        """Return the Looper device's 'Quantization' parameter, or None.
+        Its value_items are confirmed (via diagnostic dump) to be:
+        ['Global','None','8 Bars','4 Bars','2 Bars','1 Bar','1/2','1/2T',
+         '1/4','1/4T','1/8','1/8T','1/16','1/16T','1/32']."""
+        try:
+            for p in device.parameters:
+                if (p.name or "").strip().lower() == "quantization":
+                    return p
+        except Exception:
+            pass
+        return None
+
+    def _looper_set_quantization(self, li, quant_idx):
+        """Set loop slot `li`'s Looper device Quantization param to the
+        enum index `quant_idx` (sent by the UI dropdown). No-ops (with a
+        log line) if the track/device/param can't be resolved or the
+        index is out of range -- never guesses or clamps silently."""
+        try:
+            track_idx = self._resolve_looper_track_index(li)
+            if track_idx is None:
+                self.log_message("loop%d set_quant(%s): no track resolved, skipping" % (li, quant_idx))
+                return
+            track = self.song().tracks[track_idx]
+            device = self._find_looper_device(track)
+            if device is None:
+                self.log_message("loop%d set_quant(%s): no Looper device on track '%s', skipping" % (li, quant_idx, getattr(track, "name", "?")))
+                return
+            param = self._get_looper_quant_param(device)
+            if param is None:
+                self.log_message("loop%d set_quant(%s): Looper 'Quantization' param not found, skipping" % (li, quant_idx))
+                return
+            if quant_idx < param.min or quant_idx > param.max:
+                self.log_message("loop%d set_quant(%s): out of range (min=%s max=%s), skipping" % (li, quant_idx, param.min, param.max))
+                return
+            before = param.value
+            param.value = quant_idx
+            after = param.value
+            self.log_message("loop%d set_quant(%s): before=%s after=%s (%s)" % (
+                li, quant_idx, before, after, "OK" if after == quant_idx else "DID NOT STICK"))
+        except Exception as e:
+            self.log_message("loop%d set_quant(%s) error: %s" % (li, quant_idx, e))
+
+    def _emit_looper_quant(self, li):
+        try:
+            track_idx = self._resolve_looper_track_index(li)
+            if track_idx is None:
+                return
+            track = self.song().tracks[track_idx]
+            device = self._find_looper_device(track)
+            if device is None:
+                return
+            param = self._get_looper_quant_param(device)
+            if param is None:
+                return
+            quant_idx = int(round(param.value))
+            self._send_sx([FB_LOOP_QUANT, li & 0x7F, quant_idx & 0x7F])
+        except Exception as e:
+            self.log_message("looper quant emit error: " + str(e))
+
+    def _emit_all_looper_quants(self):
+        for li in range(self._looper_count):
+            self._emit_looper_quant(li)
+
+    def _rebind_looper_quant_listeners(self):
+        self._unbind_looper_quant_listeners()
+        try:
+            for li in range(self._looper_count):
+                track_idx = self._resolve_looper_track_index(li)
+                if track_idx is None:
+                    continue
+                track = self.song().tracks[track_idx]
+                device = self._find_looper_device(track)
+                if device is None:
+                    continue
+                param = self._get_looper_quant_param(device)
+                if param is None:
+                    continue
+                loop_idx = li
+                listener = lambda l=loop_idx: self._emit_looper_quant(l)
+                param.add_value_listener(listener)
+                self._looper_quant_listeners.append((param, listener))
+        except Exception as e:
+            self.log_message("rebind looper quant error: " + str(e))
+
+    def _unbind_looper_quant_listeners(self):
+        for param, listener in self._looper_quant_listeners:
+            try:
+                param.remove_value_listener(listener)
+            except Exception:
+                pass
+        self._looper_quant_listeners = []
 
     # ── Inbound SysEx — Live calls receive_midi for control-surface MIDI ────
     def receive_midi(self, midi_bytes):
@@ -402,6 +1021,23 @@ class LiveRig(ControlSurface):
                 song.redo()
         elif code == SX_REQUEST_FULL_STATE:
             self._emit_full_state()
+        elif code == SX_LOOP_REC:
+            self.log_message("dispatch: SX_LOOP_REC value=%s" % value)
+            self._looper_set_state(value, "rec")
+        elif code == SX_LOOP_PLAY:
+            self.log_message("dispatch: SX_LOOP_PLAY value=%s" % value)
+            self._looper_set_state(value, "play")
+        elif code == SX_LOOP_STOP:
+            self.log_message("dispatch: SX_LOOP_STOP value=%s" % value)
+            self._looper_set_state(value, "stop")
+        elif code == SX_LOOP_UNDO:
+            self.log_message("dispatch: SX_LOOP_UNDO value=%s" % value)
+            self._looper_undo(value)
+        elif code == SX_LOOP_QUANT:
+            loop_idx = (value >> 4) & 0x07
+            quant_idx = value & 0x0F
+            self.log_message("dispatch: SX_LOOP_QUANT loop=%s quant=%s" % (loop_idx, quant_idx))
+            self._looper_set_quantization(loop_idx, quant_idx)
 
     # ── Outbound feedback emitters ──────────────────────────────────────────
     def _send_sx(self, body_bytes):
@@ -519,25 +1155,133 @@ class LiveRig(ControlSurface):
             self.log_message("macro emit error: " + str(e))
 
     def _emit_all_macros(self):
-        for param, _ in self._macro_listeners:
-            try:
-                # Find the (track_idx, macro_idx) for this param
-                # by re-scanning. Cheap, runs once per re-bind.
-                pass
-            except Exception:
-                pass
-        # Simpler: re-scan and emit
+        # Re-scan via the same name-based resolution used to bind listeners,
+        # so a fresh full-state push matches whatever is actually listening.
         try:
-            tracks = self.song().tracks
-            for ti in range(min(self._kbd_count, len(tracks))):
-                rack = self._find_first_rack(tracks[ti])
-                if rack is None:
+            for ti in range(self._kbd_count):
+                track_idx = self._resolve_kbd_track_index(ti)
+                if track_idx is None:
+                    continue
+                device = self._find_first_device(self.song().tracks[track_idx])
+                if device is None:
                     continue
                 bank_size = self._bank_sizes[ti] if ti < len(self._bank_sizes) else 8
-                for mi in range(1, min(bank_size + 1, len(rack.parameters))):
-                    self._emit_macro_value(ti, mi - 1, rack.parameters[mi])
+                for macro_idx, param in self._select_macro_params(device, bank_size):
+                    self._emit_macro_value(ti, macro_idx, param)
         except Exception as e:
             self.log_message("emit all macros error: " + str(e))
+
+    def _emit_kbd_color(self, ti):
+        """Send the Ableton track color bound to KBD slot `ti` as RGB."""
+        try:
+            track_idx = self._resolve_kbd_track_index(ti)
+            if track_idx is None:
+                return
+            track = self.song().tracks[track_idx]
+            rgb = track.color  # plain int, e.g. 0xRRGGBB
+            r = (rgb >> 16) & 0xFF
+            g = (rgb >> 8) & 0xFF
+            b = rgb & 0xFF
+            body = [FB_KBD_COLOR, ti & 0x7F]
+            body += self._encode_uint14(r)
+            body += self._encode_uint14(g)
+            body += self._encode_uint14(b)
+            self._send_sx(body)
+        except Exception as e:
+            self.log_message("kbd color emit error: " + str(e))
+
+    def _emit_all_kbd_colors(self):
+        for ti in range(self._kbd_count):
+            self._emit_kbd_color(ti)
+
+    def _emit_kbd_name(self, ti):
+        """Send the real Ableton track name bound to KBD slot `ti`, so the
+        iPad UI (Master page K1-K4 labels) can show the actual track name
+        instead of a static 'K1'..'K4' placeholder."""
+        try:
+            track_idx = self._resolve_kbd_track_index(ti)
+            if track_idx is None:
+                return
+            track = self.song().tracks[track_idx]
+            body = [FB_KBD_NAME, ti & 0x7F]
+            body += self._encode_str(track.name)
+            self._send_sx(body)
+        except Exception as e:
+            self.log_message("kbd name emit error: " + str(e))
+
+    def _emit_all_kbd_names(self):
+        for ti in range(self._kbd_count):
+            self._emit_kbd_name(ti)
+
+    def _emit_stem_color(self, si):
+        """Send the Ableton track color bound to stem slot `si` as RGB."""
+        try:
+            track_idx = self._resolve_stem_track_index(si)
+            if track_idx is None:
+                return
+            track = self.song().tracks[track_idx]
+            rgb = track.color  # plain int, e.g. 0xRRGGBB
+            r = (rgb >> 16) & 0xFF
+            g = (rgb >> 8) & 0xFF
+            b = rgb & 0xFF
+            body = [FB_STEM_COLOR, si & 0x7F]
+            body += self._encode_uint14(r)
+            body += self._encode_uint14(g)
+            body += self._encode_uint14(b)
+            self._send_sx(body)
+        except Exception as e:
+            self.log_message("stem color emit error: " + str(e))
+
+    def _emit_all_stem_colors(self):
+        for si in range(self._stem_count):
+            self._emit_stem_color(si)
+
+    def _emit_stem_name(self, si):
+        """Send the real Ableton track name bound to stem slot `si`, so the
+        iPad UI's stem channel labels show the actual track name instead of
+        a static 'Stem 1'..'Stem 8' placeholder."""
+        try:
+            track_idx = self._resolve_stem_track_index(si)
+            if track_idx is None:
+                return
+            track = self.song().tracks[track_idx]
+            body = [FB_STEM_NAME, si & 0x7F]
+            body += self._encode_str(track.name)
+            self._send_sx(body)
+        except Exception as e:
+            self.log_message("stem name emit error: " + str(e))
+
+    def _emit_all_stem_names(self):
+        for si in range(self._stem_count):
+            self._emit_stem_name(si)
+
+    def _emit_looper_state(self, li):
+        """Send current Looper device state for loop slot `li` as
+        0=stop, 1=record, 2=play (matches the FB_TRANSPORT convention)."""
+        try:
+            track_idx = self._resolve_looper_track_index(li)
+            if track_idx is None:
+                return
+            track = self.song().tracks[track_idx]
+            device = self._find_looper_device(track)
+            if device is None:
+                return
+            param, idx_map = self._get_looper_state_map(device)
+            if param is None:
+                return
+            cur = int(round(param.value))
+            state = 0
+            if idx_map.get("rec") == cur:
+                state = 1
+            elif idx_map.get("play") == cur:
+                state = 2
+            self._send_sx([FB_LOOP_STATE, li & 0x7F, state & 0x7F])
+        except Exception as e:
+            self.log_message("looper state emit error: " + str(e))
+
+    def _emit_all_looper_states(self):
+        for li in range(self._looper_count):
+            self._emit_looper_state(li)
 
     def _emit_full_state(self):
         self._emit_transport_state()
@@ -548,3 +1292,9 @@ class LiveRig(ControlSurface):
         self._emit_scene_list()
         self._emit_selected_track()
         self._emit_all_macros()
+        self._emit_all_kbd_colors()
+        self._emit_all_kbd_names()
+        self._emit_all_stem_colors()
+        self._emit_all_stem_names()
+        self._emit_all_looper_states()
+        self._emit_all_looper_quants()

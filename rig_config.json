@@ -2,10 +2,54 @@
   "version": "1.0",
   "rigName": "Main Live Rig",
   "keyboards": [
-    { "id": "kbd1", "label": "KBD 1", "bankSize": 8, "buttonCount": 16, "faderCount": 8 },
-    { "id": "kbd2", "label": "KBD 2", "bankSize": 8, "buttonCount": 16, "faderCount": 8 },
-    { "id": "kbd3", "label": "KBD 3", "bankSize": 8, "buttonCount": 16, "faderCount": 8 },
-    { "id": "kbd4", "label": "KBD 4", "bankSize": 8, "buttonCount": 16, "faderCount": 8 }
+    {
+      "id": "kbd1",
+      "label": "MAIN KEYS",
+      "bankSize": 8,
+      "defaultTrackBinding": "MAIN KEYS",
+      "buttonCount": 16,
+      "faderCount": 8,
+      "faderRange": {
+        "min": 0,
+        "max": 127
+      }
+    },
+    {
+      "id": "kbd2",
+      "label": "TOP KEYS",
+      "bankSize": 8,
+      "defaultTrackBinding": "TOP KEYS",
+      "buttonCount": 16,
+      "faderCount": 8,
+      "faderRange": {
+        "min": 0,
+        "max": 127
+      }
+    },
+    {
+      "id": "kbd3",
+      "label": "KEYS L",
+      "bankSize": 8,
+      "defaultTrackBinding": "KEYS L",
+      "buttonCount": 16,
+      "faderCount": 8,
+      "faderRange": {
+        "min": 0,
+        "max": 127
+      }
+    },
+    {
+      "id": "kbd4",
+      "label": "KEYS R",
+      "bankSize": 8,
+      "defaultTrackBinding": "KEYS R",
+      "buttonCount": 16,
+      "faderCount": 8,
+      "faderRange": {
+        "min": 0,
+        "max": 127
+      }
+    }
   ],
   "patches": {
     "maxPatches": 8,
@@ -15,13 +59,96 @@
       "stepIntervalMs": 20,
       "stepCount": 25
     },
-    "captureScope": ["kbd1", "kbd2", "kbd3", "kbd4"]
+    "captureScope": [
+      "kbd1",
+      "kbd2",
+      "kbd3",
+      "kbd4"
+    ]
   },
   "stems": [
-    { "id": "stem1", "label": "Drums", "trackName": "Drums" },
-    { "id": "stem2", "label": "Bass", "trackName": "Bass" },
-    { "id": "stem3", "label": "Keys", "trackName": "Keys" },
-    { "id": "stem4", "label": "Vox", "trackName": "Vox" }
+    {
+      "id": "stem1",
+      "label": "Stem 1",
+      "trackName": "DRUMS",
+      "defaultVolume": 100
+    },
+    {
+      "id": "stem2",
+      "label": "Stem 2",
+      "trackName": "PERC/LOOP",
+      "defaultVolume": 100
+    },
+    {
+      "id": "stem3",
+      "label": "Stem 3",
+      "trackName": "BASS",
+      "defaultVolume": 100
+    },
+    {
+      "id": "stem4",
+      "label": "Stem 4",
+      "trackName": "GTR",
+      "defaultVolume": 100
+    },
+    {
+      "id": "stem5",
+      "label": "Stem 5",
+      "trackName": "AUX",
+      "defaultVolume": 100
+    },
+    {
+      "id": "stem6",
+      "label": "Stem 6",
+      "trackName": "FX",
+      "defaultVolume": 100
+    },
+    {
+      "id": "stem7",
+      "label": "Stem 7",
+      "trackName": "VOCALS",
+      "defaultVolume": 100
+    },
+    {
+      "id": "stem8",
+      "label": "Stem 8",
+      "trackName": "LEAD VOCALS",
+      "defaultVolume": 100
+    },
+    {
+      "id": "stem9",
+      "label": "Stem 9",
+      "trackName": null,
+      "defaultVolume": 100
+    },
+    {
+      "id": "stem10",
+      "label": "Stem 10",
+      "trackName": null,
+      "defaultVolume": 100
+    }
+  ],
+  "loopers": [
+    {
+      "id": "loop1",
+      "label": "Loop 1",
+      "trackName": "Loop 1"
+    },
+    {
+      "id": "loop2",
+      "label": "Loop 2",
+      "trackName": "Loop 2"
+    },
+    {
+      "id": "loop3",
+      "label": "Loop 3",
+      "trackName": "Loop 3"
+    },
+    {
+      "id": "loop4",
+      "label": "Loop 4",
+      "trackName": "Loop 4"
+    }
   ],
   "listeners": {
     "useSchedulePollForSongTime": true,
