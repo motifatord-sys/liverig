@@ -1049,6 +1049,37 @@ function buildMaster() {
 }
 
 // ═══════════════════════════════════════════
+//  RIG CONFIG — loaded from rig_config.json, served by the same
+//  http.server that serves this page (LiveRig_Wired_Start.sh, port 8080).
+//  Falls back to the original hardcoded 4-keyboard/8-patch layout if the
+//  file is missing or malformed, so absence of the file changes nothing.
+//
+//  NOTE: the markup below still has exactly 4 fixed KBD page slots
+//  (page-4..page-7) and a 4-tab bar. KBD_COUNT here drives per-keyboard
+//  button/fader/capture counts; supporting a keyboard COUNT other than 4
+//  needs new page-N divs + tabs added to the markup — a separate follow-up.
+// ═══════════════════════════════════════════
+const RIG_CONFIG_DEFAULT = {
+  keyboards: [
+    {id:'kbd1',label:'KBD 1',bankSize:8,buttonCount:16,faderCount:8},
+    {id:'kbd2',label:'KBD 2',bankSize:8,buttonCount:16,faderCount:8},
+    {id:'kbd3',label:'KBD 3',bankSize:8,buttonCount:16,faderCount:8},
+    {id:'kbd4',label:'KBD 4',bankSize:8,buttonCount:16,faderCount:8},
+  ],
+  patches: { maxPatches: 8, captureScope: ['kbd1','kbd2','kbd3','kbd4'] }
+};
+let RIG_CONFIG = RIG_CONFIG_DEFAULT;
+try {
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', 'rig_config.json', false); // sync — tiny same-machine file, runs once at load
+  xhr.send(null);
+  if (xhr.status === 200 && xhr.responseText) {
+    const parsed = JSON.parse(xhr.responseText);
+    if (parsed && Array.isArray(parsed.keyboards) && parsed.keyboards.length) RIG_CONFIG = parsed;
+  }
+} catch(e) { /* keep default — page must never fail to load over this */ }
+
+// ═══════════════════════════════════════════
 //  STEMS PAGE (dedicated tab — config-driven channel count, 10 as of
 //  2026-06-29)
 // ═══════════════════════════════════════════
@@ -1388,37 +1419,6 @@ function buildPads() {
     fx.appendChild(el);
   });
 }
-
-// ═══════════════════════════════════════════
-//  RIG CONFIG — loaded from rig_config.json, served by the same
-//  http.server that serves this page (LiveRig_Wired_Start.sh, port 8080).
-//  Falls back to the original hardcoded 4-keyboard/8-patch layout if the
-//  file is missing or malformed, so absence of the file changes nothing.
-//
-//  NOTE: the markup below still has exactly 4 fixed KBD page slots
-//  (page-4..page-7) and a 4-tab bar. KBD_COUNT here drives per-keyboard
-//  button/fader/capture counts; supporting a keyboard COUNT other than 4
-//  needs new page-N divs + tabs added to the markup — a separate follow-up.
-// ═══════════════════════════════════════════
-const RIG_CONFIG_DEFAULT = {
-  keyboards: [
-    {id:'kbd1',label:'KBD 1',bankSize:8,buttonCount:16,faderCount:8},
-    {id:'kbd2',label:'KBD 2',bankSize:8,buttonCount:16,faderCount:8},
-    {id:'kbd3',label:'KBD 3',bankSize:8,buttonCount:16,faderCount:8},
-    {id:'kbd4',label:'KBD 4',bankSize:8,buttonCount:16,faderCount:8},
-  ],
-  patches: { maxPatches: 8, captureScope: ['kbd1','kbd2','kbd3','kbd4'] }
-};
-let RIG_CONFIG = RIG_CONFIG_DEFAULT;
-try {
-  const xhr = new XMLHttpRequest();
-  xhr.open('GET', 'rig_config.json', false); // sync — tiny same-machine file, runs once at load
-  xhr.send(null);
-  if (xhr.status === 200 && xhr.responseText) {
-    const parsed = JSON.parse(xhr.responseText);
-    if (parsed && Array.isArray(parsed.keyboards) && parsed.keyboards.length) RIG_CONFIG = parsed;
-  }
-} catch(e) { /* keep default — page must never fail to load over this */ }
 
 const KBD_COUNT     = Math.min(4, RIG_CONFIG.keyboards.length);
 const BANK_SIZES    = RIG_CONFIG.keyboards.map(k => k.bankSize ?? 8);
