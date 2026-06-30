@@ -24,7 +24,7 @@ interface RigKeyboard {
 interface RigStem {
   id: string;
   label: string;
-  trackName: string;
+  trackName: string | null;
   defaultVolume: number;
 }
 

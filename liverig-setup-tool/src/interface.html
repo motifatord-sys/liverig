@@ -92,7 +92,7 @@
         <tr>
           <td><input class="alx-input" type="text" value="${esc(s.label)}" oninput="config.stems[${i}].label=this.value" style="width:90px"></td>
           <td><input class="alx-input" type="text" value="${esc(s.id)}" oninput="config.stems[${i}].id=this.value" style="width:70px"></td>
-          <td>${trackSelectHtml(s.trackName, `stem-track-${i}`, false)}</td>
+          <td>${trackSelectHtml(s.trackName || "", `stem-track-${i}`, true)}</td>
           <td><input class="alx-input num" type="number" min="0" max="127" value="${s.defaultVolume !== undefined ? s.defaultVolume : 100}" oninput="config.stems[${i}].defaultVolume=+this.value" style="width:55px"></td>
           <td><button class="alx-button danger" onclick="removeStem(${i})">✕</button></td>
         </tr>`).join("");
