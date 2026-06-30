@@ -42,6 +42,11 @@ where <type>:
   0x47 = stem track name    | data: stem_idx, name length, name bytes
   0x48 = loop state         | data: loop_idx, state (0=stop, 1=record, 2=play)
 
+Direct CC handling (via build_midi_map — no CMD+M needed for these):
+  ch1-4  CC1=mute, CC2=solo   → KBD1-4 track mute/solo (resolves via defaultTrackBinding)
+  ch6    CC N+1..2N = mute, 2N+1..3N = solo  → Stem tracks (N = stem count)
+  ch7    CC1-4=vol, CC5-8=mute, CC9-12=solo  → Return tracks A-D (Reverb1/2, Delay1/2)
+
 Looper (dedicated loop tracks, native Ableton Looper device control):
 inbound codes 0x4B-0x4E carry a loop index (0-3, per rig_config.json's
 "loopers" array) as the value byte, and drive the bound track's Looper
@@ -967,21 +972,140 @@ class LiveRig(ControlSurface):
                 pass
         self._looper_quant_listeners = []
 
-    # ── Inbound SysEx — Live calls receive_midi for control-surface MIDI ────
+    # ── MIDI map registration — tells Live to forward these CCs to receive_midi ─
+    def build_midi_map(self, midi_map_handle):
+        """Register CCs that LiveRig handles directly in Python.
+        Registered CCs are forwarded to receive_midi; they do NOT reach
+        Ableton's own MIDI map, so remove any conflicting CMD+M mappings.
+
+        Handled here:
+          KBD mute/solo  — CC1/CC2 on MIDI ch1-4  (KBD track mute & solo)
+          Stem mute/solo — CC N+1..3N on MIDI ch6  (dynamic per STEM_COUNT)
+          FX returns     — CC1-12 on MIDI ch7      (vol + mute + solo)
+        """
+        # KBD mute (CC1) and solo (CC2) on ch1-4
+        for ch in range(4):
+            Live.MidiMap.forward_midi_cc(
+                self._c_instance.handle(), midi_map_handle, ch, 1)
+            Live.MidiMap.forward_midi_cc(
+                self._c_instance.handle(), midi_map_handle, ch, 2)
+        # Stem mute/solo on MIDI ch6 (index 5): CC N+1 .. 3N
+        n = self._stem_count
+        for cc in range(n + 1, 3 * n + 1):
+            Live.MidiMap.forward_midi_cc(
+                self._c_instance.handle(), midi_map_handle, 5, cc)
+        # FX Return vol+mute+solo on MIDI ch7 (index 6): CC1-12
+        for cc in range(1, 13):
+            Live.MidiMap.forward_midi_cc(
+                self._c_instance.handle(), midi_map_handle, 6, cc)
+
+    # ── Inbound MIDI — SysEx commands + registered CC handlers ───────────────
     def receive_midi(self, midi_bytes):
-        # Only handle SysEx beginning with F0 7D
-        if len(midi_bytes) < 4 or midi_bytes[0] != 0xF0:
+        if not midi_bytes:
             return
-        if midi_bytes[1] != LIVERIG_MFG_ID:
+        status = midi_bytes[0] & 0xF0
+
+        # SysEx (F0 7D …)
+        if status == 0xF0:
+            if len(midi_bytes) < 4 or midi_bytes[1] != LIVERIG_MFG_ID:
+                return
+            if midi_bytes[-1] != 0xF7:
+                return
+            code = midi_bytes[2] & 0x7F
+            value = midi_bytes[3] & 0x7F if len(midi_bytes) >= 5 else 0
+            try:
+                self._dispatch_sysex(code, value)
+            except Exception as e:
+                self.log_message("dispatch error code=" + hex(code) + ": " + str(e))
             return
-        if midi_bytes[-1] != 0xF7:
+
+        # CC (0xB0-0xBF) — only reaches here if registered in build_midi_map
+        if status == 0xB0:
+            if len(midi_bytes) < 3:
+                return
+            ch  = midi_bytes[0] & 0x0F   # 0-indexed channel
+            cc  = midi_bytes[1] & 0x7F
+            val = midi_bytes[2] & 0x7F
+            try:
+                self._dispatch_cc(ch, cc, val)
+            except Exception as e:
+                self.log_message(
+                    "cc error ch=%d cc=%d val=%d: %s" % (ch + 1, cc, val, str(e)))
+
+    def _dispatch_cc(self, channel, cc, val):
+        """Route registered inbound CC messages to Live track parameters.
+        channel is 0-indexed (0 = MIDI ch1).
+        """
+        song = self.song()
+
+        # ── KBD tracks: MIDI ch1-4 (index 0-3), CC1=mute, CC2=solo ─────────
+        if 0 <= channel <= 3 and cc in (1, 2):
+            track_idx = self._resolve_kbd_track_index(channel)
+            if track_idx is None:
+                return
+            try:
+                track = song.tracks[track_idx]
+                if cc == 1:
+                    track.mute = bool(val)
+                else:
+                    track.solo = bool(val)
+            except Exception as e:
+                self.log_message("kbd%d mute/solo error: %s" % (channel, str(e)))
             return
-        code = midi_bytes[2] & 0x7F
-        value = midi_bytes[3] & 0x7F if len(midi_bytes) >= 5 else 0
-        try:
-            self._dispatch_sysex(code, value)
-        except Exception as e:
-            self.log_message("dispatch error code=" + hex(code) + ": " + str(e))
+
+        # ── Stems: MIDI ch6 (index 5), mute/solo ─────────────────────────────
+        if channel == 5:
+            n = self._stem_count
+            if n == 0:
+                return
+            # mutes:  CC N+1 .. 2N
+            if n + 1 <= cc <= 2 * n:
+                si = cc - n - 1
+                track_idx = self._resolve_stem_track_index(si)
+                if track_idx is not None:
+                    try:
+                        song.tracks[track_idx].mute = bool(val)
+                    except Exception:
+                        pass
+            # solos:  CC 2N+1 .. 3N
+            elif 2 * n + 1 <= cc <= 3 * n:
+                si = cc - 2 * n - 1
+                track_idx = self._resolve_stem_track_index(si)
+                if track_idx is not None:
+                    try:
+                        song.tracks[track_idx].solo = bool(val)
+                    except Exception:
+                        pass
+            return
+
+        # ── FX Return tracks: MIDI ch7 (index 6) ─────────────────────────────
+        # vol:  CC1-4  → return_tracks[0-3].mixer_device.volume
+        # mute: CC5-8  → return_tracks[0-3].mute
+        # solo: CC9-12 → return_tracks[0-3].solo
+        if channel == 6:
+            ret_tracks = list(song.return_tracks)
+            if 1 <= cc <= 4:
+                ri = cc - 1
+                if ri < len(ret_tracks):
+                    try:
+                        ret_tracks[ri].mixer_device.volume.value = val / 127.0
+                    except Exception:
+                        pass
+            elif 5 <= cc <= 8:
+                ri = cc - 5
+                if ri < len(ret_tracks):
+                    try:
+                        ret_tracks[ri].mute = bool(val)
+                    except Exception:
+                        pass
+            elif 9 <= cc <= 12:
+                ri = cc - 9
+                if ri < len(ret_tracks):
+                    try:
+                        ret_tracks[ri].solo = bool(val)
+                    except Exception:
+                        pass
+            return
 
     def _dispatch_sysex(self, code, value):
         song = self.song()

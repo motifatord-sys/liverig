@@ -156,6 +156,11 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
 .aux-guide{color:#4ac8e0;}
 .aux-loops{color:#a466d4;}
 .aux-stems{color:#3dbf9b;}
+/* FX Return tracks (Reverb / Delay) */
+.fill-fx-rv{background:#9060e0;}
+.fill-fx-dly{background:#e09030;}
+.fx-rv{color:#9060e0;}
+.fx-dly{color:#e09030;}
 
 /* STEMS shortcut column on Master + dedicated Stems tab */
 .master-ch-nav{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;touch-action:none;user-select:none;}
@@ -317,7 +322,7 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
   <div id="page-0" class="page active">
     <div id="page-master">
       <div class="sec">Master Volumes</div>
-      <div id="master-faders-row" style="flex:1;display:grid;grid-template-columns:repeat(8,1fr);gap:10px;min-height:0;"></div>
+      <div id="master-faders-row" style="flex:1;display:grid;gap:10px;min-height:0;"></div>
     </div>
   </div>
 
@@ -835,9 +840,9 @@ function onRemoteScriptFeedback(bytes){
     const r = rsUint14(data[1], data[2]) & 0xFF;
     const g = rsUint14(data[3], data[4]) & 0xFF;
     const b = rsUint14(data[5], data[6]) & 0xFF;
-    if (stemIdx >= 0 && stemIdx < 8) {
+    if (stemIdx >= 0 && stemIdx < STEM_COUNT) {
       const hex = '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
-      if (!m4l.stemColors) m4l.stemColors = new Array(8).fill(null);
+      if (!m4l.stemColors) m4l.stemColors = new Array(STEM_COUNT).fill(null);
       m4l.stemColors[stemIdx] = hex;
       if (typeof updateStemColor === 'function') updateStemColor(stemIdx, hex);
     }
@@ -845,8 +850,8 @@ function onRemoteScriptFeedback(bytes){
     // Stem track name: stemIdx, nameLen, nameBytes
     const stemIdx = data[0];
     const {text:trackName} = rsDecodeStr(data, 1);
-    if (stemIdx >= 0 && stemIdx < 8) {
-      if (!m4l.stemNames) m4l.stemNames = new Array(8).fill(null);
+    if (stemIdx >= 0 && stemIdx < STEM_COUNT) {
+      if (!m4l.stemNames) m4l.stemNames = new Array(STEM_COUNT).fill(null);
       m4l.stemNames[stemIdx] = trackName;
       if (typeof updateStemLabel === 'function') updateStemLabel(stemIdx, trackName);
     }
@@ -963,18 +968,28 @@ function updateMasterKbdLabel(kbdIdx, name) {
 }
 
 function buildMaster() {
-  // 8 channels: K1-K4 (volume, CC7 ch1-4) + Click/Guide/Loops/Stems (CC20-23 ch5)
+  // 11 channels: K1-K4 + Click/Guide/Loops (ch1-5) + Rev1/Rev2/Dly1/Dly2 (ch7)
+  // KBD mute/solo (CC1/CC2 ch1-4) and FX return vol/mute/solo (CC1-12 ch7)
+  // are handled by the Remote Script via build_midi_map — no CMD+M needed.
+  // CLICK/GUIDE/LOOPS mute/solo (CC24-30 ch5) still use Ableton's MIDI map.
+  // STEMS nav button saved for future use:
+  //   {label:'STEMS', colorCls:'aux-stems', nav:'11'},
   const CHANNELS = [
-    {label:kbdMasterLabel(0), kbdIdx:0, fillCls:'fill-k1',        colorCls:'k1',         ch:1,  cc:7,  muteCc:1,  soloCc:2},
-    {label:kbdMasterLabel(1), kbdIdx:1, fillCls:'fill-k2',        colorCls:'k2',         ch:2,  cc:7,  muteCc:1,  soloCc:2},
-    {label:kbdMasterLabel(2), kbdIdx:2, fillCls:'fill-k3',        colorCls:'k3',         ch:3,  cc:7,  muteCc:1,  soloCc:2},
-    {label:kbdMasterLabel(3), kbdIdx:3, fillCls:'fill-k4',        colorCls:'k4',         ch:4,  cc:7,  muteCc:1,  soloCc:2},
-    {label:'CLICK',  fillCls:'fill-aux-click', colorCls:'aux-click',  ch:5,  cc:20, muteCc:24, soloCc:28},
-    {label:'GUIDE',  fillCls:'fill-aux-guide', colorCls:'aux-guide',  ch:5,  cc:21, muteCc:25, soloCc:29},
-    {label:'LOOPS',  fillCls:'fill-aux-loops', colorCls:'aux-loops',  ch:5,  cc:22, muteCc:26, soloCc:30},
-    {label:'STEMS',  colorCls:'aux-stems', nav:'11'},
+    {label:kbdMasterLabel(0), kbdIdx:0, fillCls:'fill-k1',       colorCls:'k1',        ch:1, cc:7,  muteCc:1, soloCc:2},
+    {label:kbdMasterLabel(1), kbdIdx:1, fillCls:'fill-k2',       colorCls:'k2',        ch:2, cc:7,  muteCc:1, soloCc:2},
+    {label:kbdMasterLabel(2), kbdIdx:2, fillCls:'fill-k3',       colorCls:'k3',        ch:3, cc:7,  muteCc:1, soloCc:2},
+    {label:kbdMasterLabel(3), kbdIdx:3, fillCls:'fill-k4',       colorCls:'k4',        ch:4, cc:7,  muteCc:1, soloCc:2},
+    {label:'CLICK',           fillCls:'fill-aux-click',           colorCls:'aux-click', ch:5, cc:20, muteCc:24, soloCc:28},
+    {label:'GUIDE',           fillCls:'fill-aux-guide',           colorCls:'aux-guide', ch:5, cc:21, muteCc:25, soloCc:29},
+    {label:'LOOPS',           fillCls:'fill-aux-loops',           colorCls:'aux-loops', ch:5, cc:22, muteCc:26, soloCc:30},
+    {label:'REV 1',           fillCls:'fill-fx-rv',               colorCls:'fx-rv',     ch:7, cc:1,  muteCc:5,  soloCc:9},
+    {label:'REV 2',           fillCls:'fill-fx-rv',               colorCls:'fx-rv',     ch:7, cc:2,  muteCc:6,  soloCc:10},
+    {label:'DLY 1',           fillCls:'fill-fx-dly',              colorCls:'fx-dly',    ch:7, cc:3,  muteCc:7,  soloCc:11},
+    {label:'DLY 2',           fillCls:'fill-fx-dly',              colorCls:'fx-dly',    ch:7, cc:4,  muteCc:8,  soloCc:12},
   ];
   const host = document.getElementById('master-faders-row');
+  // Set grid dynamically from channel count
+  host.style.gridTemplateColumns = `repeat(${CHANNELS.length},1fr)`;
   host.innerHTML = '';
   CHANNELS.forEach(c => {
     const col = document.createElement('div');
@@ -1038,9 +1053,14 @@ function buildMaster() {
 //  2026-06-29)
 // ═══════════════════════════════════════════
 // Own CC scheme on channel 6 (non-overlapping with KBD1-4 ch1-4, Master
-// aux row ch5, and global transport/loop controls on ch16). CC per stem
-// si is fader=si+1, mute=11+si, solo=21+si — at 10 stems that's
-//   faders: CC1-10   mute: CC11-20   solo: CC21-30
+// aux row ch5, and global transport/loop controls on ch16). Ranges are
+// calculated dynamically from STEM_COUNT so they never collide regardless
+// of how many stems are configured:
+//   faders : CC 1        … N       (si + 1)
+//   mutes  : CC N+1      … 2N      (N + si + 1)
+//   solos  : CC 2N+1     … 3N      (2N + si + 1)
+// This supports up to ~42 stems before exceeding CC127.
+const STEM_COUNT = (RIG_CONFIG.stems || []).length || 8;
 const STEM_DEFAULT_COLOR = '#3dbf9b';
 
 function stemLabel(si) {
@@ -1067,12 +1087,22 @@ function updateStemColor(si, hex) {
 }
 
 function buildStems() {
-  const STEM_COUNT = (RIG_CONFIG.stems || []).length || 8;
   const host = document.getElementById('stems-faders-row');
   host.innerHTML = '';
-  host.style.gridTemplateColumns = `repeat(${STEM_COUNT},1fr)`;
+  // Two-row layout for 9+ stems keeps faders usable on iPad at any count.
+  // ≤8: single row. 9+: two rows of ceil(N/2) columns each.
+  if (STEM_COUNT > 8) {
+    const cols = Math.ceil(STEM_COUNT / 2);
+    host.style.gridTemplateColumns = `repeat(${cols},1fr)`;
+    host.style.gridTemplateRows = '1fr 1fr';
+  } else {
+    host.style.gridTemplateColumns = `repeat(${STEM_COUNT},1fr)`;
+    host.style.gridTemplateRows = '1fr';
+  }
   for (let si = 0; si < STEM_COUNT; si++) {
-    const ch = 6, cc = si + 1, muteCc = 11 + si, soloCc = 21 + si;
+    // CC ranges are calculated from STEM_COUNT so they never collide:
+    // faders CC1..N, mutes CC(N+1)..2N, solos CC(2N+1)..3N
+    const ch = 6, cc = si + 1, muteCc = STEM_COUNT + si + 1, soloCc = 2 * STEM_COUNT + si + 1;
     const col = document.createElement('div');
     col.className = 'master-ch stem-ch';
     col.dataset.stemIdx = si;
