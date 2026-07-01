@@ -206,6 +206,23 @@ FB_STEM_COLOR      = 0x46
 FB_STEM_NAME       = 0x47
 FB_LOOP_STATE      = 0x48
 FB_LOOP_QUANT      = 0x49   # data: loop_idx, quant_idx
+FB_CLIP_TRACK_NAME = 0x50   # data: track_idx, name length, name bytes
+FB_CLIP_INFO       = 0x51   # data: scene_idx, track_idx, has_clip(0/1), is_playing(0/1), name length, name bytes
+
+# ── Clips page Session View grid (2026-07-01) ───────────────────────────────
+# Mirrors the first CLIP_TRACKS tracks x CLIP_SCENES scenes of the actual
+# Live set so the iPad's Clips page can show real clip names instead of
+# generic "Track 1"/empty tiles. Positional (first 8 tracks/scenes), not
+# name-bound like KBD/stems -- this is meant to mirror whatever's currently
+# in Session View, not a fixed rig role.
+# Polled rather than listener-driven, matching this file's existing
+# precedent for frequently-changing state (see current_song_time note in
+# the module docstring / _poll_song_time_tick) -- clip add/remove/rename/
+# play state changes are simpler and more robust to poll at ~1s than to
+# wire through Clip object listeners whose lifecycle churns every time a
+# clip is dropped in or deleted.
+CLIP_TRACKS  = 8
+CLIP_SCENES  = 8
 
 LIVERIG_MFG_ID     = 0x7D
 
@@ -368,8 +385,19 @@ class LiveRig(ControlSurface):
         except Exception as e:
             self.log_message("schedule_message init: " + str(e))
 
+        # ~1 Hz Clips page Session View grid poll (see CLIP_TRACKS/CLIP_SCENES
+        # comment above for why this is polled instead of listener-driven).
+        self._clip_track_names_sent = [None] * CLIP_TRACKS
+        self._clip_info_sent = {}
+        self._clip_poll_active = True
+        try:
+            self.schedule_message(10, self._poll_clip_grid_tick)
+        except Exception as e:
+            self.log_message("clip grid schedule_message init: " + str(e))
+
     def disconnect(self):
         self._song_time_poll_active = False
+        self._clip_poll_active = False
         song = self.song()
         def safe_remove(fn):
             try: fn()
@@ -418,6 +446,71 @@ class LiveRig(ControlSurface):
             self.log_message("song_time poll error: " + str(e))
         # Re-schedule. Live's schedule_message uses ticks; 1 tick = 100ms.
         self.schedule_message(1, self._poll_song_time_tick)
+
+    def _poll_clip_grid_tick(self):
+        """Re-schedule self every 10 ticks (~1s). Diffs the first
+        CLIP_TRACKS x CLIP_SCENES grid against what was last sent and only
+        emits SysEx for cells that actually changed (name, has_clip, or
+        is_playing), so an idle Clips page generates zero MIDI traffic."""
+        if not getattr(self, "_clip_poll_active", False):
+            return
+        try:
+            self._scan_clip_grid()
+        except Exception as e:
+            self.log_message("clip grid poll error: " + str(e))
+        self.schedule_message(10, self._poll_clip_grid_tick)
+
+    def _scan_clip_grid(self, force=False):
+        """force=True (used by _emit_full_state, e.g. on iPad reconnect)
+        re-sends every cell regardless of the diff cache -- otherwise a
+        freshly (re)connected iPad would see nothing until something in
+        Live actually changes, since the cache still holds the last-sent
+        values from before the reconnect."""
+        tracks = list(self.song().tracks)[:CLIP_TRACKS]
+        for ti in range(CLIP_TRACKS):
+            name = tracks[ti].name if ti < len(tracks) else None
+            if force or self._clip_track_names_sent[ti] != name:
+                self._clip_track_names_sent[ti] = name
+                self._emit_clip_track_name(ti, name)
+            if ti >= len(tracks):
+                continue
+            slots = list(tracks[ti].clip_slots)[:CLIP_SCENES]
+            for si in range(CLIP_SCENES):
+                if si >= len(slots):
+                    continue
+                slot = slots[si]
+                has_clip = bool(slot.has_clip)
+                clip_name = ""
+                is_playing = False
+                if has_clip:
+                    try:
+                        clip = slot.clip
+                        clip_name = clip.name or ""
+                        is_playing = bool(clip.is_playing)
+                    except Exception:
+                        pass
+                key = (si, ti)
+                snapshot = (has_clip, clip_name, is_playing)
+                if force or self._clip_info_sent.get(key) != snapshot:
+                    self._clip_info_sent[key] = snapshot
+                    self._emit_clip_info(si, ti, has_clip, clip_name, is_playing)
+
+    def _emit_clip_track_name(self, track_idx, name):
+        try:
+            body = [FB_CLIP_TRACK_NAME, track_idx & 0x7F]
+            body += self._encode_str(name or "")
+            self._send_sx(body)
+        except Exception as e:
+            self.log_message("clip track name emit error: " + str(e))
+
+    def _emit_clip_info(self, scene_idx, track_idx, has_clip, clip_name, is_playing):
+        try:
+            body = [FB_CLIP_INFO, scene_idx & 0x7F, track_idx & 0x7F,
+                    1 if has_clip else 0, 1 if is_playing else 0]
+            body += self._encode_str(clip_name or "")
+            self._send_sx(body)
+        except Exception as e:
+            self.log_message("clip info emit error: " + str(e))
 
     # ── Listener callbacks ──────────────────────────────────────────────────
     def _on_playing_changed(self):
@@ -1590,3 +1683,7 @@ class LiveRig(ControlSurface):
         self._emit_all_stem_names()
         self._emit_all_looper_states()
         self._emit_all_looper_quants()
+        try:
+            self._scan_clip_grid(force=True)
+        except Exception as e:
+            self.log_message("clip grid full-state emit error: " + str(e))

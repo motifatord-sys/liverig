@@ -887,6 +887,29 @@ function onRemoteScriptFeedback(bytes){
     if (loopIdx >= 0 && loopIdx < 4 && typeof updateLooperQuant === 'function') {
       updateLooperQuant(loopIdx, quantIdx);
     }
+  } else if (fb === 0x50) {
+    // Clips page: track name for Session View column trackIdx (polled by
+    // LiveRig.py, only sent when it actually changes). Same real-track-name
+    // pipeline as KBD/stems, just for the generic 8x8 Clips grid.
+    const trackIdx = data[0];
+    const {text: trackName} = rsDecodeStr(data, 1);
+    if (trackIdx >= 0 && trackIdx < CLIP_TRACKS) {
+      if (!m4l.liveTracks) m4l.liveTracks = [];
+      m4l.liveTracks[trackIdx] = { name: trackName };
+      if (typeof updateClipTrackHeaders === 'function') updateClipTrackHeaders();
+    }
+  } else if (fb === 0x51) {
+    // Clips page: one Session View cell -- sceneIdx, trackIdx, hasClip,
+    // isPlaying, clip name. Only sent when that cell actually changes.
+    const sceneIdx = data[0], trackIdx = data[1];
+    const hasClip = !!data[2], isPlaying = !!data[3];
+    const {text: clipName} = rsDecodeStr(data, 4);
+    if (sceneIdx >= 0 && sceneIdx < CLIP_SCENES && trackIdx >= 0 && trackIdx < CLIP_TRACKS) {
+      if (!m4l.liveClips) m4l.liveClips = Array.from({length: CLIP_SCENES}, () => []);
+      if (!Array.isArray(m4l.liveClips[sceneIdx])) m4l.liveClips[sceneIdx] = [];
+      m4l.liveClips[sceneIdx][trackIdx] = { has: hasClip, name: clipName, playing: isPlaying };
+      if (typeof updateClipNamesFromLive === 'function') updateClipNamesFromLive();
+    }
   }
 }
 
@@ -983,10 +1006,12 @@ function updateMasterKbdLabel(kbdIdx, name) {
 }
 
 function buildMaster() {
-  // 11 channels: K1-K4 + Click/Guide/Loops (ch1-5) + Rev1/Rev2/Dly1/Dly2 (ch7)
+  // 10 channels (KBD_COUNT + 6): K1-K4 + Click/Guide (ch5) + Rev1/Rev2/Dly1/Dly2 (ch7)
   // KBD mute/solo (CC1/CC2 ch1-4) and FX return vol/mute/solo (CC1-12 ch7)
   // are handled by the Remote Script via build_midi_map — no CMD+M needed.
-  // CLICK/GUIDE/LOOPS mute/solo (CC24-30 ch5) still use Ableton's MIDI map.
+  // CLICK/GUIDE mute/solo (CC24-25/28-29 ch5) still use Ableton's MIDI map.
+  // LOOPS removed 2026-07-01 (David: no longer needed) -- ch5 CC22/26/30
+  // are simply unused now; harmless to leave any old Cmd+M mapping in place.
   // STEMS nav button saved for future use:
   //   {label:'STEMS', colorCls:'aux-stems', nav:'11'},
   // KBD columns are config-driven so the row scales past 4 keyboards --
@@ -999,7 +1024,7 @@ function buildMaster() {
     ...KBD_CHANNELS,
     {label:'CLICK',           fillCls:'fill-aux-click',           colorCls:'aux-click', ch:5, cc:20, muteCc:24, soloCc:28},
     {label:'GUIDE',           fillCls:'fill-aux-guide',           colorCls:'aux-guide', ch:5, cc:21, muteCc:25, soloCc:29},
-    {label:'LOOPS',           fillCls:'fill-aux-loops',           colorCls:'aux-loops', ch:5, cc:22, muteCc:26, soloCc:30},
+    // LOOPS fader removed from Master (2026-07-01, David: "no longer needed").
     {label:'REV 1',           fillCls:'fill-fx-rv',               colorCls:'fx-rv',     ch:7, cc:1,  muteCc:5,  soloCc:9},
     {label:'REV 2',           fillCls:'fill-fx-rv',               colorCls:'fx-rv',     ch:7, cc:2,  muteCc:6,  soloCc:10},
     {label:'DLY 1',           fillCls:'fill-fx-dly',              colorCls:'fx-dly',    ch:7, cc:3,  muteCc:7,  soloCc:11},
@@ -1142,16 +1167,12 @@ function updateStemColor(si, hex) {
 function buildStems() {
   const host = document.getElementById('stems-faders-row');
   host.innerHTML = '';
-  // Two-row layout for 9+ stems keeps faders usable on iPad at any count.
-  // ≤8: single row. 9+: two rows of ceil(N/2) columns each.
-  if (STEM_COUNT > 8) {
-    const cols = Math.ceil(STEM_COUNT / 2);
-    host.style.gridTemplateColumns = `repeat(${cols},1fr)`;
-    host.style.gridTemplateRows = '1fr 1fr';
-  } else {
-    host.style.gridTemplateColumns = `repeat(${STEM_COUNT},1fr)`;
-    host.style.gridTemplateRows = '1fr';
-  }
+  // Single row, same as the Master page (repeat(N,1fr)) -- previously this
+  // switched to a 2-row layout above 8 stems, which halved each fader's
+  // height vs. Master's and made them look visually inconsistent/squat.
+  // David's real rig runs 10 stems, so this was always in effect.
+  host.style.gridTemplateColumns = `repeat(${STEM_COUNT},1fr)`;
+  host.style.gridTemplateRows = '1fr';
   for (let si = 0; si < STEM_COUNT; si++) {
     // CC ranges are calculated from STEM_COUNT so they never collide:
     // faders CC1..N, mutes CC(N+1)..2N, solos CC(2N+1)..3N
@@ -2043,7 +2064,10 @@ function buildClipLauncher() {
     const h=document.createElement('div'); h.className='clip-track-header'; h.id=`clip-hdr-${t}`;
     h.style.borderBottom=`2px solid ${CLIP_COLORS[t]}`; h.textContent=trackNames[t]; hRow.appendChild(h);
   }
-  const corner=document.createElement('div'); corner.className='clip-track-header'; corner.style.opacity='0.3'; corner.textContent='▶'; hRow.appendChild(corner);
+  const corner=document.createElement('div'); corner.className='clip-track-header'; corner.style.opacity='0.3';
+  corner.style.display='flex'; corner.style.alignItems='center'; corner.style.justifyContent='center';
+  corner.innerHTML='<svg viewBox="0 0 20 20" width="14" height="14" fill="#6a6a80"><polygon points="4,3 16,10 4,17"/></svg>';
+  hRow.appendChild(corner);
   root.appendChild(hRow);
 
   // Clip rows
