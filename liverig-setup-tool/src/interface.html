@@ -51,17 +51,84 @@
     }
 
     // ── Track select helper ────────────────────────────────────────────────
+    // conflictNames is recomputed by buildHtml() on every render (see below)
+    // and holds lowercased track names involved in either kind of conflict
+    // this modal warns about, so the offending dropdown gets a visible
+    // amber outline in addition to the summary banner.
+    let conflictNames = new Set();
+
     function trackSelectHtml(selectedValue, id, includeNone = true) {
       const opts = includeNone ? [`<option value="">— unbound —</option>`] : [];
       for (const name of trackNames) {
         const sel = selectedValue === name ? " selected" : "";
         opts.push(`<option value="${esc(name)}"${sel}>${esc(name)}</option>`);
       }
-      return `<select class="alx-input" id="${id}" onchange="syncFromSelect('${id}')">${opts.join("")}</select>`;
+      const isConflict = selectedValue && conflictNames.has(selectedValue.toLowerCase());
+      const cls = isConflict ? "alx-input warn-select" : "alx-input";
+      const title = isConflict ? ` title="This track name is involved in a binding conflict — see the warning above."` : "";
+      return `<select class="${cls}" id="${id}" onchange="syncFromSelect('${id}')"${title}>${opts.join("")}</select>`;
     }
 
     function esc(s) {
       return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    }
+
+    // ── Conflict detection (2026-07-01) ───────────────────────────────────
+    // Two distinct problems, both invisible until LiveRig.py actually runs
+    // (or, as of today, until it reports FB_BINDING_STATUS back to the
+    // iPad) -- surfacing them here, at config time, is strictly earlier and
+    // catches the case where David never opens the iPad to notice:
+    //   1. The Live Set itself has two tracks sharing a name -- ANY binding
+    //      to that name is inherently ambiguous, independent of what's
+    //      picked in this modal.
+    //   2. This config binds the same track name to more than one role
+    //      (e.g. a keyboard AND a stem both pointing at "DRUMS") -- almost
+    //      always a copy-paste/selection mistake, not intentional.
+    // Non-blocking by design: these are warnings, not validation errors --
+    // there may be legitimate edge cases (e.g. deliberately leaving a
+    // duplicate-named track unbound), so Save is never disabled.
+    function computeWarnings() {
+      const warnings = [];
+      const lowerTrackNames = trackNames.map(n => n.toLowerCase());
+      const dupeLower = [...new Set(lowerTrackNames.filter((n, i) => lowerTrackNames.indexOf(n) !== i))];
+      if (dupeLower.length) {
+        const originals = dupeLower.map(dl => trackNames.find(n => n.toLowerCase() === dl));
+        warnings.push(
+          `This Live Set has duplicate track name${originals.length > 1 ? "s" : ""}: ` +
+          `${originals.map(esc).join(", ")}. LiveRig binds by name, so a binding to ` +
+          `${originals.length > 1 ? "any of these" : "this"} will match whichever track comes first and may be wrong. Rename the tracks to be unique.`
+        );
+      }
+
+      const bindings = [];
+      config.keyboards.forEach(k => { if (k.defaultTrackBinding) bindings.push({ name: k.defaultTrackBinding, role: `Keyboard "${k.label}"` }); });
+      (config.stems || []).forEach(s => { if (s.trackName) bindings.push({ name: s.trackName, role: `Stem "${s.label}"` }); });
+      const byNameLower = {};
+      bindings.forEach(b => {
+        const key = b.name.toLowerCase();
+        (byNameLower[key] = byNameLower[key] || []).push(b.role);
+      });
+      Object.entries(byNameLower).forEach(([nameLower, roles]) => {
+        if (roles.length > 1) {
+          const original = bindings.find(b => b.name.toLowerCase() === nameLower).name;
+          warnings.push(`Track "${esc(original)}" is bound to more than one role: ${roles.join(", ")}. Double-check this is intentional.`);
+        }
+      });
+
+      return warnings;
+    }
+
+    function computeConflictNames() {
+      const set = new Set();
+      const lowerTrackNames = trackNames.map(n => n.toLowerCase());
+      lowerTrackNames.forEach((n, i) => { if (lowerTrackNames.indexOf(n) !== i) set.add(n); });
+
+      const counts = {};
+      config.keyboards.forEach(k => { if (k.defaultTrackBinding) counts[k.defaultTrackBinding.toLowerCase()] = (counts[k.defaultTrackBinding.toLowerCase()] || 0) + 1; });
+      (config.stems || []).forEach(s => { if (s.trackName) counts[s.trackName.toLowerCase()] = (counts[s.trackName.toLowerCase()] || 0) + 1; });
+      Object.entries(counts).forEach(([n, c]) => { if (c > 1) set.add(n); });
+
+      return set;
     }
 
     // ── Render ─────────────────────────────────────────────────────────────
@@ -70,6 +137,13 @@
     }
 
     function buildHtml() {
+      conflictNames = computeConflictNames();
+      const warnings = computeWarnings();
+      const warnBanner = warnings.length ? `
+        <div class="warn-banner">
+          ${warnings.map(w => `<div class="warn-line">⚠ ${w}</div>`).join("")}
+        </div>` : "";
+
       const kbdRows = config.keyboards.map((kbd, i) => `
         <tr>
           <td><input class="alx-input" type="text" value="${esc(kbd.label)}" oninput="config.keyboards[${i}].label=this.value" style="width:80px"></td>
@@ -105,7 +179,7 @@
             <input class="alx-input" type="text" value="${esc(config.rigName || "")}" oninput="config.rigName=this.value" style="width:220px">
           </div>
         </div>
-
+        ${warnBanner}
         <div class="section-label">Keyboards</div>
         <div class="table-scroll">
           <table class="alx-table">
@@ -157,6 +231,10 @@
         const i = parseInt(id.replace("stem-track-",""));
         config.stems[i].trackName = val;
       }
+      // Re-render so the conflict banner/highlights reflect this change
+      // immediately -- a rebind that resolves (or creates) a conflict
+      // should be visible without needing to hit Save first.
+      render();
     }
 
     function syncCaptureScope() {
@@ -375,6 +453,30 @@
       display: flex;
       align-items: center;
       gap: 4px;
+    }
+
+    .warn-banner {
+      background: hsl(35,90%,14%);
+      border: 1px solid hsl(35,90%,38%);
+      border-radius: 6px;
+      padding: 7px 10px;
+      margin-bottom: 10px;
+      flex-shrink: 0;
+    }
+
+    .warn-line {
+      color: hsl(35,95%,78%);
+      font-size: 10.5px;
+      line-height: 1.5;
+    }
+
+    .warn-line + .warn-line {
+      margin-top: 4px;
+    }
+
+    select.alx-input.warn-select {
+      border-color: hsl(35,90%,45%);
+      box-shadow: 0 0 0 1px hsl(35,90%,45%) inset;
     }
 
     .footer {
