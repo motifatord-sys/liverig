@@ -2,7 +2,25 @@
 
 > This file replaces `SESSION_BACKUP.md` (stale as of 2026-05-01) as the canonical project memory. It lives in the repo so it's read/write for Claude every session — no manual paste-in required. Updated on request ("Jesus Saves") or at natural session boundaries.
 
-**Last updated:** 2026-07-01 (Bidirectional volume feedback added for KBD/Stems/FX-Returns + Click/Guide automation scaffolded pending real track names, commit `1674e86`; Master/Stems volume faders fixed to control Ableton directly, commit `9a5233d`; Clips page rebuilt for native Live API clip control + accurate Session View state, commit `867820e`; 4 UI fixes — Stems fader sizing, Master LOOPS fader removed, Clips play-icon emoji replaced, Clips real clip names — commit `4954ee8`; Blue Hand mode shipped, commit `727a6c7`; >4 keyboard support shipped, commit `4e971c3`; dead `_dump_looper_params` method deleted, commit `4e971c3`)
+**Last updated:** 2026-07-01 (**Found and fixed a major deployment gap: LiveRig.py — the Remote Script Ableton actually runs — was stale at the real install path and had been for most of this session's work; now synced and this is now a permanent step, see below**; Bidirectional volume feedback added for KBD/Stems/FX-Returns + Click/Guide automation scaffolded pending real track names, commit `1674e86`; Master/Stems volume faders fixed to control Ableton directly, commit `9a5233d`; Clips page rebuilt for native Live API clip control + accurate Session View state, commit `867820e`; 4 UI fixes — Stems fader sizing, Master LOOPS fader removed, Clips play-icon emoji replaced, Clips real clip names — commit `4954ee8`; Blue Hand mode shipped, commit `727a6c7`; >4 keyboard support shipped, commit `4e971c3`; dead `_dump_looper_params` method deleted, commit `4e971c3`)
+
+## Remote Script deployment gap — found & fixed 2026-07-01 — READ THIS FIRST
+
+**This was the actual root cause of "the faders still aren't controlling Ableton" after the fixes below.** The Remote Script (`LiveRig.py`) has its OWN separate install location that is completely independent of both the git repo and the LiveRig.app bundle:
+```
+~/Music/Ableton/User Library/Remote Scripts/LiveRig/LiveRig.py
+```
+Editing `~/Desktop/liverig/LiveRig/LiveRig.py` (the repo copy) and committing/pushing to GitHub does **NOT** touch this file. Nothing auto-syncs it — there is no launcher-script copy step like the HTML/bridge have via the LiveRig.app bundle. Found by diffing the two files 2026-07-01: the installed copy was 1424 lines vs. the repo's 2099 — missing >4 keyboard support, Blue Hand mode, native Clips control, and the volume-fader fixes, i.e. essentially all of this session's Remote Script work. On top of that, `~/Library/Preferences/Ableton/Live 12.4.2/Log.txt` showed Live hadn't even been relaunched since 2026-06-29 18:43 — before any of it — so even the stale copy wasn't freshly reloaded.
+
+**Fixed 2026-07-01:** copied the current repo `LiveRig.py` (and `rig_config.json`, cosmetic only since `_load_rig_config` always prefers the `~/Desktop/liverig/` copy anyway) to the real install path. `__init__.py` was already identical, untouched.
+
+**This is now a required step, every session, whenever `LiveRig/LiveRig.py` changes** — treat it exactly like the LiveRig.app bundle Resources sync below, just a different destination:
+```
+cp ~/Desktop/liverig/LiveRig/LiveRig.py "~/Music/Ableton/User Library/Remote Scripts/LiveRig/LiveRig.py"
+```
+Then David needs to restart Ableton Live (the **12.4.2 Suite** install — not the Beta) or toggle the Control Surface dropdown to `None` and back to `LiveRig` in Settings → Link, Tempo & MIDI, since Python Remote Scripts are only (re-)imported at that point, never live. Confirm via a fresh `"LiveRig Remote Script loaded."` line in `Log.txt` timestamped after the restart.
+
+**Access:** this session now has `~/Music/Ableton/User Library/Remote Scripts` connected (requested 2026-07-01 alongside `~/Library/Preferences/Ableton` for the version-folder check) — no need to ask David to do this copy by hand going forward, do it directly as part of shipping any `LiveRig.py` change.
 
 ## App bundle architecture — CRITICAL deployment fact
 
@@ -12,6 +30,7 @@
 - To deploy HTML/Python changes: update `~/Desktop/liverig/` source files, copy to bundle Resources (use a Python script — cp and rsync silently appear to succeed but the launcher's cp overwrites on next launch), then restart the app.
 - `liverig_menubar.py` reads `live_rig_3_controller.html` from Application Support, injects `{{BRIDGE_HOST}}` → writes to `/private/tmp/liverig_controller_served.html` — this is what the HTTP server (port 8080) actually serves.
 - **Always use `/private/tmp/` not `/tmp/`** — macOS symlinks `/tmp` → `/private/tmp` but `sed >` file writes through `/tmp` can silently fail. All paths in `liverig_menubar.py` use `/private/tmp/` (fixed commit `44f365d`).
+- **This bundle mechanism covers the HTML and bridge only, NOT `LiveRig.py`** — see "Remote Script deployment gap" section above for the separate (and previously missed) sync step that file needs.
 
 ## Purpose & context
 
@@ -251,15 +270,16 @@ The recurring "stale git lock" problem (see dedicated section below) used to req
 ~~Fix Master/Stems volume faders not controlling Ableton~~ — done, see dedicated section above (`9a5233d`). Not yet confirmed live by David.
 ~~Add bidirectional volume feedback (KBD/Stems/FX Returns)~~ — done, see dedicated section above (`1674e86`). Not yet confirmed live by David.
 
-1. **Get the real Ableton track names for Click and Guide from David**, then add the `rig_config.json` "aux" section (template in the section above) — this is the one remaining blocker to fully automating Click/Guide the same way KBD/Stems/Returns just were. Everything else (Python resolution, dispatch, feedback) is already built and just waiting on this.
-2. **Confirm the volume-fader fix + new bidirectional feedback live** — reload the Remote Script, move KBD/Stem/Return faders both on the iPad and with the mouse in Ableton, confirm both directions track correctly without fighting an active drag. Top functional-verification item.
-3. **Confirm the new native Clips page live in Ableton** — reload the Remote Script, tap clips on the iPad, confirm real launch/stop/stop-all and correct blink→play→(optionally recording) visual transitions.
-4. Confirm Blue Hand mode live in an actual Ableton session (reload Remote Script, test HAND toggle + track-click re-targeting on the iPad).
-5. Decide whether to delete superseded `SESSION_BACKUP.md` from repo root (archive copy already safe at `~/Documents/LiveRig_Archive/SESSION_BACKUP_2026-05-01.md`). Still present at repo root as of 2026-07-01.
-6. Multi-computer routing UI (Option A architecture) — when needed.
-7. Extensions SDK setup-tool modal (`liverig-setup-tool/`) has no field yet for per-keyboard `midiChannel` or for adding a 5th+ keyboard slot — currently requires hand-editing `rig_config.json` to actually use the new >4 keyboard support. Natural next step if David wants to provision a real 5th keyboard through the modal instead of by hand.
-8. Cosmetic gap: KBD5+ live Ableton track-color changes (fb 0x44) don't repaint the dynamic `--kbd-c`-based elements (KBD1-4 use global `--k1..--k4` vars which already work). Low priority, control unaffected.
-9. `liverig_bridge_wired.py` still carries a fully dead M4L/HTTP-JSON `live_state`/`handle_http()` mechanism (with a placeholder `"clips"` field) that nothing uses anymore now that Clips page data comes from the Remote Script — left in place, harmless, candidate for cleanup whenever convenient.
+1. **David needs to restart Ableton Live 12.4.2 Suite (or toggle Control Surface dropdown to None and back) to actually load everything.** Log.txt showed Live hadn't been relaunched since 2026-06-29 18:43 — before any of this session's Remote Script work — and separately the installed `LiveRig.py` was stale until just fixed (see "Remote Script deployment gap" section). This is the reason the volume-fader fix appeared not to work when first tested; the fix was never actually running. Top item, blocks everything else below.
+2. **Get the real Ableton track names for Click and Guide from David**, then add the `rig_config.json` "aux" section (template in the section above) — this is the one remaining blocker to fully automating Click/Guide the same way KBD/Stems/Returns just were. Everything else (Python resolution, dispatch, feedback) is already built and just waiting on this.
+3. **Confirm the volume-fader fix + new bidirectional feedback live** — after the restart above, move KBD/Stem/Return faders both on the iPad and with the mouse in Ableton, confirm both directions track correctly without fighting an active drag.
+4. **Confirm the new native Clips page live in Ableton** — tap clips on the iPad, confirm real launch/stop/stop-all and correct blink→play→(optionally recording) visual transitions.
+5. Confirm Blue Hand mode live in an actual Ableton session (test HAND toggle + track-click re-targeting on the iPad).
+6. Decide whether to delete superseded `SESSION_BACKUP.md` from repo root (archive copy already safe at `~/Documents/LiveRig_Archive/SESSION_BACKUP_2026-05-01.md`). Still present at repo root as of 2026-07-01.
+7. Multi-computer routing UI (Option A architecture) — when needed.
+8. Extensions SDK setup-tool modal (`liverig-setup-tool/`) has no field yet for per-keyboard `midiChannel` or for adding a 5th+ keyboard slot — currently requires hand-editing `rig_config.json` to actually use the new >4 keyboard support. Natural next step if David wants to provision a real 5th keyboard through the modal instead of by hand.
+9. Cosmetic gap: KBD5+ live Ableton track-color changes (fb 0x44) don't repaint the dynamic `--kbd-c`-based elements (KBD1-4 use global `--k1..--k4` vars which already work). Low priority, control unaffected.
+10. `liverig_bridge_wired.py` still carries a fully dead M4L/HTTP-JSON `live_state`/`handle_http()` mechanism (with a placeholder `"clips"` field) that nothing uses anymore now that Clips page data comes from the Remote Script — left in place, harmless, candidate for cleanup whenever convenient.
 
 ## Known sandbox quirk: stale git locks (2026-06-30)
 
@@ -273,6 +293,7 @@ This is a sandbox-mount limitation, not repo corruption — David's local git is
 ## How to resume in a new chat
 
 1. Read this file first — it's the live state, not `SESSION_BACKUP.md`.
+0. **Whenever `LiveRig/LiveRig.py` changes, sync it to `~/Music/Ableton/User Library/Remote Scripts/LiveRig/LiveRig.py` before considering the work done** — see "Remote Script deployment gap" section near the top. This is separate from the git commit/push and separate from the LiveRig.app bundle sync; skipping it means David tests against stale code with zero error message, which is exactly what happened 2026-07-01 and cost significant back-and-forth diagnosing a "bug" that was actually just an undeployed fix.
 2. The Master page is fully working as of 2026-07-01: 10 channels (KBD 1-4, CLICK/GUIDE, REV 1/REV 2/DLY 1/DLY 2 — LOOPS fader removed), mute/solo automatic via Remote Script. No open regressions.
 3. >4 keyboard support shipped 2026-06-30 (`4e971c3`) — see dedicated section above. KBD_COUNT is dynamic now; adding a real 5th+ keyboard still means hand-editing `rig_config.json` until the setup-tool modal grows the field for it.
 4. Blue Hand mode shipped 2026-06-30 (`727a6c7`) — see dedicated section above. Built and verified via jsdom, but **not yet confirmed live by David**.
@@ -282,5 +303,6 @@ This is a sandbox-mount limitation, not repo corruption — David's local git is
 8. Respect channel isolation and architectural decisions listed above. Note the reserved-channel set now also includes CH15 (Blue Hand) on top of CH5/6/7/10/16.
 9. Don't reintroduce removed features (Record/Punch/Overdub on Setlist, STEMS nav button on Master, LOOPS fader on Master, etc.) without confirming with David first.
 10. Use `~/Library/Preferences/Ableton/Live 12.4.2/Log.txt` for Ableton log checks — not the old 12.3.8 folder.
-11. **Deployment pipeline**: edit `~/Desktop/liverig/` source → copy to bundle Resources → restart LiveRig app. Check `/private/tmp/liverig_controller_served.html` timestamp to confirm the menubar script re-generated the served file. Use Chrome extension's `read_console_messages` to verify no JS errors before telling David to check the iPad. `LiveRig.py` (Remote Script) is separate — it lives in Ableton's own Remote Scripts folder and needs a Live restart or Control Surface dropdown toggle to reload, not an app relaunch.
+11. **Deployment pipeline**: edit `~/Desktop/liverig/` source → copy HTML/bridge to bundle Resources → restart LiveRig app. Check `/private/tmp/liverig_controller_served.html` timestamp to confirm the menubar script re-generated the served file. Use Chrome extension's `read_console_messages` to verify no JS errors before telling David to check the iPad. `LiveRig.py` (Remote Script) is a THIRD, separate deployment target — `~/Music/Ableton/User Library/Remote Scripts/LiveRig/LiveRig.py` — that this session now has direct write access to; sync it there too (see item 0 above), then a Live restart or Control Surface dropdown toggle (not an app relaunch) is what actually reloads it.
 12. **Git lock friction is resolved** — no need to ask David to clear lock files from Terminal anymore; call `mcp__cowork__allow_cowork_file_delete` for the `liverig` folder if a commit hits a stale-lock error.
+13. **Two more folders now connected as of 2026-07-01**: `~/Library/Preferences/Ableton` (parent, for checking which Live version folder is actually newest — there are two active installs, stable Suite `12.4.2` for the main rig and Beta `12.4.5bN` for Extensions SDK work, don't mix up their Log.txt files) and `~/Music/Ableton/User Library/Remote Scripts` (see item 0).
