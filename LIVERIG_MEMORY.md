@@ -2,7 +2,7 @@
 
 > This file replaces `SESSION_BACKUP.md` (stale as of 2026-05-01) as the canonical project memory. It lives in the repo so it's read/write for Claude every session — no manual paste-in required. Updated on request ("Jesus Saves") or at natural session boundaries.
 
-**Last updated:** 2026-07-01 (Clips page rebuilt for native Live API clip control + accurate Session View state, commit `867820e`; 4 UI fixes — Stems fader sizing, Master LOOPS fader removed, Clips play-icon emoji replaced, Clips real clip names — commit `4954ee8`; Blue Hand mode shipped, commit `727a6c7`; >4 keyboard support shipped, commit `4e971c3`; dead `_dump_looper_params` method deleted, commit `4e971c3`)
+**Last updated:** 2026-07-01 (Master/Stems volume faders fixed to control Ableton directly — no more Cmd+M dependency, commit `9a5233d`; Clips page rebuilt for native Live API clip control + accurate Session View state, commit `867820e`; 4 UI fixes — Stems fader sizing, Master LOOPS fader removed, Clips play-icon emoji replaced, Clips real clip names — commit `4954ee8`; Blue Hand mode shipped, commit `727a6c7`; >4 keyboard support shipped, commit `4e971c3`; dead `_dump_looper_params` method deleted, commit `4e971c3`)
 
 ## App bundle architecture — CRITICAL deployment fact
 
@@ -204,6 +204,19 @@ David asked to go beyond just showing clip names: make the Clips page **directly
 - **Verified via jsdom + Node unit tests** (not just syntax-checked): confirmed the state-precedence logic (recording/playing/triggered/stopped/empty) picks the right CSS class + label for each combination of flags, and confirmed the scene/track bit-packing is symmetric — `(scene<<3)|track` encoded client-side unpacks back to the exact same `(scene_idx, track_idx)` pair server-side for all 64 grid positions.
 - **Not yet confirmed live by David** — next step is reloading the Remote Script (Live restart or Control Surface dropdown toggle) and testing on the iPad: tap a clip and confirm it actually launches in Ableton, watch the blink-then-play transition, test track-stop and stop-all, and confirm an already-playing clip shows recording state correctly if armed+overdubbing.
 
+## Master/Stems volume faders fixed — shipped 2026-07-01 (commit `9a5233d`)
+
+David reported: "the faders on the Masters page with the exception of REV1/2 DLY1/2 aren't controlling the faders in Ableton. Same goes for the faders on the stems page."
+
+**Root cause:** only mute/solo (KBD CC1/2 per keyboard channel; Stem CC N+1..3N on ch6) and FX return vol+mute+solo (CC1-12 ch7) were ever registered in `build_midi_map()`/handled in `_dispatch_cc()`. KBD volume (CC7) and Stem volume (CC1..N on ch6) were never direct-CC — they silently depended on the user manually Cmd+M-mapping each one to the track's mixer volume inside Ableton, which is exactly the kind of fragile per-Live-Set manual setup this project has been steadily eliminating everywhere else (mute/solo, FX returns, Looper state/quantization are all already direct). That's why REV/DLY kept working (already direct-CC) while everything else didn't.
+
+**Fix:** extended the exact same pattern already proven for FX return volume (`ret_tracks[ri].mixer_device.volume.value = val / 127.0`) to KBD and Stem tracks:
+- `build_midi_map()` now also forwards CC7 per KBD channel and CC1..N on ch6 (stem volume).
+- `_dispatch_cc()`'s KBD block now handles `cc==7` → `track.mixer_device.volume.value = val/127.0`; the Stems block adds a CC1..N volume branch using the same `val/127.0` formula.
+- No Cmd+M mapping needed anymore for KBD or Stem volume, mute, or solo — all fully automatic now.
+
+**Known remaining gap: CLICK/GUIDE (Master aux row, ch5) still rely entirely on Cmd+M** — there is no `rig_config.json` binding for these two aux tracks (unlike KBD/stems/loopers, which all have named config lists), so the Remote Script has no way to resolve which Ableton track they even are. Closing this gap needs either (a) David's real Ableton track names for Click and Guide so a small new config section can be added, or (b) leaving them Cmd+M-mapped as-is if that's preferred. Not yet resolved — see Pending tasks.
+
 ## Sandbox git-lock friction — resolved 2026-07-01 via `allow_cowork_file_delete`
 
 The recurring "stale git lock" problem (see dedicated section below) used to require David to manually run `rm -f .git/*.lock` from his own Terminal after nearly every commit. This is now self-service: calling the `mcp__cowork__allow_cowork_file_delete` tool (granting delete permission for the `liverig` folder) lets Claude clear these lock files itself mid-session without asking David to leave the chat. This grant is per-folder and may need to be re-requested if working in a different connected folder, but for `~/Desktop/liverig/` specifically it should not need to be asked for again.
@@ -217,14 +230,17 @@ The recurring "stale git lock" problem (see dedicated section below) used to req
 ~~Delete stray `claude/keen-mestorf-aedfa5` branch/worktree~~ — done, confirmed gone (David ran the cleanup from his own Terminal; `.git/worktrees/` no longer even exists).
 ~~Fix Stems (tab 2) fader sizing, remove Master LOOPS fader, replace Clips play-icon emoji, show real clip names on Clips tiles~~ — done, see "Four UI fixes" section above (`4954ee8`).
 ~~Rebuild Clips page for native Ableton clip control + accurate playing/triggered/recording state~~ — done, see "Clips page: native Live API control" section above (`867820e`). Not yet confirmed live by David.
+~~Fix Master/Stems volume faders not controlling Ableton~~ — done, see dedicated section above (`9a5233d`). Not yet confirmed live by David.
 
-1. **Confirm the new native Clips page live in Ableton** — reload the Remote Script, tap clips on the iPad, confirm real launch/stop/stop-all and correct blink→play→(optionally recording) visual transitions. Top item.
-2. Confirm Blue Hand mode live in an actual Ableton session (reload Remote Script, test HAND toggle + track-click re-targeting on the iPad).
-3. Decide whether to delete superseded `SESSION_BACKUP.md` from repo root (archive copy already safe at `~/Documents/LiveRig_Archive/SESSION_BACKUP_2026-05-01.md`). Still present at repo root as of 2026-07-01.
-4. Multi-computer routing UI (Option A architecture) — when needed.
-5. Extensions SDK setup-tool modal (`liverig-setup-tool/`) has no field yet for per-keyboard `midiChannel` or for adding a 5th+ keyboard slot — currently requires hand-editing `rig_config.json` to actually use the new >4 keyboard support. Natural next step if David wants to provision a real 5th keyboard through the modal instead of by hand.
-6. Cosmetic gap: KBD5+ live Ableton track-color changes (fb 0x44) don't repaint the dynamic `--kbd-c`-based elements (KBD1-4 use global `--k1..--k4` vars which already work). Low priority, control unaffected.
-7. `liverig_bridge_wired.py` still carries a fully dead M4L/HTTP-JSON `live_state`/`handle_http()` mechanism (with a placeholder `"clips"` field) that nothing uses anymore now that Clips page data comes from the Remote Script — left in place, harmless, candidate for cleanup whenever convenient.
+1. **Confirm the volume-fader fix live** — reload the Remote Script, move KBD/Stem faders on the iPad, confirm they now move the actual Ableton mixer volume. Top item (this was a reported-broken-in-production bug).
+2. **Confirm the new native Clips page live in Ableton** — reload the Remote Script, tap clips on the iPad, confirm real launch/stop/stop-all and correct blink→play→(optionally recording) visual transitions.
+3. Confirm Blue Hand mode live in an actual Ableton session (reload Remote Script, test HAND toggle + track-click re-targeting on the iPad).
+4. **CLICK/GUIDE still Cmd+M-dependent** — no `rig_config.json` binding exists for these two aux tracks. Ask David for the real Ableton track names if he wants them automated the same way KBD/Stems just were; otherwise leave as-is.
+5. Decide whether to delete superseded `SESSION_BACKUP.md` from repo root (archive copy already safe at `~/Documents/LiveRig_Archive/SESSION_BACKUP_2026-05-01.md`). Still present at repo root as of 2026-07-01.
+6. Multi-computer routing UI (Option A architecture) — when needed.
+7. Extensions SDK setup-tool modal (`liverig-setup-tool/`) has no field yet for per-keyboard `midiChannel` or for adding a 5th+ keyboard slot — currently requires hand-editing `rig_config.json` to actually use the new >4 keyboard support. Natural next step if David wants to provision a real 5th keyboard through the modal instead of by hand.
+8. Cosmetic gap: KBD5+ live Ableton track-color changes (fb 0x44) don't repaint the dynamic `--kbd-c`-based elements (KBD1-4 use global `--k1..--k4` vars which already work). Low priority, control unaffected.
+9. `liverig_bridge_wired.py` still carries a fully dead M4L/HTTP-JSON `live_state`/`handle_http()` mechanism (with a placeholder `"clips"` field) that nothing uses anymore now that Clips page data comes from the Remote Script — left in place, harmless, candidate for cleanup whenever convenient.
 
 ## Known sandbox quirk: stale git locks (2026-06-30)
 
