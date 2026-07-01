@@ -41,6 +41,17 @@ where <type>:
                                      b14_high, b14_low (each channel 0-255 in 14-bit)
   0x47 = stem track name    | data: stem_idx, name length, name bytes
   0x48 = loop state         | data: loop_idx, state (0=stop, 1=record, 2=play)
+  0x50 = clip track name    | data: track_idx, name length, name bytes
+  0x51 = clip info          | data: scene_idx, track_idx, flags, name length, name bytes
+                                     flags bit0=has_clip bit1=playing bit2=triggered
+                                     bit3=recording (matches Ableton's own Session
+                                     View clip-slot visual states)
+
+Direct clip control (Session View, native Live Object Model — not fake
+MIDI notes/CCs):
+  0x52 = clip fire   | value: (scene_idx<<3)|track_idx -> ClipSlot.fire()
+  0x53 = clip stop track | value: track_idx -> Track.stop_all_clips()
+  0x54 = clip stop all   | value: unused -> Song.stop_all_clips()
 
 Direct CC handling (via build_midi_map — no CMD+M needed for these):
   KBD    CC1=mute, CC2=solo   → KBD track mute/solo (resolves via defaultTrackBinding).
@@ -184,6 +195,9 @@ SX_LOOP_UNDO       = 0x4E   # value: loop_idx
 SX_LOOP_QUANT      = 0x4F   # value: (loop_idx<<4)|quant_idx
 SX_BLUE_HAND_ON    = 0x50   # value: kbd_idx to bind to the selected track
 SX_BLUE_HAND_OFF   = 0x51   # value: kbd_idx (informational only)
+SX_CLIP_FIRE       = 0x52   # value: (scene_idx<<3)|track_idx
+SX_CLIP_STOP_TRACK = 0x53   # value: track_idx
+SX_CLIP_STOP_ALL   = 0x54   # value: unused
 
 # ── SysEx codes (outgoing, script to bridge) ─────────────────────────────────
 SX_FB_PREFIX       = 0x60
@@ -207,7 +221,8 @@ FB_STEM_NAME       = 0x47
 FB_LOOP_STATE      = 0x48
 FB_LOOP_QUANT      = 0x49   # data: loop_idx, quant_idx
 FB_CLIP_TRACK_NAME = 0x50   # data: track_idx, name length, name bytes
-FB_CLIP_INFO       = 0x51   # data: scene_idx, track_idx, has_clip(0/1), is_playing(0/1), name length, name bytes
+FB_CLIP_INFO       = 0x51   # data: scene_idx, track_idx, flags, name length, name bytes
+                             # flags: bit0=has_clip bit1=playing bit2=triggered bit3=recording
 
 # ── Clips page Session View grid (2026-07-01) ───────────────────────────────
 # Mirrors the first CLIP_TRACKS tracks x CLIP_SCENES scenes of the actual
@@ -385,13 +400,16 @@ class LiveRig(ControlSurface):
         except Exception as e:
             self.log_message("schedule_message init: " + str(e))
 
-        # ~1 Hz Clips page Session View grid poll (see CLIP_TRACKS/CLIP_SCENES
+        # ~3.3 Hz Clips page Session View grid poll (see CLIP_TRACKS/CLIP_SCENES
         # comment above for why this is polled instead of listener-driven).
+        # Tightened from the original ~1 Hz now that this page directly fires
+        # clips -- a fired/triggered (blinking) state needs to show up quickly
+        # after a tap, not up to a second later.
         self._clip_track_names_sent = [None] * CLIP_TRACKS
         self._clip_info_sent = {}
         self._clip_poll_active = True
         try:
-            self.schedule_message(10, self._poll_clip_grid_tick)
+            self.schedule_message(3, self._poll_clip_grid_tick)
         except Exception as e:
             self.log_message("clip grid schedule_message init: " + str(e))
 
@@ -448,33 +466,57 @@ class LiveRig(ControlSurface):
         self.schedule_message(1, self._poll_song_time_tick)
 
     def _poll_clip_grid_tick(self):
-        """Re-schedule self every 10 ticks (~1s). Diffs the first
+        """Re-schedule self every 3 ticks (~300ms). Diffs the first
         CLIP_TRACKS x CLIP_SCENES grid against what was last sent and only
-        emits SysEx for cells that actually changed (name, has_clip, or
-        is_playing), so an idle Clips page generates zero MIDI traffic."""
+        emits SysEx for cells that actually changed (name, has_clip,
+        playing, triggered, or recording), so an idle Clips page generates
+        zero MIDI traffic."""
         if not getattr(self, "_clip_poll_active", False):
             return
         try:
             self._scan_clip_grid()
         except Exception as e:
             self.log_message("clip grid poll error: " + str(e))
-        self.schedule_message(10, self._poll_clip_grid_tick)
+        self.schedule_message(3, self._poll_clip_grid_tick)
 
     def _scan_clip_grid(self, force=False):
         """force=True (used by _emit_full_state, e.g. on iPad reconnect)
         re-sends every cell regardless of the diff cache -- otherwise a
         freshly (re)connected iPad would see nothing until something in
         Live actually changes, since the cache still holds the last-sent
-        values from before the reconnect."""
+        values from before the reconnect.
+
+        Play/trigger state is read from Track.playing_slot_index and
+        Track.fired_slot_index (one int each per track, per the Live Object
+        Model docs) rather than walking every clip's is_playing -- this
+        mirrors exactly what Ableton's own Session View grid shows:
+          playing_slot_index == si            -> that slot is playing (green)
+          fired_slot_index == si and not
+              already playing                 -> triggered/queued (blinking)
+          neither, but has_clip                -> stopped (has a clip, idle)
+          no clip                              -> empty
+        `is_recording` still needs a per-clip read (Clip.is_recording), but
+        only for the ONE slot that's actually playing on that track, since
+        only one clip per track can be active at a time.
+        """
         tracks = list(self.song().tracks)[:CLIP_TRACKS]
         for ti in range(CLIP_TRACKS):
-            name = tracks[ti].name if ti < len(tracks) else None
+            track = tracks[ti] if ti < len(tracks) else None
+            name = track.name if track is not None else None
             if force or self._clip_track_names_sent[ti] != name:
                 self._clip_track_names_sent[ti] = name
                 self._emit_clip_track_name(ti, name)
-            if ti >= len(tracks):
+            if track is None:
                 continue
-            slots = list(tracks[ti].clip_slots)[:CLIP_SCENES]
+            try:
+                playing_slot = track.playing_slot_index
+            except Exception:
+                playing_slot = -1
+            try:
+                fired_slot = track.fired_slot_index
+            except Exception:
+                fired_slot = -1
+            slots = list(track.clip_slots)[:CLIP_SCENES]
             for si in range(CLIP_SCENES):
                 if si >= len(slots):
                     continue
@@ -482,18 +524,25 @@ class LiveRig(ControlSurface):
                 has_clip = bool(slot.has_clip)
                 clip_name = ""
                 is_playing = False
+                is_recording = False
                 if has_clip:
                     try:
                         clip = slot.clip
                         clip_name = clip.name or ""
-                        is_playing = bool(clip.is_playing)
                     except Exception:
-                        pass
+                        clip = None
+                    if playing_slot == si:
+                        is_playing = True
+                        try:
+                            is_recording = bool(clip.is_recording) if clip is not None else False
+                        except Exception:
+                            pass
+                is_triggered = (fired_slot == si) and not is_playing
                 key = (si, ti)
-                snapshot = (has_clip, clip_name, is_playing)
+                snapshot = (has_clip, clip_name, is_playing, is_triggered, is_recording)
                 if force or self._clip_info_sent.get(key) != snapshot:
                     self._clip_info_sent[key] = snapshot
-                    self._emit_clip_info(si, ti, has_clip, clip_name, is_playing)
+                    self._emit_clip_info(si, ti, has_clip, clip_name, is_playing, is_triggered, is_recording)
 
     def _emit_clip_track_name(self, track_idx, name):
         try:
@@ -503,14 +552,57 @@ class LiveRig(ControlSurface):
         except Exception as e:
             self.log_message("clip track name emit error: " + str(e))
 
-    def _emit_clip_info(self, scene_idx, track_idx, has_clip, clip_name, is_playing):
+    def _emit_clip_info(self, scene_idx, track_idx, has_clip, clip_name, is_playing, is_triggered=False, is_recording=False):
         try:
-            body = [FB_CLIP_INFO, scene_idx & 0x7F, track_idx & 0x7F,
-                    1 if has_clip else 0, 1 if is_playing else 0]
+            flags = 0
+            if has_clip: flags |= 0x1
+            if is_playing: flags |= 0x2
+            if is_triggered: flags |= 0x4
+            if is_recording: flags |= 0x8
+            body = [FB_CLIP_INFO, scene_idx & 0x7F, track_idx & 0x7F, flags & 0x7F]
             body += self._encode_str(clip_name or "")
             self._send_sx(body)
         except Exception as e:
             self.log_message("clip info emit error: " + str(e))
+
+    # ── Direct clip control (Session View, native Live Object Model) ────────
+    def _clip_fire(self, scene_idx, track_idx):
+        """Fire the clip slot at (scene_idx, track_idx) directly -- same
+        effect as clicking it in Ableton: launches a clip, or if the slot
+        is empty on an armed track, starts recording (matches ClipSlot.fire()
+        semantics exactly, no special-casing needed here)."""
+        try:
+            tracks = list(self.song().tracks)[:CLIP_TRACKS]
+            if track_idx >= len(tracks):
+                self.log_message("clip fire: track_idx %d out of range" % track_idx)
+                return
+            slots = list(tracks[track_idx].clip_slots)[:CLIP_SCENES]
+            if scene_idx >= len(slots):
+                self.log_message("clip fire: scene_idx %d out of range" % scene_idx)
+                return
+            slots[scene_idx].fire()
+        except Exception as e:
+            self.log_message("clip fire error: " + str(e))
+
+    def _clip_stop_track(self, track_idx):
+        """Stop all playing/fired clips on one track -- Track.stop_all_clips()."""
+        try:
+            tracks = list(self.song().tracks)[:CLIP_TRACKS]
+            if track_idx >= len(tracks):
+                self.log_message("clip stop track: track_idx %d out of range" % track_idx)
+                return
+            tracks[track_idx].stop_all_clips()
+        except Exception as e:
+            self.log_message("clip stop track error: " + str(e))
+
+    def _clip_stop_all(self):
+        """Stop every playing/fired clip across the whole Live Set --
+        Song.stop_all_clips(). Quantized (default) so it respects Global
+        Quantization, same as the Stop Clips button in Ableton's own UI."""
+        try:
+            self.song().stop_all_clips()
+        except Exception as e:
+            self.log_message("clip stop all error: " + str(e))
 
     # ── Listener callbacks ──────────────────────────────────────────────────
     def _on_playing_changed(self):
@@ -1407,6 +1499,17 @@ class LiveRig(ControlSurface):
             self._blue_hand_kbd_idx = None
             self._unbind_blue_hand_listeners()
             self._rebind_macro_listeners()  # restores normal feedback + device headers for all KBD slots
+        elif code == SX_CLIP_FIRE:
+            scene_idx = (value >> 3) & 0x0F
+            track_idx = value & 0x07
+            self.log_message("dispatch: SX_CLIP_FIRE scene=%s track=%s" % (scene_idx, track_idx))
+            self._clip_fire(scene_idx, track_idx)
+        elif code == SX_CLIP_STOP_TRACK:
+            self.log_message("dispatch: SX_CLIP_STOP_TRACK track=%s" % value)
+            self._clip_stop_track(value)
+        elif code == SX_CLIP_STOP_ALL:
+            self.log_message("dispatch: SX_CLIP_STOP_ALL")
+            self._clip_stop_all()
 
     # ── Outbound feedback emitters ──────────────────────────────────────────
     def _send_sx(self, body_bytes):

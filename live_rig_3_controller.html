@@ -280,8 +280,10 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
 .clip-cell.empty{opacity:0.4;}
 .clip-cell.playing{border-width:2px;animation:clip-pulse 0.5s ease-in-out infinite alternate;}
 .clip-cell.recording{border-color:var(--red);border-width:2px;background:#2a0808;animation:clip-rec-pulse 0.5s ease-in-out infinite alternate;}
+.clip-cell.triggered{border-width:2px;animation:clip-trigger-blink 0.22s steps(1) infinite;}
 @keyframes clip-pulse{from{filter:brightness(1);}to{filter:brightness(1.25);}}
 @keyframes clip-rec-pulse{from{border-color:var(--red);}to{border-color:#ff6666;}}
+@keyframes clip-trigger-blink{0%,49%{border-color:#ffffff;background:#ffffff2a;}50%,100%{border-color:var(--border2);background:var(--surface2);}}
 .clip-cell .clip-icon{pointer-events:none;display:flex;align-items:center;justify-content:center;position:absolute;top:3px;right:3px;opacity:.85;}
 .clip-cell.empty .clip-icon{position:static;opacity:1;}
 .clip-scene-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;touch-action:none;display:flex;align-items:center;justify-content:flex-start;padding:0 6px;gap:6px;transition:background 0.1s;overflow:hidden;}
@@ -899,15 +901,19 @@ function onRemoteScriptFeedback(bytes){
       if (typeof updateClipTrackHeaders === 'function') updateClipTrackHeaders();
     }
   } else if (fb === 0x51) {
-    // Clips page: one Session View cell -- sceneIdx, trackIdx, hasClip,
-    // isPlaying, clip name. Only sent when that cell actually changes.
+    // Clips page: one Session View cell -- sceneIdx, trackIdx, flags, clip
+    // name. Only sent when that cell actually changes. flags mirrors
+    // Ableton's own clip-slot visual states exactly:
+    //   bit0=has_clip bit1=playing bit2=triggered(blinking) bit3=recording
     const sceneIdx = data[0], trackIdx = data[1];
-    const hasClip = !!data[2], isPlaying = !!data[3];
-    const {text: clipName} = rsDecodeStr(data, 4);
+    const flags = data[2] || 0;
+    const hasClip = !!(flags & 0x1), isPlaying = !!(flags & 0x2),
+          isTriggered = !!(flags & 0x4), isRecording = !!(flags & 0x8);
+    const {text: clipName} = rsDecodeStr(data, 3);
     if (sceneIdx >= 0 && sceneIdx < CLIP_SCENES && trackIdx >= 0 && trackIdx < CLIP_TRACKS) {
       if (!m4l.liveClips) m4l.liveClips = Array.from({length: CLIP_SCENES}, () => []);
       if (!Array.isArray(m4l.liveClips[sceneIdx])) m4l.liveClips[sceneIdx] = [];
-      m4l.liveClips[sceneIdx][trackIdx] = { has: hasClip, name: clipName, playing: isPlaying };
+      m4l.liveClips[sceneIdx][trackIdx] = { has: hasClip, name: clipName, playing: isPlaying, triggered: isTriggered, recording: isRecording };
       if (typeof updateClipNamesFromLive === 'function') updateClipNamesFromLive();
     }
   }
@@ -2039,14 +2045,13 @@ function updateTransportButtons() {
 }
 
 // ═══════════════════════════════════════════
-//  CLIP LAUNCHER
-//  MIDI Map (CH1):
-//   Notes 48-111 = clip launch [scene*8+track]
-//   CC 52-59 = track stop
-//   CC 60-67 = scene launch
-//   CC 68    = stop all
-//   SysEx 0xF0 0x7D 0x10 trackIdx name... 0xF7 = track name
-//   SysEx 0xF0 0x7D 0x20 scene track state 0xF7 = clip state
+//  CLIP LAUNCHER  (2026-07-01: native Live Object Model control)
+//  No MIDI Map / Cmd+M mapping needed -- every action here goes straight
+//  to LiveRig.py over the WebSocket, which drives the real Session View
+//  via the Live API (ClipSlot.fire/Track.stop_all_clips/Song.stop_all_clips).
+//  Grid state (names, playing/triggered/recording) is pushed back the same
+//  way real Ableton clip slots behave -- see LiveRig.py's _scan_clip_grid
+//  and FB_CLIP_TRACK_NAME/FB_CLIP_INFO (fb 0x50/0x51) in onRemoteScriptFeedback.
 // ═══════════════════════════════════════════
 const CLIP_TRACKS=8, CLIP_SCENES=8;
 const CLIP_COLORS=['#6c5fd4','#1a9e6e','#d4551e','#c07818','#3ab8ff','#e040fb','#ff6b6b','#00d4aa'];
@@ -2107,9 +2112,20 @@ function buildClipLauncher() {
 }
 
 function clipLaunch(scene,track){
-  const note=48+(scene*CLIP_TRACKS)+track;
-  send([0x9F,note,127]); setTimeout(()=>send([0x8F,note,0]),80);
-  updateClipCell(scene,track,2);
+  // Native: fire the actual ClipSlot via the Live Object Model (LiveRig.py
+  // SX_CLIP_FIRE), same effect as clicking the slot in Ableton -- launches
+  // a clip, or starts recording into an empty slot on an armed track.
+  // Replaces the old fake-note approach, which required manually Cmd+M
+  // mapping every one of the 64 slots in Ableton and had no way to reflect
+  // real state back.
+  if (typeof wsConnected!=='undefined' && wsConnected && ws && ws.readyState===WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:'clip_fire', scene, track}));
+  }
+  // Optimistic "triggered" (blinking) state immediately on tap -- the next
+  // poll tick (~300ms) confirms the real playing/recording state from Live
+  // (this also covers firing an empty slot on an armed track, which starts
+  // recording rather than playback).
+  updateClipCell(scene,track,4);
 }
 function clipScene(scene){
   // Native: fire scene via Live API (preferred)
@@ -2130,20 +2146,35 @@ function renderClipScenes() {
     lbl.textContent = (sc && sc.name) ? sc.name : '';
   }
 }
-function clipStopTrack(track){sendCC(16,52+track,127);}
-function clipStopAll(){sendCC(16,68,127);for(let s=0;s<CLIP_SCENES;s++)for(let t=0;t<CLIP_TRACKS;t++){if(clipStates[s][t]===2||clipStates[s][t]===3)updateClipCell(s,t,1);}}
+function clipStopTrack(track){
+  // Native: Track.stop_all_clips() via LiveRig.py SX_CLIP_STOP_TRACK.
+  if (typeof wsConnected!=='undefined' && wsConnected && ws && ws.readyState===WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:'clip_stop_track', track}));
+  }
+  for(let s=0;s<CLIP_SCENES;s++){if(clipStates[s][track]===2||clipStates[s][track]===3||clipStates[s][track]===4)updateClipCell(s,track,1);}
+}
+function clipStopAll(){
+  // Native: Song.stop_all_clips() via LiveRig.py SX_CLIP_STOP_ALL.
+  if (typeof wsConnected!=='undefined' && wsConnected && ws && ws.readyState===WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:'clip_stop_all'}));
+  }
+  for(let s=0;s<CLIP_SCENES;s++)for(let t=0;t<CLIP_TRACKS;t++){if(clipStates[s][t]===2||clipStates[s][t]===3||clipStates[s][t]===4)updateClipCell(s,t,1);}
+}
 
 function updateClipCell(scene,track,state){
+  // states: 0=empty 1=stopped(has clip, idle) 2=playing 3=recording
+  //         4=triggered (queued/about to play or stop -- Ableton's blink)
   if(scene<0||scene>=CLIP_SCENES||track<0||track>=CLIP_TRACKS)return;
   clipStates[scene][track]=state;
   const cell=document.getElementById(`clip-${scene}-${track}`); if(!cell)return;
-  cell.classList.remove('empty','stopped','playing','recording');
+  cell.classList.remove('empty','stopped','playing','recording','triggered');
   const icon=cell.querySelector('.clip-icon'), color=CLIP_COLORS[track];
   cell.style.background=''; cell.style.borderColor='';
   if(state===0){cell.classList.add('empty');if(icon)icon.innerHTML=`<svg viewBox="0 0 20 20" width="18" height="18" fill="${color}"><polygon points="4,3 16,10 4,17"/></svg>`;}
   else if(state===1){cell.classList.add('stopped');cell.style.borderColor=color+'55';if(icon)icon.innerHTML=`<svg viewBox="0 0 20 20" width="10" height="10" fill="${color}"><rect x="4" y="4" width="12" height="12" rx="1"/></svg>`;}
   else if(state===2){cell.classList.add('playing');cell.style.borderColor=color;cell.style.background=color+'22';if(icon)icon.innerHTML=`<svg viewBox="0 0 20 20" width="10" height="10" fill="${color}"><polygon points="4,3 16,10 4,17"/></svg>`;}
   else if(state===3){cell.classList.add('recording');if(icon)icon.innerHTML=`<svg viewBox="0 0 20 20" width="10" height="10" fill="#ff4444"><circle cx="10" cy="10" r="6"/></svg>`;}
+  else if(state===4){cell.classList.add('triggered');cell.style.borderColor=color;if(icon)icon.innerHTML=`<svg viewBox="0 0 20 20" width="10" height="10" fill="${color}"><polygon points="4,3 16,10 4,17"/></svg>`;}
 }
 
 function updateClipTrackHeaders() {
@@ -2158,6 +2189,10 @@ function updateClipTrackHeaders() {
 }
 
 function updateClipNamesFromLive() {
+  // Authoritative state from Live's own Session View (LiveRig.py
+  // Track.playing_slot_index/fired_slot_index/Clip.is_recording) --
+  // precedence matches exactly what Ableton itself shows on a clip slot:
+  // recording > playing > triggered(blinking) > stopped(loaded) > empty.
   if (!m4l.liveClips) return;
   for (let s = 0; s < CLIP_SCENES; s++) {
     for (let t = 0; t < CLIP_TRACKS; t++) {
@@ -2174,15 +2209,18 @@ function updateClipNamesFromLive() {
         lbl.className = 'clip-name-lbl';
         lbl.textContent = clipData.name || '';
         cell.appendChild(lbl);
-        // Reflect playing/stopped visual state from Ableton
-        if (clipData.playing) {
-          updateClipCell(s, t, 2); // playing
-        } else if (clipStates[s][t] !== 2 && clipStates[s][t] !== 3) {
-          updateClipCell(s, t, 1); // stopped but loaded
-        }
+        let state;
+        if (clipData.recording) state = 3;
+        else if (clipData.playing) state = 2;
+        else if (clipData.triggered) state = 4;
+        else state = 1; // stopped but loaded
+        updateClipCell(s, t, state);
       } else {
-        // No clip loaded → empty state
-        if (clipStates[s][t] !== 0) updateClipCell(s, t, 0);
+        // No clip loaded → empty state (still may be "triggered" if the
+        // Stop Button was fired for this track and this is where playback
+        // is queued to stop -- but an empty slot has nothing to preview,
+        // so just show empty).
+        updateClipCell(s, t, 0);
       }
     }
   }

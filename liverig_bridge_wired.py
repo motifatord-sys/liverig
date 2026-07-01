@@ -293,6 +293,19 @@ async def handle_client(websocket, path=None):
                     idx = int(data.get("index", 0)) & 0x7F
                     midi_out.send_message([0xF0, 0x7D, 0x51, idx, 0xF7])
 
+                elif msg_type == "clip_fire":
+                    scene = int(data.get("scene", 0)) & 0x0F
+                    track = int(data.get("track", 0)) & 0x07
+                    packed = ((scene << 3) | track) & 0x7F
+                    midi_out.send_message([0xF0, 0x7D, 0x52, packed, 0xF7])
+
+                elif msg_type == "clip_stop_track":
+                    track = int(data.get("track", 0)) & 0x7F
+                    midi_out.send_message([0xF0, 0x7D, 0x53, track, 0xF7])
+
+                elif msg_type == "clip_stop_all":
+                    midi_out.send_message([0xF0, 0x7D, 0x54, 0x00, 0xF7])
+
                 elif msg_type == "song_activate":
                     pc = int(data.get("pc", 0)) & 0x7F
                     for ch in range(4):
