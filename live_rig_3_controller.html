@@ -916,7 +916,35 @@ function onRemoteScriptFeedback(bytes){
       m4l.liveClips[sceneIdx][trackIdx] = { has: hasClip, name: clipName, playing: isPlaying, triggered: isTriggered, recording: isRecording };
       if (typeof updateClipNamesFromLive === 'function') updateClipNamesFromLive();
     }
+  } else if (fb === 0x52 || fb === 0x53 || fb === 0x54 || fb === 0x55) {
+    // Channel volume feedback (2026-07-01): Ableton -> iPad, so moving a
+    // fader with the mouse in Live keeps the corresponding Master/Stems
+    // fader in sync. data: idx, v14_hi, v14_lo. Category is implied by fb:
+    //   0x52=kbd  0x53=stem  0x54=return(REV1/2,DLY1/2)  0x55=aux(Click/Guide)
+    const cat = fb === 0x52 ? 'kbd' : fb === 0x53 ? 'stem' : fb === 0x54 ? 'return' : 'aux';
+    const idx = data[0];
+    const v14 = rsUint14(data[1], data[2]);
+    updateChannelVolumeFeedback(cat, idx, v14);
   }
+}
+
+// Shared by Master (kbd/aux/return) and Stems page fader feedback -- finds
+// the fader by the ids set in buildMaster()/buildStems() (master-fdr-* /
+// stem-fdr-*), skips the update if the user is actively dragging it
+// (same touch-guard pattern as applyKbdMacros), and mirrors fdrTouch's own
+// height/text formatting so a Live-side change looks identical to a local
+// drag.
+function updateChannelVolumeFeedback(cat, idx, v14) {
+  const pct = Math.max(0, Math.min(1, v14 / 0x3FFF));
+  const midiVal = Math.round(pct * 127);
+  const prefix = cat === 'stem' ? 'stem-fdr' : 'master-fdr';
+  const trackEl = document.getElementById(cat === 'stem' ? `${prefix}-track-${idx}` : `${prefix}-track-${cat}-${idx}`);
+  const fillEl  = document.getElementById(cat === 'stem' ? `${prefix}-fill-${idx}`  : `${prefix}-fill-${cat}-${idx}`);
+  const valEl   = document.getElementById(cat === 'stem' ? `${prefix}-val-${idx}`   : `${prefix}-val-${cat}-${idx}`);
+  if (!fillEl) return;
+  if (trackEl && trackEl.dataset.touching === '1') return; // don't fight an active drag
+  fillEl.style.height = (pct * 100) + '%';
+  if (valEl) valEl.textContent = String(midiVal);
 }
 
 function onMIDIIn(bytes) {
@@ -1030,16 +1058,17 @@ function buildMaster() {
   const KBD_CHANNELS = Array.from({length: KBD_COUNT}, (_, k) => ({
     label: kbdMasterLabel(k), kbdIdx: k, fillCls: 'fill-kbd-dyn', colorCls: 'kbd-dyn',
     kbdColorHex: kbdColor(k), ch: kbdChannel(k), cc: 7, muteCc: 1, soloCc: 2,
+    fbCat: 'kbd', fbIdx: k,
   }));
   const CHANNELS = [
     ...KBD_CHANNELS,
-    {label:'CLICK',           fillCls:'fill-aux-click',           colorCls:'aux-click', ch:5, cc:20, muteCc:24, soloCc:28},
-    {label:'GUIDE',           fillCls:'fill-aux-guide',           colorCls:'aux-guide', ch:5, cc:21, muteCc:25, soloCc:29},
+    {label:'CLICK',           fillCls:'fill-aux-click',           colorCls:'aux-click', ch:5, cc:20, muteCc:24, soloCc:28, fbCat:'aux', fbIdx:0},
+    {label:'GUIDE',           fillCls:'fill-aux-guide',           colorCls:'aux-guide', ch:5, cc:21, muteCc:25, soloCc:29, fbCat:'aux', fbIdx:1},
     // LOOPS fader removed from Master (2026-07-01, David: "no longer needed").
-    {label:'REV 1',           fillCls:'fill-fx-rv',               colorCls:'fx-rv',     ch:7, cc:1,  muteCc:5,  soloCc:9},
-    {label:'REV 2',           fillCls:'fill-fx-rv',               colorCls:'fx-rv',     ch:7, cc:2,  muteCc:6,  soloCc:10},
-    {label:'DLY 1',           fillCls:'fill-fx-dly',              colorCls:'fx-dly',    ch:7, cc:3,  muteCc:7,  soloCc:11},
-    {label:'DLY 2',           fillCls:'fill-fx-dly',              colorCls:'fx-dly',    ch:7, cc:4,  muteCc:8,  soloCc:12},
+    {label:'REV 1',           fillCls:'fill-fx-rv',               colorCls:'fx-rv',     ch:7, cc:1,  muteCc:5,  soloCc:9,  fbCat:'return', fbIdx:0},
+    {label:'REV 2',           fillCls:'fill-fx-rv',               colorCls:'fx-rv',     ch:7, cc:2,  muteCc:6,  soloCc:10, fbCat:'return', fbIdx:1},
+    {label:'DLY 1',           fillCls:'fill-fx-dly',              colorCls:'fx-dly',    ch:7, cc:3,  muteCc:7,  soloCc:11, fbCat:'return', fbIdx:2},
+    {label:'DLY 2',           fillCls:'fill-fx-dly',              colorCls:'fx-dly',    ch:7, cc:4,  muteCc:8,  soloCc:12, fbCat:'return', fbIdx:3},
   ];
   const host = document.getElementById('master-faders-row');
   // Set grid dynamically from channel count
@@ -1090,7 +1119,9 @@ function buildMaster() {
 
     // Fader track with vertical label overlay
     const track = document.createElement('div'); track.className = 'fader-track-vert';
+    track.id = `master-fdr-track-${c.fbCat}-${c.fbIdx}`;
     const fill = document.createElement('div'); fill.className = `fader-fill-vert ${c.fillCls}`; fill.style.height = '75%';
+    fill.id = `master-fdr-fill-${c.fbCat}-${c.fbIdx}`;
     const lblWrap = document.createElement('div'); lblWrap.className = 'fader-label-vert';
     const lblSpan = document.createElement('span'); lblSpan.textContent = c.label;
     lblWrap.appendChild(lblSpan);
@@ -1098,6 +1129,7 @@ function buildMaster() {
 
     // MIDI value display below fader
     const val = document.createElement('div'); val.className = 'fader-val-vert'; val.textContent = '96';
+    val.id = `master-fdr-val-${c.fbCat}-${c.fbIdx}`;
 
     fdrTouch(track, fill, val, pct => sendCC(c.ch, c.cc, Math.round(pct * 127)));
 
@@ -1216,13 +1248,16 @@ function buildStems() {
     ms.append(mBtn, sBtn);
 
     const track = document.createElement('div'); track.className = 'fader-track-vert';
+    track.id = `stem-fdr-track-${si}`;
     const fill = document.createElement('div'); fill.className = 'fader-fill-vert'; fill.style.height = '75%'; fill.style.background = stemColor(si);
+    fill.id = `stem-fdr-fill-${si}`;
     const lblWrap = document.createElement('div'); lblWrap.className = 'fader-label-vert';
     const lblSpan = document.createElement('span'); lblSpan.textContent = stemLabel(si);
     lblWrap.appendChild(lblSpan);
     track.append(fill, lblWrap);
 
     const val = document.createElement('div'); val.className = 'fader-val-vert'; val.textContent = '96';
+    val.id = `stem-fdr-val-${si}`;
 
     fdrTouch(track, fill, val, pct => sendCC(ch, cc, Math.round(pct * 127)));
 
