@@ -1013,9 +1013,14 @@ function updateMasterKbdLabel(kbdIdx, name) {
 
 function buildMaster() {
   // 10 channels (KBD_COUNT + 6): K1-K4 + Click/Guide (ch5) + Rev1/Rev2/Dly1/Dly2 (ch7)
-  // KBD mute/solo (CC1/CC2 ch1-4) and FX return vol/mute/solo (CC1-12 ch7)
-  // are handled by the Remote Script via build_midi_map — no CMD+M needed.
-  // CLICK/GUIDE mute/solo (CC24-25/28-29 ch5) still use Ableton's MIDI map.
+  // KBD vol/mute/solo (CC7/CC1/CC2 on each kbd channel) and FX return
+  // vol/mute/solo (CC1-12 ch7) are handled by the Remote Script via
+  // build_midi_map — no CMD+M needed for any of those. (KBD volume, CC7,
+  // added 2026-07-01 -- previously silently depended on the user Cmd+M
+  // mapping it themselves, which is what broke when reported as "faders
+  // aren't controlling Ableton".)
+  // CLICK/GUIDE vol/mute/solo (CC20-21/24-25/28-29 ch5) still use Ableton's
+  // MIDI map -- no rig_config binding exists yet for these two aux tracks.
   // LOOPS removed 2026-07-01 (David: no longer needed) -- ch5 CC22/26/30
   // are simply unused now; harmless to leave any old Cmd+M mapping in place.
   // STEMS nav button saved for future use:
@@ -1181,7 +1186,9 @@ function buildStems() {
   host.style.gridTemplateRows = '1fr';
   for (let si = 0; si < STEM_COUNT; si++) {
     // CC ranges are calculated from STEM_COUNT so they never collide:
-    // faders CC1..N, mutes CC(N+1)..2N, solos CC(2N+1)..3N
+    // faders CC1..N, mutes CC(N+1)..2N, solos CC(2N+1)..3N -- all three
+    // now handled directly by the Remote Script (volume added 2026-07-01,
+    // same fix as KBD above), no Cmd+M mapping needed.
     const ch = 6, cc = si + 1, muteCc = STEM_COUNT + si + 1, soloCc = 2 * STEM_COUNT + si + 1;
     const col = document.createElement('div');
     col.className = 'master-ch stem-ch';

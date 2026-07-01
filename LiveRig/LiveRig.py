@@ -54,12 +54,15 @@ MIDI notes/CCs):
   0x54 = clip stop all   | value: unused -> Song.stop_all_clips()
 
 Direct CC handling (via build_midi_map — no CMD+M needed for these):
-  KBD    CC1=mute, CC2=solo   → KBD track mute/solo (resolves via defaultTrackBinding).
-         Each keyboard's MIDI channel comes from rig_config.json's "midiChannel"
-         (1-indexed) or, if absent, auto-assigned to the next channel not already
-         claimed by ch5 (aux)/ch6 (stems)/ch7 (FX returns)/ch10 (pads)/ch16
-         (transport) — KBD1-4 default to ch1-4, same as before.
-  ch6    CC N+1..2N = mute, 2N+1..3N = solo  → Stem tracks (N = stem count)
+  KBD    CC7=volume, CC1=mute, CC2=solo → KBD track vol/mute/solo (resolves
+         via defaultTrackBinding). Each keyboard's MIDI channel comes from
+         rig_config.json's "midiChannel" (1-indexed) or, if absent,
+         auto-assigned to the next channel not already claimed by ch5
+         (aux)/ch6 (stems)/ch7 (FX returns)/ch10 (pads)/ch16 (transport) —
+         KBD1-4 default to ch1-4, same as before. (CC7 volume added
+         2026-07-01 — previously Cmd+M-dependent, same gap as stems below.)
+  ch6    CC1..N=vol, N+1..2N=mute, 2N+1..3N=solo → Stem tracks (N = stem
+         count). (CC1..N volume added 2026-07-01, same reason as KBD above.)
   ch7    CC1-4=vol, CC5-8=mute, CC9-12=solo  → Return tracks A-D (Reverb1/2, Delay1/2)
 
 Looper (dedicated loop tracks, native Ableton Looper device control):
@@ -1261,23 +1264,36 @@ class LiveRig(ControlSurface):
         Ableton's own MIDI map, so remove any conflicting CMD+M mappings.
 
         Handled here:
-          KBD mute/solo  — CC1/CC2 on each keyboard's MIDI channel (dynamic,
-                           self._kbd_channels — was hardcoded ch1-4)
-          Stem mute/solo — CC N+1..3N on MIDI ch6  (dynamic per STEM_COUNT)
+          KBD vol/mute/solo — CC7=volume, CC1=mute, CC2=solo on each
+                           keyboard's MIDI channel (dynamic, self._kbd_channels
+                           -- was hardcoded ch1-4). CC7 volume added
+                           2026-07-01 -- previously only mute/solo were
+                           direct-CC, so the Master page's KBD volume
+                           faders silently depended on the user manually
+                           Cmd+M-mapping CC7 to each track's mixer volume
+                           in Ableton, which is fragile/easy to lose
+                           (new Live Set, Remote Script re-init, etc).
+          Stem vol/mute/solo — CC1..N=volume, N+1..2N=mute, 2N+1..3N=solo on
+                           MIDI ch6 (dynamic per STEM_COUNT). Volume (1..N)
+                           added 2026-07-01 for the same reason as KBD above.
           FX returns     — CC1-12 on MIDI ch7      (vol + mute + solo)
           Blue Hand      — CC10-17 on MIDI ch15    (selected track's first
                            device's first 8 params; only acts when a KBD
                            slot has Blue Hand toggled on -- see _dispatch_cc)
         """
-        # KBD mute (CC1) and solo (CC2) on each keyboard's assigned channel
+        # KBD volume (CC7), mute (CC1), solo (CC2) on each keyboard's
+        # assigned channel -- all three now handled directly, no Cmd+M
+        # mapping needed for any of them.
         for ch in self._kbd_channels:
             Live.MidiMap.forward_midi_cc(
                 self._c_instance.handle(), midi_map_handle, ch, 1)
             Live.MidiMap.forward_midi_cc(
                 self._c_instance.handle(), midi_map_handle, ch, 2)
-        # Stem mute/solo on MIDI ch6 (index 5): CC N+1 .. 3N
+            Live.MidiMap.forward_midi_cc(
+                self._c_instance.handle(), midi_map_handle, ch, 7)
+        # Stem volume (CC1..N) + mute/solo (CC N+1..3N) on MIDI ch6 (index 5)
         n = self._stem_count
-        for cc in range(n + 1, 3 * n + 1):
+        for cc in range(1, 3 * n + 1):
             Live.MidiMap.forward_midi_cc(
                 self._c_instance.handle(), midi_map_handle, 5, cc)
         # FX Return vol+mute+solo on MIDI ch7 (index 6): CC1-12
@@ -1328,11 +1344,12 @@ class LiveRig(ControlSurface):
         """
         song = self.song()
 
-        # ── KBD tracks: each keyboard's assigned channel, CC1=mute, CC2=solo ──
-        # (was hardcoded "0 <= channel <= 3" assuming channel index == KBD
-        # slot; now resolved via self._kbd_channel_to_index so KBD5+ on any
-        # free channel still routes correctly.)
-        if channel in self._kbd_channel_to_index and cc in (1, 2):
+        # ── KBD tracks: each keyboard's assigned channel, CC7=volume,
+        # CC1=mute, CC2=solo ── (was hardcoded "0 <= channel <= 3" assuming
+        # channel index == KBD slot; now resolved via
+        # self._kbd_channel_to_index so KBD5+ on any free channel still
+        # routes correctly.)
+        if channel in self._kbd_channel_to_index and cc in (1, 2, 7):
             ti = self._kbd_channel_to_index[channel]
             track_idx = self._resolve_kbd_track_index(ti)
             if track_idx is None:
@@ -1341,19 +1358,30 @@ class LiveRig(ControlSurface):
                 track = song.tracks[track_idx]
                 if cc == 1:
                     track.mute = bool(val)
-                else:
+                elif cc == 2:
                     track.solo = bool(val)
+                else:  # cc == 7: volume
+                    track.mixer_device.volume.value = val / 127.0
             except Exception as e:
-                self.log_message("kbd%d mute/solo error: %s" % (ti, str(e)))
+                self.log_message("kbd%d vol/mute/solo error: %s" % (ti, str(e)))
             return
 
-        # ── Stems: MIDI ch6 (index 5), mute/solo ─────────────────────────────
+        # ── Stems: MIDI ch6 (index 5), volume/mute/solo ──────────────────────
         if channel == 5:
             n = self._stem_count
             if n == 0:
                 return
+            # volume: CC1 .. N
+            if 1 <= cc <= n:
+                si = cc - 1
+                track_idx = self._resolve_stem_track_index(si)
+                if track_idx is not None:
+                    try:
+                        song.tracks[track_idx].mixer_device.volume.value = val / 127.0
+                    except Exception:
+                        pass
             # mutes:  CC N+1 .. 2N
-            if n + 1 <= cc <= 2 * n:
+            elif n + 1 <= cc <= 2 * n:
                 si = cc - n - 1
                 track_idx = self._resolve_stem_track_index(si)
                 if track_idx is not None:
