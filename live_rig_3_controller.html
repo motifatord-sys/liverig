@@ -144,7 +144,13 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
 
 /* MASTER PAGE */
 #page-master{display:flex;flex-direction:column;height:100%;gap:8px;}
-.master-ch{display:flex;flex-direction:column;gap:6px;min-height:0;}
+.master-ch{display:flex;flex-direction:column;gap:6px;min-height:0;position:relative;}
+.bind-warn-badge{display:none;font-size:18px;line-height:1;}
+.bind-warn-badge.bind-warn-visible{display:inline-block;}
+.bind-warn-badge.bind-warn-red{color:#ff5050;text-shadow:0 0 6px rgba(255,60,60,.7);}
+.bind-warn-badge.bind-warn-amber{color:#ffb020;text-shadow:0 0 6px rgba(255,176,32,.6);}
+.master-ch .bind-warn-badge{position:absolute;top:4px;right:6px;z-index:2;pointer-events:none;}
+.loop-name .bind-warn-badge{margin-left:8px;}
 .master-ch .mute-solo{display:grid;grid-template-columns:1fr 1fr;gap:4px;flex:0 0 auto;}
 .master-ch .ms-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:6px;min-height:86px;padding:12px 4px;font-family:var(--mono);font-size:22px;font-weight:700;letter-spacing:2px;text-align:center;cursor:pointer;touch-action:none;user-select:none;color:var(--muted);display:flex;align-items:center;justify-content:center;}
 .master-ch .ms-btn.active-m{background:#3a1010;border-color:#a04040;color:#ffaaaa;}
@@ -925,6 +931,13 @@ function onRemoteScriptFeedback(bytes){
     const idx = data[0];
     const v14 = rsUint14(data[1], data[2]);
     updateChannelVolumeFeedback(cat, idx, v14);
+  } else if (fb === 0x56) {
+    // Binding-status feedback (2026-07-01): cat, idx, status -- see
+    // LiveRig.py BIND_CAT_*/BIND_STATUS_* constants. Only sent when a
+    // channel's binding health actually changes (or on full resync).
+    // Covers the 4 name-bound categories only (kbd/stem/looper/aux) --
+    // FX returns are fixed tracks, never name-bound, so they never get this.
+    updateBindingIndicator(data[0], data[1], data[2]);
   }
 }
 
@@ -945,6 +958,39 @@ function updateChannelVolumeFeedback(cat, idx, v14) {
   if (trackEl && trackEl.dataset.touching === '1') return; // don't fight an active drag
   fillEl.style.height = (pct * 100) + '%';
   if (valEl) valEl.textContent = String(midiVal);
+}
+
+// Binding-status indicator (2026-07-01) -- surfaces the config-vs-Live-Set
+// mismatches LiveRig.py now detects (see BIND_STATUS_* in LiveRig.py) so a
+// bad/duplicate track name shows up as a visible badge instead of a fader
+// that silently does nothing. Badge ids are set in buildMaster() (kbd/aux),
+// buildStems(), and buildLooper() -- one per name-bound channel.
+const BIND_CAT_NAMES = ['kbd', 'stem', 'looper', 'aux'];
+// Mirrors LiveRig.py: OK=0 OK_POSITIONAL=1 UNBOUND=2 AMBIGUOUS=3 EMPTY=4 FALLBACK_MISMATCH=5
+function updateBindingIndicator(catInt, idx, status) {
+  const catName = BIND_CAT_NAMES[catInt];
+  if (!catName) return;
+  let el;
+  if (catName === 'kbd' || catName === 'aux') el = document.getElementById(`master-bind-warn-${catName}-${idx}`);
+  else if (catName === 'stem') el = document.getElementById(`stem-bind-warn-${idx}`);
+  else if (catName === 'looper') el = document.getElementById(`loop-bind-warn-${idx}`);
+  if (!el) return;
+  el.classList.remove('bind-warn-visible', 'bind-warn-red', 'bind-warn-amber');
+  if (status === 2 || status === 5) {
+    // UNBOUND or FALLBACK_MISMATCH -- no track name in the Live Set matches
+    // this binding; channel is either dead or silently on the wrong track.
+    el.textContent = '⚠';
+    el.title = status === 2
+      ? 'No track in this Live Set matches the configured name — this channel is unbound.'
+      : 'Configured track name not found — falling back to track position. Double-check this channel.';
+    el.classList.add('bind-warn-visible', 'bind-warn-red');
+  } else if (status === 3) {
+    // AMBIGUOUS -- multiple tracks share the configured name.
+    el.textContent = '⚠';
+    el.title = 'Multiple tracks share this name — bound to the first match. Rename tracks to avoid ambiguity.';
+    el.classList.add('bind-warn-visible', 'bind-warn-amber');
+  }
+  // OK / OK_POSITIONAL / EMPTY: no badge, nothing to flag.
 }
 
 function onMIDIIn(bytes) {
@@ -1134,6 +1180,15 @@ function buildMaster() {
     fdrTouch(track, fill, val, pct => sendCC(c.ch, c.cc, Math.round(pct * 127)));
 
     col.append(ms, track, val);
+    // Binding-status badge -- kbd/aux are name-bound (rig_config.json), so
+    // they're the two Master categories that can be unbound/ambiguous.
+    // FX returns (fbCat 'return') are fixed tracks, never name-bound.
+    if (c.fbCat === 'kbd' || c.fbCat === 'aux') {
+      const warn = document.createElement('div');
+      warn.className = 'bind-warn-badge';
+      warn.id = `master-bind-warn-${c.fbCat}-${c.fbIdx}`;
+      col.appendChild(warn);
+    }
     host.appendChild(col);
   });
 }
@@ -1261,7 +1316,11 @@ function buildStems() {
 
     fdrTouch(track, fill, val, pct => sendCC(ch, cc, Math.round(pct * 127)));
 
-    col.append(ms, track, val);
+    const warn = document.createElement('div');
+    warn.className = 'bind-warn-badge';
+    warn.id = `stem-bind-warn-${si}`;
+
+    col.append(ms, track, val, warn);
     host.appendChild(col);
   }
 }
@@ -1306,8 +1365,11 @@ let loopRecStart=[0,0,0,0];
 function buildLooper() {
   const rows=document.getElementById('loop-rows');
   for(let k=0;k<4;k++){
-    const row=document.createElement('div'); row.className='loop-row';
-    const name=document.createElement('div'); name.className='loop-name'; name.style.color=LOOP_COLORS[k]; name.textContent=`Loop ${k+1}`;
+    const row=document.createElement('div'); row.className='loop-row'; row.id=`loop-row-${k}`;
+    const name=document.createElement('div'); name.className='loop-name'; name.style.color=LOOP_COLORS[k];
+    const nameLabel=document.createElement('span'); nameLabel.textContent=`Loop ${k+1}`;
+    const warn=document.createElement('span'); warn.className='bind-warn-badge'; warn.id=`loop-bind-warn-${k}`;
+    name.append(nameLabel, warn);
     const quantSel=document.createElement('select'); quantSel.className='loop-quant'; quantSel.id=`loop-quant-${k}`;
     LOOP_QUANT_ITEMS.forEach((label,i)=>{ const opt=document.createElement('option'); opt.value=i; opt.textContent=label; quantSel.appendChild(opt); });
     quantSel.value=loopQuantIdx[k];

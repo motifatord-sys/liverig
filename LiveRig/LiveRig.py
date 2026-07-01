@@ -46,6 +46,10 @@ where <type>:
                                      flags bit0=has_clip bit1=playing bit2=triggered
                                      bit3=recording (matches Ableton's own Session
                                      View clip-slot visual states)
+  0x56 = binding status     | data: category (0=kbd,1=stem,2=looper,3=aux), idx, status
+                                     status: 0=ok 1=ok_positional 2=unbound
+                                     3=ambiguous(duplicate track name) 4=empty(unconfigured)
+                                     5=fallback_mismatch(named binding didn't match, using position)
 
 Direct clip control (Session View, native Live Object Model — not fake
 MIDI notes/CCs):
@@ -230,6 +234,31 @@ FB_KBD_VOLUME      = 0x52   # data: kbd_idx, v14_hi, v14_lo
 FB_STEM_VOLUME     = 0x53   # data: stem_idx, v14_hi, v14_lo
 FB_RETURN_VOLUME   = 0x54   # data: return_idx (0-3 = REV1/REV2/DLY1/DLY2), v14_hi, v14_lo
 FB_AUX_VOLUME      = 0x55   # data: aux_idx (0=Click,1=Guide per rig_config "aux"), v14_hi, v14_lo
+FB_BINDING_STATUS  = 0x56   # data: category, idx, status (see BIND_CAT_*/BIND_STATUS_* below)
+
+# ── Track-binding status (2026-07-01) ───────────────────────────────────────
+# rig_config.json binds KBD/stem/looper/aux slots to Ableton tracks by NAME
+# (the only thing that persists in a .als file across a process restart or a
+# duplicated Live Set -- Extensions SDK Handles are session-scoped and can't
+# be saved into a config; see ONBOARDING.md). Name matching can go wrong in
+# ways that used to be visible only in Log.txt: no track with that name
+# exists anymore (renamed/deleted), or -- since Ableton allows two tracks to
+# share a name -- more than one track matches and the first one silently
+# wins. FB_BINDING_STATUS surfaces exactly which of these happened per slot
+# so the iPad can show a visible indicator instead of a fader just quietly
+# doing nothing.
+BIND_CAT_KBD    = 0
+BIND_CAT_STEM   = 1
+BIND_CAT_LOOPER = 2
+BIND_CAT_AUX    = 3
+
+BIND_STATUS_OK               = 0  # resolved to exactly one matching track
+BIND_STATUS_OK_POSITIONAL    = 1  # KBD only: no name configured, using position by design (normal)
+BIND_STATUS_UNBOUND          = 2  # a binding was configured but nothing matches, and there's no fallback
+BIND_STATUS_AMBIGUOUS        = 3  # 2+ tracks share the configured name; using the first (likely a mistake)
+BIND_STATUS_EMPTY            = 4  # stems/loopers/aux only: deliberately unconfigured (trackName null)
+BIND_STATUS_FALLBACK_MISMATCH = 5  # a name/index was configured but didn't match; silently fell back to
+                                    # position (KBD only) -- almost always a real problem, e.g. a renamed track
 
 # ── Clips page Session View grid (2026-07-01) ───────────────────────────────
 # Mirrors the first CLIP_TRACKS tracks x CLIP_SCENES scenes of the actual
@@ -327,6 +356,10 @@ class LiveRig(ControlSurface):
     # ── Listener wiring ─────────────────────────────────────────────────────
     def _connect_listeners(self):
         song = self.song()
+
+        # Binding-status diff cache -- must exist before ANY _resolve_*_track_index
+        # call below, since each one reports through _note_binding_status().
+        self._binding_status_cache = {}
 
         def safe_add(label, fn):
             try:
@@ -757,6 +790,16 @@ class LiveRig(ControlSurface):
         match isn't found -- pass the KBD slot index for KBD1-4 (preserves
         the old positional behavior), or None for stems (no positional
         convention makes sense there).
+
+        Returns (index_or_None, status) -- status is one of the BIND_STATUS_*
+        constants (2026-07-01, added so unresolved/ambiguous bindings can be
+        surfaced on the iPad instead of only logged to Log.txt). The
+        distinction that matters most: BIND_STATUS_OK_POSITIONAL means "no
+        name was ever configured, using position by design" (normal, not an
+        error) vs. BIND_STATUS_FALLBACK_MISMATCH, which means "a name WAS
+        configured but doesn't match anything anymore, silently fell back to
+        position" (almost certainly a real problem -- e.g. a track got
+        renamed -- that used to be invisible outside Log.txt).
         """
         tracks = self.song().tracks
         def clamped_fallback():
@@ -765,27 +808,54 @@ class LiveRig(ControlSurface):
             return None
         if binding is None:
             result = clamped_fallback()
+            status = BIND_STATUS_OK_POSITIONAL if result is not None else BIND_STATUS_EMPTY
             self.log_message("%s resolve: unbound, fallback -> %s" % (label, result))
-            return result
+            return result, status
         if isinstance(binding, (int, float)):
             idx = int(binding)
-            result = idx if 0 <= idx < len(tracks) else clamped_fallback()
-            self.log_message("%s resolve: index binding %s -> %s" % (label, idx, result))
-            return result
-        # String: case-insensitive name match
+            if 0 <= idx < len(tracks):
+                self.log_message("%s resolve: index binding %s -> %s" % (label, idx, idx))
+                return idx, BIND_STATUS_OK
+            result = clamped_fallback()
+            status = BIND_STATUS_FALLBACK_MISMATCH if result is not None else BIND_STATUS_UNBOUND
+            self.log_message("%s resolve: index binding %s out of range -> fallback %s" % (label, idx, result))
+            return result, status
+        # String: case-insensitive name match -- collect ALL matches (not just
+        # the first) so a duplicate track name can be flagged as ambiguous
+        # instead of silently picking whichever happens to come first.
         name = str(binding).strip().lower()
+        matches = []
         for idx, track in enumerate(tracks):
             try:
                 if (track.name or "").strip().lower() == name:
-                    self.log_message("%s resolve: name '%s' matched track %d ('%s')" % (label, binding, idx, track.name))
-                    return idx
+                    matches.append(idx)
             except Exception:
                 continue
+        if len(matches) == 1:
+            self.log_message("%s resolve: name '%s' matched track %d ('%s')" % (label, binding, matches[0], tracks[matches[0]].name))
+            return matches[0], BIND_STATUS_OK
+        if len(matches) > 1:
+            self.log_message("%s resolve: name '%s' AMBIGUOUS -- %d tracks share this name (indices %s), using first" % (label, binding, len(matches), matches))
+            return matches[0], BIND_STATUS_AMBIGUOUS
         # No match — fall back, preserving old KBD positional behavior
         result = clamped_fallback()
         all_names = [getattr(t, "name", "?") for t in tracks]
         self.log_message("%s resolve: name '%s' NOT FOUND among tracks %s -> fallback %s" % (label, binding, all_names, result))
-        return result
+        status = BIND_STATUS_FALLBACK_MISMATCH if result is not None else BIND_STATUS_UNBOUND
+        return result, status
+
+    def _note_binding_status(self, category, idx, status):
+        """Cache+diff wrapper -- only emits FB_BINDING_STATUS when a given
+        (category, idx)'s status actually changed, same diff-cache pattern
+        already used for the clip grid. See _emit_all_binding_statuses for
+        the force=True full-resend path (iPad reconnect)."""
+        key = (category, idx)
+        if self._binding_status_cache.get(key) != status:
+            self._binding_status_cache[key] = status
+            try:
+                self._send_sx([FB_BINDING_STATUS, category & 0x7F, idx & 0x7F, status & 0x7F])
+            except Exception as e:
+                self.log_message("binding status emit error: " + str(e))
 
     def _resolve_kbd_track_index(self, ti):
         """Resolve KBD slot `ti` (0-3) to an actual track index, using
@@ -794,7 +864,9 @@ class LiveRig(ControlSurface):
         so sets that don't use defaultTrackBinding keep working unchanged.
         """
         binding = self._track_bindings[ti] if ti < len(self._track_bindings) else None
-        return self._resolve_track_binding(binding, "kbd%d" % ti, fallback_idx=ti)
+        idx, status = self._resolve_track_binding(binding, "kbd%d" % ti, fallback_idx=ti)
+        self._note_binding_status(BIND_CAT_KBD, ti, status)
+        return idx
 
     def _resolve_stem_track_index(self, si):
         """Resolve stem slot `si` to an actual track index, using rig_config's
@@ -803,14 +875,18 @@ class LiveRig(ControlSurface):
         unmatched stem just resolves to None (skipped) instead of guessing.
         """
         binding = self._stem_track_bindings[si] if si < len(self._stem_track_bindings) else None
-        return self._resolve_track_binding(binding, "stem%d" % si, fallback_idx=None)
+        idx, status = self._resolve_track_binding(binding, "stem%d" % si, fallback_idx=None)
+        self._note_binding_status(BIND_CAT_STEM, si, status)
+        return idx
 
     def _resolve_aux_track_index(self, ai):
         """Resolve aux slot `ai` (0=Click, 1=Guide by rig_config.json order)
         to an actual track index, via rig_config's aux[ai].trackName. No
         positional fallback -- same reasoning as stems/loopers."""
         binding = self._aux_track_bindings[ai] if ai < len(self._aux_track_bindings) else None
-        return self._resolve_track_binding(binding, "aux%d" % ai, fallback_idx=None)
+        idx, status = self._resolve_track_binding(binding, "aux%d" % ai, fallback_idx=None)
+        self._note_binding_status(BIND_CAT_AUX, ai, status)
+        return idx
 
     def _resolve_looper_track_index(self, li):
         """Resolve loop slot `li` to an actual track index, using
@@ -820,7 +896,27 @@ class LiveRig(ControlSurface):
         (skipped) instead of guessing.
         """
         binding = self._looper_track_bindings[li] if li < len(self._looper_track_bindings) else None
-        return self._resolve_track_binding(binding, "loop%d" % li, fallback_idx=None)
+        idx, status = self._resolve_track_binding(binding, "loop%d" % li, fallback_idx=None)
+        self._note_binding_status(BIND_CAT_LOOPER, li, status)
+        return idx
+
+    def _emit_all_binding_statuses(self, force=False):
+        """Re-resolve every configured binding across all 4 categories,
+        which as a side effect (via _note_binding_status inside each
+        _resolve_*_track_index above) emits any status that's changed.
+        force=True clears the diff cache first so a freshly (re)connected
+        iPad gets a full dump instead of nothing (mirrors _scan_clip_grid's
+        force=True on _emit_full_state)."""
+        if force:
+            self._binding_status_cache = {}
+        for ti in range(self._kbd_count):
+            self._resolve_kbd_track_index(ti)
+        for si in range(self._stem_count):
+            self._resolve_stem_track_index(si)
+        for li in range(self._looper_count):
+            self._resolve_looper_track_index(li)
+        for ai in range(self._aux_count):
+            self._resolve_aux_track_index(ai)
 
     # ── Macro listeners for KBD1-4 ──────────────────────────────────────────
     def _select_macro_params(self, device, bank_size):
@@ -2093,6 +2189,10 @@ class LiveRig(ControlSurface):
         self._emit_all_aux_volumes()
         self._emit_all_looper_states()
         self._emit_all_looper_quants()
+        try:
+            self._emit_all_binding_statuses(force=True)
+        except Exception as e:
+            self.log_message("binding status full-state emit error: " + str(e))
         try:
             self._scan_clip_grid(force=True)
         except Exception as e:
