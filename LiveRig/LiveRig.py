@@ -118,12 +118,23 @@ def _load_rig_config(log=None):
 # ── KBD MIDI channel assignment (2026-06-30, >4 keyboard support) ───────────
 # KBD1-4 originally assumed MIDI ch1-4 (index 0-3) with no other option.
 # Channels already claimed elsewhere (0-indexed): 4=CH5 aux (Click/Guide/
-# Loops), 5=CH6 stems, 6=CH7 FX returns, 9=CH10 pads, 15=CH16 transport.
+# Loops), 5=CH6 stems, 6=CH7 FX returns, 9=CH10 pads, 14=CH15 Blue Hand
+# (see below), 15=CH16 transport.
 # Keyboards beyond the first 4 get the next free channel in that order
 # unless rig_config.json specifies an explicit 1-indexed "midiChannel".
 # Mirrors kbdDefaultChannel()/kbdChannel() in live_rig_3_controller.html --
 # keep both in sync if the reserved set ever changes.
-_RESERVED_KBD_CHANNELS_0IDX = (4, 5, 6, 9, 15)
+_RESERVED_KBD_CHANNELS_0IDX = (4, 5, 6, 9, 14, 15)
+
+# ── Blue Hand mode (2026-06-30) ─────────────────────────────────────────────
+# A global toggle (not a per-keyboard setting): while active for a given KBD
+# slot, that slot's 8 faders stop reflecting their fixed defaultTrackBinding
+# and instead directly drive whatever track is currently selected in Live --
+# specifically its first device's first 8 parameters (any device, not just
+# Racks, since this bypasses Ableton's own Cmd+M map entirely instead of
+# risking cross-talk with it). Dedicated channel so it never collides with
+# a KBD slot's normal Cmd+M-mapped fader CCs.
+BLUE_HAND_CHANNEL_0IDX = 14  # CH15
 
 
 def _default_kbd_channel_0idx(ti):
@@ -171,6 +182,8 @@ SX_LOOP_PLAY       = 0x4C   # value: loop_idx
 SX_LOOP_STOP       = 0x4D   # value: loop_idx
 SX_LOOP_UNDO       = 0x4E   # value: loop_idx
 SX_LOOP_QUANT      = 0x4F   # value: (loop_idx<<4)|quant_idx
+SX_BLUE_HAND_ON    = 0x50   # value: kbd_idx to bind to the selected track
+SX_BLUE_HAND_OFF   = 0x51   # value: kbd_idx (informational only)
 
 # ── SysEx codes (outgoing, script to bridge) ─────────────────────────────────
 SX_FB_PREFIX       = 0x60
@@ -186,6 +199,7 @@ FB_SCENE_LIST_BEGIN = 0x22
 FB_SCENE_LIST_END  = 0x23
 FB_SELECTED_TRACK  = 0x30
 FB_MACRO_VALUE     = 0x40
+FB_KBD_DEVICE      = 0x43   # data: kbd_idx, name length, name bytes, bank_idx, bank_count
 FB_KBD_COLOR       = 0x44
 FB_KBD_NAME        = 0x45
 FB_STEM_COLOR      = 0x46
@@ -294,6 +308,11 @@ class LiveRig(ControlSurface):
         try: self._rebind_macro_listeners()
         except Exception as e: self.log_message("rebind_macro init: " + str(e))
 
+        # Blue Hand mode: None when off, else the KBD slot index whose faders
+        # are currently mirroring/driving the selected track's first device.
+        self._blue_hand_kbd_idx = None
+        self._blue_hand_listeners = []
+
         # Per-track color listeners for KBD1-4 (so KBD tab / Master column
         # accents can follow whatever Ableton track color the user assigned)
         self._kbd_color_listeners = []
@@ -368,6 +387,8 @@ class LiveRig(ControlSurface):
         except Exception: pass
         try: self._unbind_macro_listeners()
         except Exception: pass
+        try: self._unbind_blue_hand_listeners()
+        except Exception: pass
         try: self._unbind_kbd_color_listeners()
         except Exception: pass
         try: self._unbind_kbd_name_listeners()
@@ -418,6 +439,10 @@ class LiveRig(ControlSurface):
 
     def _on_selected_track_changed(self):
         self._emit_selected_track()
+        # Blue Hand: re-target to the newly-selected track's first device
+        # without waiting for the iPad to resend SX_BLUE_HAND_ON.
+        if self._blue_hand_kbd_idx is not None:
+            self._rebind_blue_hand_listeners()
 
     def _on_tracks_changed(self):
         self._rebind_macro_listeners()
@@ -586,9 +611,11 @@ class LiveRig(ControlSurface):
                 track_idx = self._resolve_kbd_track_index(ti)
                 if track_idx is None:
                     self.log_message("kbd%d macro bind: no track resolved, skipping" % ti)
+                    self._emit_kbd_device(ti, None)
                     continue
                 track = self.song().tracks[track_idx]
                 device = self._find_first_device(track)
+                self._emit_kbd_device(ti, device)  # header shows device name (or clears) either way
                 if device is None:
                     self.log_message("kbd%d macro bind: track '%s' has no devices, skipping" % (ti, getattr(track, "name", "?")))
                     continue
@@ -613,6 +640,59 @@ class LiveRig(ControlSurface):
             except Exception:
                 pass
         self._macro_listeners = []
+
+    # ── Blue Hand mode: KBD slot follows the selected track (any device) ────
+    def _select_blue_hand_params(self, device):
+        """First 8 parameters (after Device On) of ANY device -- unlike
+        _select_macro_params, not restricted to Racks. Safe to do for any
+        device here because Blue Hand is a dedicated channel this script
+        drives directly (see build_midi_map/_dispatch_cc), not something
+        layered on top of the user's own Cmd+M mappings."""
+        try:
+            params = device.parameters
+        except Exception:
+            return []
+        return list(enumerate(params[1:9]))
+
+    def _rebind_blue_hand_listeners(self):
+        """(Re)bind Blue Hand feedback listeners to the selected track's
+        first device. No-op if Blue Hand is off (self._blue_hand_kbd_idx is
+        None). Called on SX_BLUE_HAND_ON and again whenever the selected
+        track changes while active, so it always follows live."""
+        self._unbind_blue_hand_listeners()
+        if self._blue_hand_kbd_idx is None:
+            return
+        kbd_idx = self._blue_hand_kbd_idx
+        try:
+            sel = self.song().view.selected_track
+            if sel is None:
+                self.log_message("blue hand bind: no track selected")
+                self._emit_kbd_device(kbd_idx, None)
+                return
+            device = self._find_first_device(sel)
+            self._emit_kbd_device(kbd_idx, device)  # header shows what Blue Hand is now driving
+            if device is None:
+                self.log_message("blue hand bind: '%s' has no devices" % getattr(sel, "name", "?"))
+                return
+            bound_count = 0
+            for param_idx, param in self._select_blue_hand_params(device):
+                listener = lambda p=param, k=kbd_idx, i=param_idx: self._emit_macro_value(k, i, p)
+                param.add_value_listener(listener)
+                self._blue_hand_listeners.append((param, listener))
+                self._emit_macro_value(kbd_idx, param_idx, param)  # push current value immediately
+                bound_count += 1
+            self.log_message("blue hand bind: kbd%d -> track '%s' device '%s', %d params" % (
+                kbd_idx, getattr(sel, "name", "?"), getattr(device, "name", "?"), bound_count))
+        except Exception as e:
+            self.log_message("blue hand bind error: " + str(e))
+
+    def _unbind_blue_hand_listeners(self):
+        for param, listener in self._blue_hand_listeners:
+            try:
+                param.remove_value_listener(listener)
+            except Exception:
+                pass
+        self._blue_hand_listeners = []
 
     @staticmethod
     def _is_rack(dev):
@@ -1000,6 +1080,9 @@ class LiveRig(ControlSurface):
                            self._kbd_channels — was hardcoded ch1-4)
           Stem mute/solo — CC N+1..3N on MIDI ch6  (dynamic per STEM_COUNT)
           FX returns     — CC1-12 on MIDI ch7      (vol + mute + solo)
+          Blue Hand      — CC10-17 on MIDI ch15    (selected track's first
+                           device's first 8 params; only acts when a KBD
+                           slot has Blue Hand toggled on -- see _dispatch_cc)
         """
         # KBD mute (CC1) and solo (CC2) on each keyboard's assigned channel
         for ch in self._kbd_channels:
@@ -1016,6 +1099,10 @@ class LiveRig(ControlSurface):
         for cc in range(1, 13):
             Live.MidiMap.forward_midi_cc(
                 self._c_instance.handle(), midi_map_handle, 6, cc)
+        # Blue Hand param control on its dedicated channel: CC10-17
+        for cc in range(10, 18):
+            Live.MidiMap.forward_midi_cc(
+                self._c_instance.handle(), midi_map_handle, BLUE_HAND_CHANNEL_0IDX, cc)
 
     # ── Inbound MIDI — SysEx commands + registered CC handlers ───────────────
     def receive_midi(self, midi_bytes):
@@ -1129,6 +1216,35 @@ class LiveRig(ControlSurface):
                         pass
             return
 
+        # ── Blue Hand: dedicated channel, CC10-17 -> selected track's first
+        # device's first 8 params directly (bypasses Cmd+M entirely). A no-op
+        # whenever Blue Hand is off (self._blue_hand_kbd_idx is None) -- the
+        # channel is always registered in build_midi_map so no rebuild is
+        # needed when toggling, it just does nothing until a slot opts in.
+        # Resolves the selected track fresh on every CC (not just via the
+        # rebind-on-selection-change listener) so a fast track-then-fader
+        # sequence can't land on a stale target.
+        if channel == BLUE_HAND_CHANNEL_0IDX and 10 <= cc <= 17:
+            if self._blue_hand_kbd_idx is None:
+                return
+            try:
+                sel = song.view.selected_track
+                if sel is None:
+                    return
+                device = self._find_first_device(sel)
+                if device is None:
+                    return
+                params = device.parameters[1:9]
+                pi = cc - 10
+                if pi >= len(params):
+                    return
+                param = params[pi]
+                pmin, pmax = param.min, param.max
+                param.value = pmin + (val / 127.0) * (pmax - pmin)
+            except Exception as e:
+                self.log_message("blue hand cc error: %s" % str(e))
+            return
+
     def _dispatch_sysex(self, code, value):
         song = self.song()
         if code == SX_LOCATOR_JUMP:
@@ -1184,6 +1300,20 @@ class LiveRig(ControlSurface):
             quant_idx = value & 0x0F
             self.log_message("dispatch: SX_LOOP_QUANT loop=%s quant=%s" % (loop_idx, quant_idx))
             self._looper_set_quantization(loop_idx, quant_idx)
+        elif code == SX_BLUE_HAND_ON:
+            self.log_message("dispatch: SX_BLUE_HAND_ON kbd=%s" % value)
+            # Pause ALL normal KBD macro feedback while Blue Hand is active,
+            # not just the affected slot -- avoids two listeners racing to
+            # update the same kbd_idx's fader if the fixed-track binding's
+            # own macro happened to change at the same moment.
+            self._unbind_macro_listeners()
+            self._blue_hand_kbd_idx = value
+            self._rebind_blue_hand_listeners()
+        elif code == SX_BLUE_HAND_OFF:
+            self.log_message("dispatch: SX_BLUE_HAND_OFF kbd=%s" % value)
+            self._blue_hand_kbd_idx = None
+            self._unbind_blue_hand_listeners()
+            self._rebind_macro_listeners()  # restores normal feedback + device headers for all KBD slots
 
     # ── Outbound feedback emitters ──────────────────────────────────────────
     def _send_sx(self, body_bytes):
@@ -1299,6 +1429,22 @@ class LiveRig(ControlSurface):
             self._send_sx(body)
         except Exception as e:
             self.log_message("macro emit error: " + str(e))
+
+    def _emit_kbd_device(self, kbd_idx, device):
+        """Tells the iPad which device (if any) a KBD slot's faders are
+        currently bound to, so the page header can show it instead of
+        leaving the user guessing. `device` may be None (no devices on the
+        bound track) -- sends an empty name so a stale header gets cleared.
+        No bank/paging concept exists yet, so bank_idx/bank_count are
+        always 0/1 (the iPad only shows a "BANK x/y" suffix when >1)."""
+        try:
+            name = getattr(device, "name", "") if device is not None else ""
+            body = [FB_KBD_DEVICE, kbd_idx & 0x7F]
+            body += self._encode_str(name)
+            body += [0, 1]
+            self._send_sx(body)
+        except Exception as e:
+            self.log_message("kbd device emit error: " + str(e))
 
     def _emit_all_macros(self):
         # Re-scan via the same name-based resolution used to bind listeners,

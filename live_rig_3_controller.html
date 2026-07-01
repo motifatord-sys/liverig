@@ -35,6 +35,7 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-fam
 #status-bpm{font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:700;color:#fff;letter-spacing:1px;line-height:1;flex:0 0 auto;padding:0 8px;}
 #status-bpm-lbl{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:1.5px;flex:0 0 auto;margin-left:-4px;}
 #midi-out{font-family:var(--mono);font-size:10px;color:var(--muted);min-width:180px;text-align:right;}
+#blue-hand-btn.active{background:#1a2a5a;border-color:#4a7cff;color:#8fb8ff;box-shadow:0 0 8px #2a5adf88;}
 
 /* TAB BAR */
 #tabbar{position:fixed;top:44px;left:0;right:0;height:var(--tab-h);background:var(--surface);border-bottom:1px solid var(--border);display:flex;z-index:99;}
@@ -302,6 +303,7 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
   <span id="status-bpm">--</span><span id="status-bpm-lbl">BPM</span>
   <span id="meta-bar" style="font-family:var(--mono);font-size:12px;color:var(--muted);flex:1;text-align:center"></span>
   <button onclick="showIPPrompt()" style="background:#1a1a28;border:1px solid #3a3a50;border-radius:4px;color:#8888aa;font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:.08em;padding:5px 10px;cursor:pointer;flex-shrink:0;touch-action:none;">IP</button>
+  <button id="blue-hand-btn" onclick="toggleBlueHand()" style="background:#1a1a28;border:1px solid #3a3a50;border-radius:4px;color:#8888aa;font-family:'Share Tech Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.08em;padding:5px 10px;cursor:pointer;flex-shrink:0;touch-action:none;">HAND</button>
   <button id="panic-btn" onclick="midiPanic()" style="background:#7a1010;border:1px solid #c02020;border-radius:4px;color:#ffaaaa;font-family:'Share Tech Mono',monospace;font-size:12px;font-weight:700;letter-spacing:.1em;padding:5px 12px;cursor:pointer;flex-shrink:0;touch-action:none;">PANIC</button>
   <span id="midi-out"></span>
 </div>
@@ -786,8 +788,8 @@ function onRemoteScriptFeedback(bytes){
     const kbdIdx = data[0], slot = data[1];
     const v14 = rsUint14(data[2], data[3]);
     const {text:paramName} = rsDecodeStr(data, 4);
-    if (kbdIdx >= 0 && kbdIdx < 4 && slot >= 0 && slot < 8) {
-      if (!m4l.kbdMacros) m4l.kbdMacros = [[],[],[],[]];
+    if (kbdIdx >= 0 && kbdIdx < KBD_COUNT && slot >= 0 && slot < 8) {
+      if (!m4l.kbdMacros) m4l.kbdMacros = [];
       if (!Array.isArray(m4l.kbdMacros[kbdIdx])) m4l.kbdMacros[kbdIdx] = [];
       m4l.kbdMacros[kbdIdx][slot] = { name: paramName, value: v14, min: 0, max: 0x3FFF };
       if (typeof applyKbdMacros === 'function') applyKbdMacros();
@@ -795,24 +797,26 @@ function onRemoteScriptFeedback(bytes){
   } else if (fb === 0x41) {
     // Parameter list begin: kbdIdx, count
     const kbdIdx = data[0], count = data[1];
-    if (kbdIdx >= 0 && kbdIdx < 4) {
-      if (!m4l.kbdMacros) m4l.kbdMacros = [[],[],[],[]];
+    if (kbdIdx >= 0 && kbdIdx < KBD_COUNT) {
+      if (!m4l.kbdMacros) m4l.kbdMacros = [];
       // Reset the slot to expected count; values arrive as 0x40 messages
       m4l.kbdMacros[kbdIdx] = new Array(count).fill(null);
     }
   } else if (fb === 0x42) {
     // Parameter list end: kbdIdx — finalize render
     const kbdIdx = data[0];
-    if (kbdIdx >= 0 && kbdIdx < 4 && typeof applyKbdMacros === 'function') {
+    if (kbdIdx >= 0 && kbdIdx < KBD_COUNT && typeof applyKbdMacros === 'function') {
       applyKbdMacros();
     }
   } else if (fb === 0x43) {
-    // Device info: kbdIdx, nameLen, nameBytes, bankIdx, bankCount
+    // Device info: kbdIdx, nameLen, nameBytes, bankIdx, bankCount -- shows
+    // which device a KBD page's faders are bound to (fixed track, or
+    // whatever Blue Hand mode is currently driving for that slot).
     const kbdIdx = data[0];
     const {text:devName, next} = rsDecodeStr(data, 1);
     const bankIdx = data[next] || 0;
     const bankCount = data[next+1] || 1;
-    if (!m4l.kbdDeviceInfo) m4l.kbdDeviceInfo = [{},{},{},{}];
+    if (!m4l.kbdDeviceInfo) m4l.kbdDeviceInfo = [];
     m4l.kbdDeviceInfo[kbdIdx] = { name: devName, bank: bankIdx, banks: bankCount };
     if (typeof updateKbdDeviceHeader === 'function') updateKbdDeviceHeader(kbdIdx);
   } else if (fb === 0x44) {
@@ -821,21 +825,27 @@ function onRemoteScriptFeedback(bytes){
     const r = rsUint14(data[1], data[2]) & 0xFF;
     const g = rsUint14(data[3], data[4]) & 0xFF;
     const b = rsUint14(data[5], data[6]) & 0xFF;
-    if (kbdIdx >= 0 && kbdIdx < 4) {
+    if (kbdIdx >= 0 && kbdIdx < KBD_COUNT) {
       const hex = '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
-      if (!m4l.kbdColors) m4l.kbdColors = [null,null,null,null];
+      if (!m4l.kbdColors) m4l.kbdColors = [];
       m4l.kbdColors[kbdIdx] = hex;
-      // --k1..--k4 drive both the KBD tab underline (.tab[data-page="N"].active::after)
-      // and the Master page K1-K4 column fill/text (.fill-kN / .kN) — overriding the
-      // CSS custom property here updates both without restructuring either.
-      document.documentElement.style.setProperty('--k' + (kbdIdx + 1), hex);
+      if (kbdIdx < 4) {
+        // --k1..--k4 drive both the KBD tab underline (.tab[data-page="N"].active::after)
+        // and the Master page K1-K4 column fill/text (.fill-kN / .kN) — overriding the
+        // CSS custom property here updates both without restructuring either.
+        document.documentElement.style.setProperty('--k' + (kbdIdx + 1), hex);
+      }
+      // KBD5+ use per-element --kbd-c (see kbdColor() / buildKbdPage /
+      // buildMaster) rather than a global --kN var, so a live Ableton
+      // track-color change doesn't yet repaint those elements -- known
+      // gap, low priority since it's cosmetic only (control is unaffected).
     }
   } else if (fb === 0x45) {
     // KBD track name: kbdIdx, nameLen, nameBytes
     const kbdIdx = data[0];
     const {text:trackName} = rsDecodeStr(data, 1);
-    if (kbdIdx >= 0 && kbdIdx < 4) {
-      if (!m4l.kbdNames) m4l.kbdNames = [null,null,null,null];
+    if (kbdIdx >= 0 && kbdIdx < KBD_COUNT) {
+      if (!m4l.kbdNames) m4l.kbdNames = [];
       m4l.kbdNames[kbdIdx] = trackName;
       if (typeof updateMasterKbdLabel === 'function') updateMasterKbdLabel(kbdIdx, trackName);
     }
@@ -1446,7 +1456,7 @@ const MAX_PATCHES   = (RIG_CONFIG.patches && RIG_CONFIG.patches.maxPatches) || 8
 // auto-assigned MIDI channel that skips channels already claimed elsewhere
 // (CH5 aux, CH6 stems, CH7 FX returns, CH10 pads, CH16 transport) -- unless
 // rig_config.json specifies an explicit "midiChannel" per keyboard.
-const RESERVED_KBD_CHANNELS = [5, 6, 7, 10, 16];
+const RESERVED_KBD_CHANNELS = [5, 6, 7, 10, 15, 16]; // 15 = Blue Hand (see BLUE_HAND_CHANNEL below)
 const KBD_COLOR_BASE = ['#6c5fd4', '#1a9e6e', '#d4551e', '#d423a6']; // KBD1-4, unchanged
 
 function hslToHex(h, s, l) {
@@ -1508,6 +1518,75 @@ function ensureDynamicKbdTabsAndPages() {
       else document.getElementById('tabbar').appendChild(tab);
     }
     anchor = tab;
+  }
+}
+
+// ═══════════════════════════════════════════
+//  BLUE HAND MODE (2026-06-30) — global toggle. While on, whichever KBD
+//  page is currently visible stops reflecting its fixed defaultTrackBinding
+//  and instead directly drives whatever track is selected in Ableton right
+//  now (its first device's first 8 params, CC10-17 on a dedicated channel
+//  handled entirely by LiveRig.py -- see BLUE_HAND_CHANNEL_0IDX there).
+//  Switching KBD tabs while active re-targets to the new tab; navigating to
+//  a non-KBD page pauses it (Python reverts that slot to normal feedback).
+// ═══════════════════════════════════════════
+let blueHandActive = false;
+let blueHandBoundKbdIdx = null;
+
+function sendBlueHand(msgType, kbdIdx) {
+  if (wsConnected && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({type: msgType, index: kbdIdx}));
+  }
+}
+
+// Returns the KBD index (0..KBD_COUNT-1) for the currently active page, or
+// null if the active page isn't a KBD page at all.
+function currentActiveKbdIndex() {
+  const activePage = document.querySelector('#pages .page.active');
+  if (!activePage) return null;
+  const pid = activePage.id.replace('page-', '');
+  for (let k = 0; k < KBD_COUNT; k++) if (kbdPageId(k) === pid) return k;
+  return null;
+}
+
+// Called after every page switch (see switchToPage) and on toggle. Keeps
+// Python's Blue Hand binding in sync with whatever KBD page (if any) is
+// actually on screen right now.
+function syncBlueHandToActivePage() {
+  if (!blueHandActive) return;
+  const k = currentActiveKbdIndex();
+  if (k === null) {
+    if (blueHandBoundKbdIdx !== null) {
+      const prev = blueHandBoundKbdIdx;
+      sendBlueHand('blue_hand_off', prev);
+      blueHandBoundKbdIdx = null;
+      if (typeof updateKbdDeviceHeader === 'function') updateKbdDeviceHeader(prev);
+    }
+    return;
+  }
+  if (k !== blueHandBoundKbdIdx) {
+    const prev = blueHandBoundKbdIdx;
+    blueHandBoundKbdIdx = k;
+    sendBlueHand('blue_hand_on', k);
+    if (prev !== null && typeof updateKbdDeviceHeader === 'function') updateKbdDeviceHeader(prev);
+    // Note: the new page's header shows "BLUE HAND -> ..." once LiveRig.py's
+    // FB_KBD_DEVICE feedback arrives (round-trip); no local placeholder text
+    // here since we don't yet know what device it'll be until Python resolves
+    // the selected track.
+  }
+}
+
+function toggleBlueHand() {
+  blueHandActive = !blueHandActive;
+  const btn = document.getElementById('blue-hand-btn');
+  if (btn) btn.classList.toggle('active', blueHandActive);
+  if (blueHandActive) {
+    syncBlueHandToActivePage();
+  } else if (blueHandBoundKbdIdx !== null) {
+    const prev = blueHandBoundKbdIdx;
+    sendBlueHand('blue_hand_off', prev);
+    blueHandBoundKbdIdx = null;
+    if (typeof updateKbdDeviceHeader === 'function') updateKbdDeviceHeader(prev);
   }
 }
 
@@ -1798,6 +1877,7 @@ function buildKbdPage(k) {
     <div style="display:flex;flex-direction:column;gap:8px;height:100%">
       <div>
         <div class="sec" style="color:${color}">${label.toUpperCase()} — MIDI CH ${ch}</div>
+        <div class="sec" id="kbd-device-header-${k}" style="font-size:11px;opacity:.8"></div>
         <div class="sec">Toggle buttons — CC 20–35</div>
         <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:7px" id="kbtns${k}"></div>
       </div>
@@ -2094,7 +2174,9 @@ function updateKbdDeviceHeader(kbdIdx) {
   const headerEl = document.getElementById(`kbd-device-header-${kbdIdx}`);
   if (!headerEl) return;
   const bankLabel = info.banks > 1 ? ` · BANK ${info.bank+1}/${info.banks}` : '';
-  headerEl.textContent = (info.name || '<no device>') + bankLabel;
+  const bluePrefix = (blueHandActive && blueHandBoundKbdIdx === kbdIdx) ? 'BLUE HAND → ' : '';
+  headerEl.style.color = bluePrefix ? '#8fb8ff' : '';
+  headerEl.textContent = bluePrefix + (info.name || '<no device>') + bankLabel;
 }
 
 function applyKbdMacros() {
@@ -2736,6 +2818,7 @@ function switchToPage(p) {
   if (tab) tab.classList.add('active');
   const pg = document.getElementById(`page-${p}`); if (pg) pg.classList.add('active');
   if (typeof cleanupSetlistGhosts === 'function') cleanupSetlistGhosts();
+  if (typeof syncBlueHandToActivePage === 'function') syncBlueHandToActivePage();
 }
 
 function attachTabHandlers() {

@@ -285,6 +285,14 @@ async def handle_client(websocket, path=None):
                     packed = ((idx << 4) | qval) & 0x7F
                     midi_out.send_message([0xF0, 0x7D, 0x4F, packed, 0xF7])
 
+                elif msg_type == "blue_hand_on":
+                    idx = int(data.get("index", 0)) & 0x7F
+                    midi_out.send_message([0xF0, 0x7D, 0x50, idx, 0xF7])
+
+                elif msg_type == "blue_hand_off":
+                    idx = int(data.get("index", 0)) & 0x7F
+                    midi_out.send_message([0xF0, 0x7D, 0x51, idx, 0xF7])
+
                 elif msg_type == "song_activate":
                     pc = int(data.get("pc", 0)) & 0x7F
                     for ch in range(4):
