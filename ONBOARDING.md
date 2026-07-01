@@ -23,12 +23,8 @@ Do this once per computer that will run LiveRig.
 1. **Install Ableton Live 12 Suite** (the stable release) — this is the DAW used for actual performance.
 2. **Install Ableton Live 12 Suite Beta 12.4.5+** *only if you'll use the Extensions SDK config tool* — Extensions require the beta build specifically; they are not available in the stable Suite, Standard, Intro, or Lite. This is a completely separate app install from #1, with its own preferences folder.
 3. **Get the LiveRig repo onto the machine** at `~/Desktop/liverig/` (git clone `motifatord-sys/liverig`, or copy the folder).
-4. **Install the Remote Script.** Copy `~/Desktop/liverig/LiveRig/LiveRig.py` and `~/Desktop/liverig/LiveRig/__init__.py` into:
-   ```
-   ~/Music/Ableton/User Library/Remote Scripts/LiveRig/
-   ```
-   **This is currently a fully manual step with no installer** — flagged in the gap list below.
-5. **Install LiveRig.app** (drag to `/Applications`) — this bundles the MIDI bridge, the menubar helper, and the iPad-facing HTML frontend.
+4. **Install LiveRig.app** (drag `dist/LiveRig-Installer.dmg`'s contents to `/Applications`, or drag the raw `.app` if not using the DMG yet) — this bundles the MIDI bridge, the menubar helper, the iPad-facing HTML frontend, **and now the Ableton Remote Script too**. As of 2026-07-01, the first launch (and every launch after that where the bundled script changed) automatically copies `LiveRig.py` + `__init__.py` into `~/Music/Ableton/User Library/Remote Scripts/LiveRig/` for you — no manual copy step anymore. A dialog pops up telling you to restart Ableton (or toggle the Control Surface dropdown) whenever it actually deployed a change, since that reload step still can't be automated away.
+5. **(For distributing to a new machine)** Run `scripts/build_dmg.sh` on a Mac that has the current `LiveRig.app` installed — it re-signs the app and produces `dist/LiveRig-Installer.dmg`, a proper drag-to-Applications installer with a Read Me. Needs to be re-run whenever the app bundle's contents change.
 6. **One-time Ableton MIDI setup** (per machine, in the stable Suite): Settings → Link, Tempo & MIDI → find an empty Control Surface row → Control Surface = `LiveRig`, Input = `LiveRig Bridge`, Output = `LiveRig Bridge`, both with Track and Remote switched on.
 7. **Install the packaged Setup Tool extension** *(optional, only needed if configuring via the modal UI)*: in Live 12 Beta, Preferences → Extensions → Developer Mode off → drag in `liverig-setup-tool/dist/liverig-setup-tool.ablx` (run `npm run package` in that folder first if it doesn't exist yet).
 
@@ -64,11 +60,11 @@ Once connected, everything is live and bidirectional: transport, scene launching
 
 ## What is NOT yet fully foolproof — honest gap list
 
-1. **Remote Script deployment (Phase 1 step 4) is entirely manual.** No installer script exists yet to copy `LiveRig.py` into the Remote Scripts folder. This was the actual root cause of the "faders don't work" bug diagnosed earlier today — the fix existed in the repo but was never copied to where Ableton actually loads it from.
+1. ~~Remote Script deployment is entirely manual~~ — **closed 2026-07-01.** `LiveRig.app`'s launcher script now auto-deploys `LiveRig.py`/`__init__.py` into the Remote Scripts folder on every launch (only notifying when content actually changed). Still needs `scripts/build_dmg.sh` run once on David's Mac to re-sign the app (invalidated by the launcher-script edit) and produce the installer — `codesign`/`hdiutil` are macOS-only, unavailable in a Claude sandbox session.
 2. **The Extensions SDK Setup Tool doesn't have fields for loopers or aux (Click/Guide) yet** — only KBD1-4 and stems. Those two categories still require hand-editing `rig_config.json`'s `loopers[]` and `aux[]` arrays directly.
 3. **Silent fallback on a missing/bad config.** If `rig_config.json` is absent or malformed, `LiveRig.py` falls back to a generic hardcoded 4×8 positional default with zero user-facing warning — a differently-ordered Live Set would get silently wrong bindings.
 4. **Silent no-op on an unmatched track name.** Stems, loopers, and aux tracks have no positional fallback — if a track name in `rig_config.json` doesn't match anything in the Live Set, that channel just silently does nothing. It's logged to `Log.txt`, but nothing tells the user on the iPad that a fader is unbound versus just not being touched yet.
 5. **One-time Ableton MIDI preferences setup (Phase 1 step 6) is manual** — there's no way for a Remote Script or Extension to configure Live's own MIDI preferences from the outside, so this will always require a human doing it once per machine.
 6. **The full config-tool → sync → reload chain hasn't been verified end-to-end in one continuous test** — the modal writing a config, the launcher script picking it up, and `LiveRig.py` re-reading it after a restart have each been tested individually but not confirmed back-to-back in a single session today.
 
-Closing any of these is real, scoped work — happy to start on whichever matters most (my instinct: #1, an install script for the Remote Script, is the highest-value fix given it already caused a real debugging detour today).
+Closing any of these is real, scoped work — my instinct for what's next is #3 or #4 (some kind of visible "unbound" indicator instead of silent no-ops), since those are the ones a future you (or someone else running this rig) would hit with zero clue why something isn't working.

@@ -6,3 +6,5 @@ LiveRig_RemoteScript.zip
 liverig_backup_*.zip
 outputs/
 .claude/
+/dist/
+*.dmg
