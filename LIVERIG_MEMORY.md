@@ -2,7 +2,7 @@
 
 > This file replaces `SESSION_BACKUP.md` (stale as of 2026-05-01) as the canonical project memory. It lives in the repo so it's read/write for Claude every session — no manual paste-in required. Updated on request ("Jesus Saves") or at natural session boundaries.
 
-**Last updated:** 2026-06-30 (Blue Hand mode shipped, commit `727a6c7`; >4 keyboard support shipped — dynamic MIDI channel assignment + tab/page generation, commit `4e971c3`; dead `_dump_looper_params` method deleted, commit `4e971c3`; FX Return faders on Master page, automatic mute/solo via Remote Script, JS TDZ crash fix from earlier the same day)
+**Last updated:** 2026-07-01 (Clips page rebuilt for native Live API clip control + accurate Session View state, commit `867820e`; 4 UI fixes — Stems fader sizing, Master LOOPS fader removed, Clips play-icon emoji replaced, Clips real clip names — commit `4954ee8`; Blue Hand mode shipped, commit `727a6c7`; >4 keyboard support shipped, commit `4e971c3`; dead `_dump_looper_params` method deleted, commit `4e971c3`)
 
 ## App bundle architecture — CRITICAL deployment fact
 
@@ -182,6 +182,32 @@ Global toggle (new "HAND" button in the status bar, next to PANIC). While active
 - **Verified via jsdom** (not just syntax-checked): simulated toggling Blue Hand on while viewing KBD1, switching to KBD2, navigating to Master, then back to KBD3, then toggling off — produced the exact expected call sequence (`on:0 → on:1 → off:1 → on:2 → off:2`).
 - **Not yet confirmed live by David** — next step is reloading the Remote Script (Live restart or Control Surface dropdown toggle) and testing on the iPad: toggle HAND on, click around different tracks in Live, confirm the currently-viewed KBD page's faders/header follow.
 
+## Four UI fixes — shipped 2026-06-30/07-01 (commit `4954ee8`)
+
+David reported these together after seeing the live UI:
+
+1. **Stems (tab 2) faders wrong size vs. Master.** Root cause: `buildStems()` had a leftover 2-row-grid fallback for `STEM_COUNT > 8` (David's real rig has 10 stems), which halved each fader's height. Fixed to always render a single row (`gridTemplateColumns: repeat(STEM_COUNT,1fr)`, `gridTemplateRows: '1fr'`), matching how Master already laid out its columns.
+2. **Master page LOOPS fader removed** — no longer needed (loopers have their own dedicated Looper-device UI/page). `buildMaster()`'s `CHANNELS` array entry for LOOPS (ch:5, cc:22, muteCc:26, soloCc:30) deleted; Master now renders 10 columns instead of 11.
+3. **Clips page transport-play icon was a literal Unicode "▶" emoji-style glyph**, inconsistent with the rest of the app's inline-SVG icon style. Replaced with an inline SVG triangle matching the existing per-track play icons (`<svg viewBox="0 0 20 20" ...><polygon points="4,3 16,10 4,17"/></svg>`).
+4. **Clips page tiles didn't show clip names.** This was a fully-built-but-orphaned feature from an earlier session: `updateClipNamesFromLive()`/`updateClipTrackHeaders()` existed client-side but were wired to a dead M4L/HTTP-JSON data path (`m4l.liveClips`/`m4l.liveTracks`) that nothing ever actually populated. Rather than resurrecting the M4L device (against this project's established direction away from M4L), built a fresh Remote-Script-based data source: `LiveRig.py` polls the first `CLIP_TRACKS`(8) × `CLIP_SCENES`(8) Session View grid at ~1Hz (`_scan_clip_grid`/`_poll_clip_grid_tick`), diffs against a cache, and emits new SysEx codes `FB_CLIP_TRACK_NAME` (0x50)/`FB_CLIP_INFO` (0x51) only for cells that changed. This is what fed the pre-existing render functions for the first time. (This whole pipeline was superseded/upgraded the next day — see "Clips page: native Live API control" below.)
+
+## Clips page: native Live API clip control + accurate Session View state — shipped 2026-07-01 (commit `867820e`)
+
+David asked to go beyond just showing clip names: make the Clips page **directly fire/stop real Ableton clips** (not fake MIDI notes/CCs requiring manual Cmd+M mapping of all 64 slots) and **reflect real playing/triggered/recording state** the way Ableton's own Session View does. Researched the Live Object Model (`docs.cycling74.com/apiref/lom/` — ClipSlot, Clip, Track, Song classes) before building, matching this project's established research-then-build pattern.
+
+- **New inbound SysEx (`LiveRig.py`):** `SX_CLIP_FIRE` (0x52, value = `(scene_idx<<3)|track_idx`) → `ClipSlot.fire()`; `SX_CLIP_STOP_TRACK` (0x53, value = track_idx) → `Track.stop_all_clips()`; `SX_CLIP_STOP_ALL` (0x54) → `Song.stop_all_clips()`. All three go straight through the Live Object Model — no Ableton MIDI Map / Cmd+M mapping of individual clip slots needed at all anymore.
+- **Accurate state via `Track.playing_slot_index`/`Track.fired_slot_index`** (one int each per track, per the LOM docs) instead of walking every clip's `is_playing` — this is the same mechanism Ableton's own Session View grid uses internally, and is what makes the "triggered" (blinking, about to play/stop) state possible for the first time. `is_recording` is still a per-clip read (`Clip.is_recording`), but only for the one slot that's actually `playing_slot_index` on that track (only one clip per track can be active). `_scan_clip_grid` rewritten accordingly.
+- **`FB_CLIP_INFO` (0x51) wire format changed** from two separate booleans (has_clip, is_playing) to a single packed flags byte: bit0=has_clip, bit1=playing, bit2=triggered, bit3=recording. Client-side parsing in `onRemoteScriptFeedback` (fb 0x51 handler) updated to match.
+- **Poll rate tightened from ~1Hz to ~3.3Hz** (`schedule_message(3, ...)` instead of `10`) now that this page is used interactively for firing clips — a blinking "triggered" state needs to show up in well under a second, not up to a full second later.
+- **`liverig_bridge_wired.py`:** new `clip_fire`/`clip_stop_track`/`clip_stop_all` WebSocket→SysEx passthroughs, same pattern as the existing `blue_hand_on`/`scene_fire` handlers.
+- **`live_rig_3_controller.html`:** `clipLaunch(scene,track)`, `clipStopTrack(track)`, `clipStopAll()` rewritten to send native WebSocket JSON messages (matching the pattern `clipScene()` already used) instead of raw MIDI notes/CCs. New visual state 4 = "triggered" with a fast blink CSS animation (`clip-trigger-blink`, distinct from the existing slower `playing`/`recording` pulses) — this is Ableton's own "about to launch/stop" blink. `updateClipNamesFromLive()` rewritten to derive the displayed state from Live's real flags with the correct precedence: recording > playing > triggered > stopped(loaded) > empty. Clip taps also get an **optimistic** triggered-state flash immediately on tap (confirmed/corrected by the next ~300ms poll), so the UI feels responsive even before Live's own state updates propagate back.
+- **Verified via jsdom + Node unit tests** (not just syntax-checked): confirmed the state-precedence logic (recording/playing/triggered/stopped/empty) picks the right CSS class + label for each combination of flags, and confirmed the scene/track bit-packing is symmetric — `(scene<<3)|track` encoded client-side unpacks back to the exact same `(scene_idx, track_idx)` pair server-side for all 64 grid positions.
+- **Not yet confirmed live by David** — next step is reloading the Remote Script (Live restart or Control Surface dropdown toggle) and testing on the iPad: tap a clip and confirm it actually launches in Ableton, watch the blink-then-play transition, test track-stop and stop-all, and confirm an already-playing clip shows recording state correctly if armed+overdubbing.
+
+## Sandbox git-lock friction — resolved 2026-07-01 via `allow_cowork_file_delete`
+
+The recurring "stale git lock" problem (see dedicated section below) used to require David to manually run `rm -f .git/*.lock` from his own Terminal after nearly every commit. This is now self-service: calling the `mcp__cowork__allow_cowork_file_delete` tool (granting delete permission for the `liverig` folder) lets Claude clear these lock files itself mid-session without asking David to leave the chat. This grant is per-folder and may need to be re-requested if working in a different connected folder, but for `~/Desktop/liverig/` specifically it should not need to be asked for again.
+
 ## Pending tasks (carried forward, not yet superseded)
 
 ~~Remove the temporary `_dump_looper_params(0)` diagnostic call~~ — done, call site and now the dead method body are both gone (`4e971c3`).
@@ -189,12 +215,16 @@ Global toggle (new "HAND" button in the status bar, next to PANIC). While active
 ~~Restructure controller HTML markup to support >4 keyboards~~ — done, see section above (`4e971c3`).
 ~~Build "blue hand" mode~~ — done, see section above (`727a6c7`). Not yet confirmed live by David.
 ~~Delete stray `claude/keen-mestorf-aedfa5` branch/worktree~~ — done, confirmed gone (David ran the cleanup from his own Terminal; `.git/worktrees/` no longer even exists).
+~~Fix Stems (tab 2) fader sizing, remove Master LOOPS fader, replace Clips play-icon emoji, show real clip names on Clips tiles~~ — done, see "Four UI fixes" section above (`4954ee8`).
+~~Rebuild Clips page for native Ableton clip control + accurate playing/triggered/recording state~~ — done, see "Clips page: native Live API control" section above (`867820e`). Not yet confirmed live by David.
 
-1. Decide whether to delete superseded `SESSION_BACKUP.md` from repo root (archive copy already safe at `~/Documents/LiveRig_Archive/SESSION_BACKUP_2026-05-01.md`). Still present at repo root as of 2026-06-30.
-2. Multi-computer routing UI (Option A architecture) — when needed.
-3. Extensions SDK setup-tool modal (`liverig-setup-tool/`) has no field yet for per-keyboard `midiChannel` or for adding a 5th+ keyboard slot — currently requires hand-editing `rig_config.json` to actually use the new >4 keyboard support. Natural next step if David wants to provision a real 5th keyboard through the modal instead of by hand.
-4. Cosmetic gap: KBD5+ live Ableton track-color changes (fb 0x44) don't repaint the dynamic `--kbd-c`-based elements (KBD1-4 use global `--k1..--k4` vars which already work). Low priority, control unaffected.
-5. Confirm Blue Hand mode live in an actual Ableton session (reload Remote Script, test HAND toggle + track-click re-targeting on the iPad).
+1. **Confirm the new native Clips page live in Ableton** — reload the Remote Script, tap clips on the iPad, confirm real launch/stop/stop-all and correct blink→play→(optionally recording) visual transitions. Top item.
+2. Confirm Blue Hand mode live in an actual Ableton session (reload Remote Script, test HAND toggle + track-click re-targeting on the iPad).
+3. Decide whether to delete superseded `SESSION_BACKUP.md` from repo root (archive copy already safe at `~/Documents/LiveRig_Archive/SESSION_BACKUP_2026-05-01.md`). Still present at repo root as of 2026-07-01.
+4. Multi-computer routing UI (Option A architecture) — when needed.
+5. Extensions SDK setup-tool modal (`liverig-setup-tool/`) has no field yet for per-keyboard `midiChannel` or for adding a 5th+ keyboard slot — currently requires hand-editing `rig_config.json` to actually use the new >4 keyboard support. Natural next step if David wants to provision a real 5th keyboard through the modal instead of by hand.
+6. Cosmetic gap: KBD5+ live Ableton track-color changes (fb 0x44) don't repaint the dynamic `--kbd-c`-based elements (KBD1-4 use global `--k1..--k4` vars which already work). Low priority, control unaffected.
+7. `liverig_bridge_wired.py` still carries a fully dead M4L/HTTP-JSON `live_state`/`handle_http()` mechanism (with a placeholder `"clips"` field) that nothing uses anymore now that Clips page data comes from the Remote Script — left in place, harmless, candidate for cleanup whenever convenient.
 
 ## Known sandbox quirk: stale git locks (2026-06-30)
 
@@ -208,12 +238,14 @@ This is a sandbox-mount limitation, not repo corruption — David's local git is
 ## How to resume in a new chat
 
 1. Read this file first — it's the live state, not `SESSION_BACKUP.md`.
-2. The Master page is fully working as of 2026-06-30: 11 channels (KBD 1-4, CLICK/GUIDE/LOOPS, REV 1/REV 2/DLY 1/DLY 2), mute/solo automatic via Remote Script. No open regressions.
+2. The Master page is fully working as of 2026-07-01: 10 channels (KBD 1-4, CLICK/GUIDE, REV 1/REV 2/DLY 1/DLY 2 — LOOPS fader removed), mute/solo automatic via Remote Script. No open regressions.
 3. >4 keyboard support shipped 2026-06-30 (`4e971c3`) — see dedicated section above. KBD_COUNT is dynamic now; adding a real 5th+ keyboard still means hand-editing `rig_config.json` until the setup-tool modal grows the field for it.
-4. Blue Hand mode shipped 2026-06-30 (`727a6c7`) — see dedicated section above. Built and verified via jsdom, but **not yet confirmed live by David** — that's the top item in Pending tasks.
+4. Blue Hand mode shipped 2026-06-30 (`727a6c7`) — see dedicated section above. Built and verified via jsdom, but **not yet confirmed live by David**.
 5. The stray `claude/keen-mestorf-aedfa5` branch/worktree is gone (David cleaned it up from his own Terminal 2026-06-30).
-6. Continue from "Pending tasks" above — next up is confirming Blue Hand live, then the `SESSION_BACKUP.md` deletion decision.
-7. Respect channel isolation and architectural decisions listed above. Note the reserved-channel set now also includes CH15 (Blue Hand) on top of CH5/6/7/10/16.
-8. Don't reintroduce removed features (Record/Punch/Overdub on Setlist, STEMS nav button on Master, etc.) without confirming with David first.
-9. Use `~/Library/Preferences/Ableton/Live 12.4.2/Log.txt` for Ableton log checks — not the old 12.3.8 folder.
-10. **Deployment pipeline**: edit `~/Desktop/liverig/` source → copy to bundle Resources → restart LiveRig app. Check `/private/tmp/liverig_controller_served.html` timestamp to confirm the menubar script re-generated the served file. Use Chrome extension's `read_console_messages` to verify no JS errors before telling David to check the iPad.
+6. Clips page rebuilt 2026-07-01 (`867820e`) for native Live API clip firing/stopping + accurate playing/triggered/recording state, replacing the old fake-MIDI-note approach — see dedicated section above. **Not yet confirmed live by David** — that's the top item in Pending tasks.
+7. Continue from "Pending tasks" above — next up is confirming the new Clips control live, then Blue Hand, then the `SESSION_BACKUP.md` deletion decision.
+8. Respect channel isolation and architectural decisions listed above. Note the reserved-channel set now also includes CH15 (Blue Hand) on top of CH5/6/7/10/16.
+9. Don't reintroduce removed features (Record/Punch/Overdub on Setlist, STEMS nav button on Master, LOOPS fader on Master, etc.) without confirming with David first.
+10. Use `~/Library/Preferences/Ableton/Live 12.4.2/Log.txt` for Ableton log checks — not the old 12.3.8 folder.
+11. **Deployment pipeline**: edit `~/Desktop/liverig/` source → copy to bundle Resources → restart LiveRig app. Check `/private/tmp/liverig_controller_served.html` timestamp to confirm the menubar script re-generated the served file. Use Chrome extension's `read_console_messages` to verify no JS errors before telling David to check the iPad. `LiveRig.py` (Remote Script) is separate — it lives in Ableton's own Remote Scripts folder and needs a Live restart or Control Surface dropdown toggle to reload, not an app relaunch.
+12. **Git lock friction is resolved** — no need to ask David to clear lock files from Terminal anymore; call `mcp__cowork__allow_cowork_file_delete` for the `liverig` folder if a commit hits a stale-lock error.
