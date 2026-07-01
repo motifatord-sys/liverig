@@ -3,7 +3,8 @@
   "main": "dist/extension.js",
   "scripts": {
     "build": "tsc --noEmit && tsx build.ts",
-    "start": "tsx build.ts && extensions-cli run --storage-directory \"$HOME/Library/Application Support/Ableton/Extensions/LiveRig Setup Tool/storage\""
+    "start": "tsx build.ts && extensions-cli run --storage-directory \"$HOME/Library/Application Support/Ableton/Extensions/LiveRig Setup Tool/storage\"",
+    "package": "tsc --noEmit && tsx build.ts --production && extensions-cli package . -o dist/liverig-setup-tool.ablx"
   },
   "dependencies": {
     "@ableton-extensions/sdk": "file:../vendor/ableton-extensions-sdk-1.0.0-beta.0.tgz"
