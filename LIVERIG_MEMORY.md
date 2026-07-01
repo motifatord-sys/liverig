@@ -2,7 +2,7 @@
 
 > This file replaces `SESSION_BACKUP.md` (stale as of 2026-05-01) as the canonical project memory. It lives in the repo so it's read/write for Claude every session — no manual paste-in required. Updated on request ("Jesus Saves") or at natural session boundaries.
 
-**Last updated:** 2026-06-30 (>4 keyboard support shipped — dynamic MIDI channel assignment + tab/page generation, commit `4e971c3`; dead `_dump_looper_params` method deleted, commit `4e971c3`; FX Return faders on Master page, automatic mute/solo via Remote Script, JS TDZ crash fix from earlier the same day)
+**Last updated:** 2026-06-30 (Blue Hand mode shipped, commit `727a6c7`; >4 keyboard support shipped — dynamic MIDI channel assignment + tab/page generation, commit `4e971c3`; dead `_dump_looper_params` method deleted, commit `4e971c3`; FX Return faders on Master page, automatic mute/solo via Remote Script, JS TDZ crash fix from earlier the same day)
 
 ## App bundle architecture — CRITICAL deployment fact
 
@@ -166,24 +166,35 @@ The 4-keyboard ceiling is gone. Previously it was baked into three places: the c
 - **`live_rig_3_controller.html`:** `KBD_COUNT` is no longer `Math.min(4, ...)` — it's just `RIG_CONFIG.keyboards.length`. New keyboards beyond the static first 4 get a dynamically created tab + page (`ensureDynamicKbdTabsAndPages()`, inserted right after the "Kbd 4" tab, called before `applyTabOrder()`/`attachTabHandlers()` so drag-reorder still works on them) and an auto-generated color (`kbdColor()` — first 4 keep their exact original hex values, 5+ use HSL generation). `buildKbdPage()`, `buildMaster()`'s KBD columns, both Patches-page PC-send loops, and `updateKbdTabs()` were all switched from assuming "channel == index + 1" / "exactly 4 keyboards" to using `kbdChannel(k)`/`kbdPageId(k)`/`KBD_COUNT`. New generic CSS classes `.kbd-dyn`/`.fill-kbd-dyn` (color via inline `--kbd-c`/`--kbd-c-dim` custom properties) handle any keyboard count without needing new CSS per index.
 - **Verified via a headless jsdom test** (not just syntax-checked): the real 4-keyboard `rig_config.json` renders byte-identical to before (12 tabs, 11 Master columns, same colors/channels — zero regression). A synthetic 6-keyboard config correctly added 2 new tabs/pages positioned right after "Kbd 4", with correct auto-assigned channels (ch8, ch9) and distinct colors, and 13 Master columns (6 KBD + 3 aux + 4 FX).
 - **Scope note:** this removes the ceiling but doesn't add a way to *provision* a 5th+ keyboard — that still means hand-editing `rig_config.json` (or waiting on the Extensions SDK setup-tool modal to grow a channel/count field, see pending task below) plus having an actual track for it in Live.
+- **Bug found & fixed while building Blue Hand (commit `727a6c7`):** the client-side SysEx feedback handlers for fb 0x40 (macro/param value), 0x41/0x42 (param list begin/end), 0x43 (device info), 0x44 (KBD color), 0x45 (KBD name) were still hardcoded to `kbdIdx < 4`, silently dropping feedback for any KBD5+ that this section claimed to support end-to-end. Fixed to `KBD_COUNT`. One remaining cosmetic gap, not yet fixed: KBD5+ live Ableton track-color changes (fb 0x44) don't repaint the dynamic `--kbd-c` elements the way KBD1-4's global `--k1..--k4` vars do — control is unaffected, just the live color-follow is KBD1-4-only for now.
+
+## Blue Hand mode — built & shipped 2026-06-30 (commit `727a6c7`)
+
+Global toggle (new "HAND" button in the status bar, next to PANIC). While active, whichever KBD page is currently on screen stops reflecting its fixed `defaultTrackBinding` and instead directly drives whatever track is selected in Ableton right now — specifically that track's first device's first 8 parameters (`device.parameters[1:9]`, ANY device type, not just Racks — safe to do generically here because this is a brand-new control path this script owns outright, not layered on top of the user's own Cmd+M mappings like the normal KBD1-4 faders are).
+
+- **Dedicated channel, not shared with any KBD slot:** `BLUE_HAND_CHANNEL_0IDX = 14` (CH15) in `LiveRig.py`, added to the reserved-channel set in both Python and JS so keyboard auto-assignment (see section above) never collides with it (max auto-assignable keyboards drops from 11 to 10 as a result). CC10-17 on that channel are *always* registered via `build_midi_map` — toggling Blue Hand on/off doesn't touch MIDI Map registration, it's a no-op in `_dispatch_cc` whenever no KBD slot has opted in (`self._blue_hand_kbd_idx is None`), so no `request_rebuild_midi_map()` juggling needed.
+- **New SysEx:** inbound `SX_BLUE_HAND_ON`/`SX_BLUE_HAND_OFF` (0x50/0x51, value = kbd_idx) drive `self._blue_hand_kbd_idx` + `_rebind_blue_hand_listeners()`/`_unbind_blue_hand_listeners()`. Re-targets automatically on Live's selected-track-changed event (`_on_selected_track_changed`), not just on toggle — so clicking a different track in Live while active re-binds live with zero iPad interaction. `_dispatch_cc` also re-resolves the selected track fresh on every incoming CC (not just via the listener rebind) so a fast track-click-then-fader-move sequence can't land on a stale target.
+- **Feedback reuses the existing macro-value pipeline** (`FB_MACRO_VALUE` 0x40, same wire format, keyed by kbd_idx) — zero new client-side rendering code needed for the fader values themselves.
+- **New `FB_KBD_DEVICE` (0x43) + `_emit_kbd_device()`:** completes a previously half-built, fully orphaned feature — the JS side already had `updateKbdDeviceHeader()` wired to fb 0x43 from an earlier session, but no DOM element existed to receive it and Python never emitted it. Added the missing `<div id="kbd-device-header-${k}">` to every KBD page and the Python emitter; now called from `_rebind_macro_listeners()` (so ALL KBD pages show their bound device name, fixed-track or not) and from `_rebind_blue_hand_listeners()` (prefixed `"BLUE HAND → "` client-side when that slot is the active one).
+- **Cross-talk avoidance:** normal per-slot macro listeners (`_rebind_macro_listeners`) are fully unbound while Blue Hand is active for ANY slot (not just the affected one) via `_unbind_macro_listeners()` on `SX_BLUE_HAND_ON`, and restored via a full `_rebind_macro_listeners()` on `SX_BLUE_HAND_OFF` — avoids two feedback sources racing to update the same kbd_idx's fader.
+- **Client-side (`live_rig_3_controller.html`):** `toggleBlueHand()`, `syncBlueHandToActivePage()`, `currentActiveKbdIndex()` — the last one maps whatever page is currently `.active` back to a KBD index (or null if you're not on a KBD page at all). Hooked into `switchToPage()` so changing KBD tabs while Blue Hand is on transparently sends a fresh `blue_hand_on` for the new tab's index; navigating to a non-KBD page sends `blue_hand_off` (pausing it, not disabling the global toggle) until you land back on a KBD page.
+- **`liverig_bridge_wired.py`:** new `blue_hand_on`/`blue_hand_off` JSON message types, same passthrough pattern as `loop_rec` etc.
+- **Verified via jsdom** (not just syntax-checked): simulated toggling Blue Hand on while viewing KBD1, switching to KBD2, navigating to Master, then back to KBD3, then toggling off — produced the exact expected call sequence (`on:0 → on:1 → off:1 → on:2 → off:2`).
+- **Not yet confirmed live by David** — next step is reloading the Remote Script (Live restart or Control Surface dropdown toggle) and testing on the iPad: toggle HAND on, click around different tracks in Live, confirm the currently-viewed KBD page's faders/header follow.
 
 ## Pending tasks (carried forward, not yet superseded)
 
 ~~Remove the temporary `_dump_looper_params(0)` diagnostic call~~ — done, call site and now the dead method body are both gone (`4e971c3`).
 ~~Open/merge PR for `feature/extensions-sdk-setup` → `main`~~ — done, merged as `c4c9430`.
 ~~Restructure controller HTML markup to support >4 keyboards~~ — done, see section above (`4e971c3`).
+~~Build "blue hand" mode~~ — done, see section above (`727a6c7`). Not yet confirmed live by David.
+~~Delete stray `claude/keen-mestorf-aedfa5` branch/worktree~~ — done, confirmed gone (David ran the cleanup from his own Terminal; `.git/worktrees/` no longer even exists).
 
 1. Decide whether to delete superseded `SESSION_BACKUP.md` from repo root (archive copy already safe at `~/Documents/LiveRig_Archive/SESSION_BACKUP_2026-05-01.md`). Still present at repo root as of 2026-06-30.
-2. Build "blue hand" mode — KBD pages auto-bind to currently-selected track's first 8 device params.
-3. Multi-computer routing UI (Option A architecture) — when needed.
-4. Extensions SDK setup-tool modal (`liverig-setup-tool/`) has no field yet for per-keyboard `midiChannel` or for adding a 5th+ keyboard slot — currently requires hand-editing `rig_config.json` to actually use the new >4 keyboard support. Natural next step if David wants to provision a real 5th keyboard through the modal instead of by hand.
-5. **Still not deleted — needs David's own Terminal, not this session:** stray local branch `claude/keen-mestorf-aedfa5` + its worktree under `.claude/worktrees/keen-mestorf-aedfa5` (diff vs. `main` is empty, safe to delete). The sandboxed session's filesystem bridge can't unlink files inside `.git/worktrees/*` (`git worktree remove --force` fails with "Operation not permitted" from that side). Run from David's Mac Terminal:
-   ```
-   cd ~/Desktop/liverig
-   git worktree remove --force .claude/worktrees/keen-mestorf-aedfa5
-   git worktree prune
-   git branch -D claude/keen-mestorf-aedfa5
-   ```
+2. Multi-computer routing UI (Option A architecture) — when needed.
+3. Extensions SDK setup-tool modal (`liverig-setup-tool/`) has no field yet for per-keyboard `midiChannel` or for adding a 5th+ keyboard slot — currently requires hand-editing `rig_config.json` to actually use the new >4 keyboard support. Natural next step if David wants to provision a real 5th keyboard through the modal instead of by hand.
+4. Cosmetic gap: KBD5+ live Ableton track-color changes (fb 0x44) don't repaint the dynamic `--kbd-c`-based elements (KBD1-4 use global `--k1..--k4` vars which already work). Low priority, control unaffected.
+5. Confirm Blue Hand mode live in an actual Ableton session (reload Remote Script, test HAND toggle + track-click re-targeting on the iPad).
 
 ## Known sandbox quirk: stale git locks (2026-06-30)
 
@@ -199,8 +210,10 @@ This is a sandbox-mount limitation, not repo corruption — David's local git is
 1. Read this file first — it's the live state, not `SESSION_BACKUP.md`.
 2. The Master page is fully working as of 2026-06-30: 11 channels (KBD 1-4, CLICK/GUIDE/LOOPS, REV 1/REV 2/DLY 1/DLY 2), mute/solo automatic via Remote Script. No open regressions.
 3. >4 keyboard support shipped 2026-06-30 (`4e971c3`) — see dedicated section above. KBD_COUNT is dynamic now; adding a real 5th+ keyboard still means hand-editing `rig_config.json` until the setup-tool modal grows the field for it.
-4. Continue from "Pending tasks" above — top items done (looper diagnostic cleanup incl. dead method, extensions-sdk-setup PR, >4 keyboard restructure); next up is the `SESSION_BACKUP.md` deletion decision, "blue hand" mode, and the stray branch/worktree cleanup (needs David's own Terminal, see note above).
-4. Respect channel isolation and architectural decisions listed above.
-5. Don't reintroduce removed features (Record/Punch/Overdub on Setlist, STEMS nav button on Master, etc.) without confirming with David first.
-6. Use `~/Library/Preferences/Ableton/Live 12.4.2/Log.txt` for Ableton log checks — not the old 12.3.8 folder.
-7. **Deployment pipeline**: edit `~/Desktop/liverig/` source → copy to bundle Resources → restart LiveRig app. Check `/private/tmp/liverig_controller_served.html` timestamp to confirm the menubar script re-generated the served file. Use Chrome extension's `read_console_messages` to verify no JS errors before telling David to check the iPad.
+4. Blue Hand mode shipped 2026-06-30 (`727a6c7`) — see dedicated section above. Built and verified via jsdom, but **not yet confirmed live by David** — that's the top item in Pending tasks.
+5. The stray `claude/keen-mestorf-aedfa5` branch/worktree is gone (David cleaned it up from his own Terminal 2026-06-30).
+6. Continue from "Pending tasks" above — next up is confirming Blue Hand live, then the `SESSION_BACKUP.md` deletion decision.
+7. Respect channel isolation and architectural decisions listed above. Note the reserved-channel set now also includes CH15 (Blue Hand) on top of CH5/6/7/10/16.
+8. Don't reintroduce removed features (Record/Punch/Overdub on Setlist, STEMS nav button on Master, etc.) without confirming with David first.
+9. Use `~/Library/Preferences/Ableton/Live 12.4.2/Log.txt` for Ableton log checks — not the old 12.3.8 folder.
+10. **Deployment pipeline**: edit `~/Desktop/liverig/` source → copy to bundle Resources → restart LiveRig app. Check `/private/tmp/liverig_controller_served.html` timestamp to confirm the menubar script re-generated the served file. Use Chrome extension's `read_console_messages` to verify no JS errors before telling David to check the iPad.
