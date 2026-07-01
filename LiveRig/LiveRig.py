@@ -43,7 +43,11 @@ where <type>:
   0x48 = loop state         | data: loop_idx, state (0=stop, 1=record, 2=play)
 
 Direct CC handling (via build_midi_map — no CMD+M needed for these):
-  ch1-4  CC1=mute, CC2=solo   → KBD1-4 track mute/solo (resolves via defaultTrackBinding)
+  KBD    CC1=mute, CC2=solo   → KBD track mute/solo (resolves via defaultTrackBinding).
+         Each keyboard's MIDI channel comes from rig_config.json's "midiChannel"
+         (1-indexed) or, if absent, auto-assigned to the next channel not already
+         claimed by ch5 (aux)/ch6 (stems)/ch7 (FX returns)/ch10 (pads)/ch16
+         (transport) — KBD1-4 default to ch1-4, same as before.
   ch6    CC N+1..2N = mute, 2N+1..3N = solo  → Stem tracks (N = stem count)
   ch7    CC1-4=vol, CC5-8=mute, CC9-12=solo  → Return tracks A-D (Reverb1/2, Delay1/2)
 
@@ -72,10 +76,10 @@ from _Framework.ControlSurface import ControlSurface
 # malformed, so an absent/broken config never breaks the script.
 _DEFAULT_RIG_CONFIG = {
     "keyboards": [
-        {"id": "kbd1", "label": "KBD 1", "bankSize": 8},
-        {"id": "kbd2", "label": "KBD 2", "bankSize": 8},
-        {"id": "kbd3", "label": "KBD 3", "bankSize": 8},
-        {"id": "kbd4", "label": "KBD 4", "bankSize": 8},
+        {"id": "kbd1", "label": "KBD 1", "bankSize": 8, "midiChannel": 1},
+        {"id": "kbd2", "label": "KBD 2", "bankSize": 8, "midiChannel": 2},
+        {"id": "kbd3", "label": "KBD 3", "bankSize": 8, "midiChannel": 3},
+        {"id": "kbd4", "label": "KBD 4", "bankSize": 8, "midiChannel": 4},
     ]
 }
 
@@ -109,6 +113,42 @@ def _load_rig_config(log=None):
     if log:
         log("rig_config not found in any search path; using built-in 4x8 default")
     return _DEFAULT_RIG_CONFIG
+
+
+# ── KBD MIDI channel assignment (2026-06-30, >4 keyboard support) ───────────
+# KBD1-4 originally assumed MIDI ch1-4 (index 0-3) with no other option.
+# Channels already claimed elsewhere (0-indexed): 4=CH5 aux (Click/Guide/
+# Loops), 5=CH6 stems, 6=CH7 FX returns, 9=CH10 pads, 15=CH16 transport.
+# Keyboards beyond the first 4 get the next free channel in that order
+# unless rig_config.json specifies an explicit 1-indexed "midiChannel".
+# Mirrors kbdDefaultChannel()/kbdChannel() in live_rig_3_controller.html --
+# keep both in sync if the reserved set ever changes.
+_RESERVED_KBD_CHANNELS_0IDX = (4, 5, 6, 9, 15)
+
+
+def _default_kbd_channel_0idx(ti):
+    count = 0
+    for ch in range(16):
+        if ch in _RESERVED_KBD_CHANNELS_0IDX:
+            continue
+        if count == ti:
+            return ch
+        count += 1
+    return ti  # unreachable with <=11 keyboards given today's reserved set
+
+
+def _kbd_channels_from_config(keyboards):
+    """Returns a list of 0-indexed MIDI channels, one per keyboard, honoring
+    an explicit 1-indexed "midiChannel" in rig_config.json when present."""
+    channels = []
+    for ti, kbd in enumerate(keyboards):
+        configured = kbd.get("midiChannel")
+        if isinstance(configured, int) and 1 <= configured <= 16:
+            channels.append(configured - 1)
+        else:
+            channels.append(_default_kbd_channel_0idx(ti))
+    return channels
+
 
 # ── SysEx codes (incoming, from bridge to script) ────────────────────────────
 SX_LOCATOR_JUMP    = 0x30
@@ -172,6 +212,11 @@ class LiveRig(ControlSurface):
         # Resolved to an actual track index at bind-time via _resolve_kbd_track_index,
         # since the Live Set's track order can differ from KBD slot order.
         self._track_bindings = [kbd.get("defaultTrackBinding") for kbd in rig_config["keyboards"]]
+        # 0-indexed MIDI channel per keyboard slot (see _kbd_channels_from_config
+        # above) -- replaces the old hardcoded "channel index == KBD slot" (0-3)
+        # assumption so >4 keyboards can each get a free channel.
+        self._kbd_channels = _kbd_channels_from_config(rig_config["keyboards"])
+        self._kbd_channel_to_index = {ch: ti for ti, ch in enumerate(self._kbd_channels)}
 
         # Stems: named tracks (e.g. backing-track stems) bound by trackName,
         # independent of the KBD1-4 slots. Color/name feedback only -- volume/
@@ -719,34 +764,6 @@ class LiveRig(ControlSurface):
             pass
         return None
 
-    def _dump_looper_params(self, li):
-        """One-shot diagnostic: log every parameter on loop slot `li`'s
-        Looper device (name, value, min, max, value_items) so we can see
-        exactly what Ableton's API actually exposes -- bar-length selector,
-        position/progress, etc -- instead of guessing. Temporary/debug."""
-        try:
-            track_idx = self._resolve_looper_track_index(li)
-            if track_idx is None:
-                self.log_message("loop%d param dump: no track resolved" % li)
-                return
-            track = self.song().tracks[track_idx]
-            device = self._find_looper_device(track)
-            if device is None:
-                self.log_message("loop%d param dump: no Looper device" % li)
-                return
-            self.log_message("loop%d param dump: device='%s' class='%s' %d params" % (
-                li, getattr(device, "name", "?"), getattr(device, "class_name", "?"), len(device.parameters)))
-            for i, p in enumerate(device.parameters):
-                items = None
-                try:
-                    items = list(p.value_items) if p.value_items else None
-                except Exception:
-                    items = None
-                self.log_message("loop%d param[%d]: name='%s' value=%s min=%s max=%s is_quantized=%s items=%s" % (
-                    li, i, p.name, p.value, p.min, p.max, getattr(p, "is_quantized", "?"), items))
-        except Exception as e:
-            self.log_message("loop%d param dump error: %s" % (li, e))
-
     def _get_looper_state_map(self, device):
         """Find the Looper device's 'State' parameter and map its named
         value_items (e.g. 'Stop'/'Record'/'Play') to enum indices via a
@@ -979,12 +996,13 @@ class LiveRig(ControlSurface):
         Ableton's own MIDI map, so remove any conflicting CMD+M mappings.
 
         Handled here:
-          KBD mute/solo  — CC1/CC2 on MIDI ch1-4  (KBD track mute & solo)
+          KBD mute/solo  — CC1/CC2 on each keyboard's MIDI channel (dynamic,
+                           self._kbd_channels — was hardcoded ch1-4)
           Stem mute/solo — CC N+1..3N on MIDI ch6  (dynamic per STEM_COUNT)
           FX returns     — CC1-12 on MIDI ch7      (vol + mute + solo)
         """
-        # KBD mute (CC1) and solo (CC2) on ch1-4
-        for ch in range(4):
+        # KBD mute (CC1) and solo (CC2) on each keyboard's assigned channel
+        for ch in self._kbd_channels:
             Live.MidiMap.forward_midi_cc(
                 self._c_instance.handle(), midi_map_handle, ch, 1)
             Live.MidiMap.forward_midi_cc(
@@ -1038,9 +1056,13 @@ class LiveRig(ControlSurface):
         """
         song = self.song()
 
-        # ── KBD tracks: MIDI ch1-4 (index 0-3), CC1=mute, CC2=solo ─────────
-        if 0 <= channel <= 3 and cc in (1, 2):
-            track_idx = self._resolve_kbd_track_index(channel)
+        # ── KBD tracks: each keyboard's assigned channel, CC1=mute, CC2=solo ──
+        # (was hardcoded "0 <= channel <= 3" assuming channel index == KBD
+        # slot; now resolved via self._kbd_channel_to_index so KBD5+ on any
+        # free channel still routes correctly.)
+        if channel in self._kbd_channel_to_index and cc in (1, 2):
+            ti = self._kbd_channel_to_index[channel]
+            track_idx = self._resolve_kbd_track_index(ti)
             if track_idx is None:
                 return
             try:
@@ -1050,7 +1072,7 @@ class LiveRig(ControlSurface):
                 else:
                     track.solo = bool(val)
             except Exception as e:
-                self.log_message("kbd%d mute/solo error: %s" % (channel, str(e)))
+                self.log_message("kbd%d mute/solo error: %s" % (ti, str(e)))
             return
 
         # ── Stems: MIDI ch6 (index 5), mute/solo ─────────────────────────────

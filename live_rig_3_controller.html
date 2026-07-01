@@ -46,7 +46,7 @@ body.tab-edit-mode #tabbar::after{content:'TAP A TAB TO EXIT EDIT MODE';position
 .tab{flex:1;display:flex;align-items:center;justify-content:center;font-family:var(--sans);font-size:15px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-right:1px solid var(--border);cursor:pointer;transition:color .15s,background .15s;position:relative;}
 .tab:last-child{border-right:none;}
 .tab.active{color:var(--text);background:var(--surface2);}
-.tab.active::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--accent);}
+.tab.active::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--tab-accent, var(--accent));}
 .tab[data-page="0"].active::after{background:var(--k1);}
 .tab[data-page="8"].active::after{background:#ff4466;}
 .tab[data-page="9"].active::after{background:#00d4aa;}
@@ -90,6 +90,11 @@ body.tab-edit-mode #tabbar::after{content:'TAP A TAB TO EXIT EDIT MODE';position
 .fader-val{font-family:var(--mono);font-size:14px;color:var(--text);font-weight:bold;}
 .fill-k1{background:var(--k1);} .fill-k2{background:var(--k2);}
 .fill-k3{background:var(--k3);} .fill-k4{background:var(--k4);}
+/* Dynamic per-keyboard color for KBD5+ (and reused by KBD1-4 on the Master
+   page) -- set via inline --kbd-c/--kbd-c-dim, see kbdColor() in JS. */
+.kbd-dyn{color:var(--kbd-c);}
+.kbd-dyn.on{background:var(--kbd-c-dim);border-color:var(--kbd-c)!important;}
+.fill-kbd-dyn{background:var(--kbd-c);}
 .fill-gray{background:#505060;} .fill-amber{background:var(--amber);}
 
 /* GRIDS */
@@ -927,7 +932,7 @@ function updateMetaBar() {
 }
 
 function updateKbdTabs() {
-  for(let k=0;k<4;k++){if(m4l.tracks[k]){const tab=document.querySelector(`.tab[data-page="${4+k}"]`);if(tab)tab.textContent=m4l.tracks[k].substring(0,8);}}
+  for(let k=0;k<KBD_COUNT;k++){if(m4l.tracks[k]){const tab=document.querySelector(`.tab[data-page="${kbdPageId(k)}"]`);if(tab)tab.textContent=m4l.tracks[k].substring(0,8);}}
 }
 
 // ═══════════════════════════════════════════
@@ -974,11 +979,14 @@ function buildMaster() {
   // CLICK/GUIDE/LOOPS mute/solo (CC24-30 ch5) still use Ableton's MIDI map.
   // STEMS nav button saved for future use:
   //   {label:'STEMS', colorCls:'aux-stems', nav:'11'},
+  // KBD columns are config-driven so the row scales past 4 keyboards --
+  // each gets kbdColor(k)'s hex applied via --kbd-c/--kbd-c-dim below.
+  const KBD_CHANNELS = Array.from({length: KBD_COUNT}, (_, k) => ({
+    label: kbdMasterLabel(k), kbdIdx: k, fillCls: 'fill-kbd-dyn', colorCls: 'kbd-dyn',
+    kbdColorHex: kbdColor(k), ch: kbdChannel(k), cc: 7, muteCc: 1, soloCc: 2,
+  }));
   const CHANNELS = [
-    {label:kbdMasterLabel(0), kbdIdx:0, fillCls:'fill-k1',       colorCls:'k1',        ch:1, cc:7,  muteCc:1, soloCc:2},
-    {label:kbdMasterLabel(1), kbdIdx:1, fillCls:'fill-k2',       colorCls:'k2',        ch:2, cc:7,  muteCc:1, soloCc:2},
-    {label:kbdMasterLabel(2), kbdIdx:2, fillCls:'fill-k3',       colorCls:'k3',        ch:3, cc:7,  muteCc:1, soloCc:2},
-    {label:kbdMasterLabel(3), kbdIdx:3, fillCls:'fill-k4',       colorCls:'k4',        ch:4, cc:7,  muteCc:1, soloCc:2},
+    ...KBD_CHANNELS,
     {label:'CLICK',           fillCls:'fill-aux-click',           colorCls:'aux-click', ch:5, cc:20, muteCc:24, soloCc:28},
     {label:'GUIDE',           fillCls:'fill-aux-guide',           colorCls:'aux-guide', ch:5, cc:21, muteCc:25, soloCc:29},
     {label:'LOOPS',           fillCls:'fill-aux-loops',           colorCls:'aux-loops', ch:5, cc:22, muteCc:26, soloCc:30},
@@ -995,6 +1003,10 @@ function buildMaster() {
     const col = document.createElement('div');
     col.className = `master-ch ${c.colorCls}`;
     if (c.kbdIdx !== undefined) col.dataset.kbdIdx = c.kbdIdx;
+    if (c.kbdColorHex) {
+      col.style.setProperty('--kbd-c', c.kbdColorHex);
+      col.style.setProperty('--kbd-c-dim', hexAlpha(c.kbdColorHex, 0.13));
+    }
 
     if (c.nav) {
       // Shortcut column (e.g. STEMS) — taps jump to a dedicated tab instead
@@ -1420,11 +1432,84 @@ function buildPads() {
   });
 }
 
-const KBD_COUNT     = Math.min(4, RIG_CONFIG.keyboards.length);
+const KBD_COUNT     = RIG_CONFIG.keyboards.length;
 const BANK_SIZES    = RIG_CONFIG.keyboards.map(k => k.bankSize ?? 8);
 const BUTTON_COUNTS = RIG_CONFIG.keyboards.map(k => k.buttonCount ?? 16);
 const FADER_COUNTS  = RIG_CONFIG.keyboards.map(k => k.faderCount ?? 8);
 const MAX_PATCHES   = (RIG_CONFIG.patches && RIG_CONFIG.patches.maxPatches) || 8;
+
+// ── Dynamic keyboard count support (>4 keyboards, 2026-06-30) ───────────────
+// The markup originally had exactly 4 fixed KBD page/tab slots (page-4..
+// page-7) tied 1:1 to MIDI ch1-4. KBD_COUNT can now exceed 4: keyboards
+// beyond the static first 4 get a dynamically-created page+tab (see
+// ensureDynamicKbdTabsAndPages, called once during init below) and an
+// auto-assigned MIDI channel that skips channels already claimed elsewhere
+// (CH5 aux, CH6 stems, CH7 FX returns, CH10 pads, CH16 transport) -- unless
+// rig_config.json specifies an explicit "midiChannel" per keyboard.
+const RESERVED_KBD_CHANNELS = [5, 6, 7, 10, 16];
+const KBD_COLOR_BASE = ['#6c5fd4', '#1a9e6e', '#d4551e', '#d423a6']; // KBD1-4, unchanged
+
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const toHex = x => Math.round(255 * x).toString(16).padStart(2, '0');
+  return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
+}
+function hexAlpha(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+function kbdDefaultChannel(k) {
+  let count = 0;
+  for (let ch = 1; ch <= 16; ch++) {
+    if (RESERVED_KBD_CHANNELS.includes(ch)) continue;
+    if (count === k) return ch;
+    count++;
+  }
+  return k + 1; // unreachable with <=11 keyboards given today's reserved set
+}
+function kbdChannel(k) {
+  const configured = RIG_CONFIG.keyboards[k] && RIG_CONFIG.keyboards[k].midiChannel;
+  return (typeof configured === 'number' && configured >= 1 && configured <= 16) ? configured : kbdDefaultChannel(k);
+}
+function kbdColor(k) {
+  if (k < KBD_COLOR_BASE.length) return KBD_COLOR_BASE[k];
+  return hslToHex((40 + (k - KBD_COLOR_BASE.length) * 55) % 360, 65, 55);
+}
+function kbdLabel(k) {
+  return (RIG_CONFIG.keyboards[k] && RIG_CONFIG.keyboards[k].label) || `KBD ${k + 1}`;
+}
+// KBD1-4 keep their original static page-4..page-7 / data-page="4..7" markup;
+// anything beyond that gets a dynamically-created page+tab with this id.
+function kbdPageId(k) { return k < 4 ? String(4 + k) : ('kbd' + k); }
+
+// Creates tab + page DOM for any keyboard beyond the static first 4. Called
+// once during init, before applyTabOrder()/attachTabHandlers() so the new
+// tabs participate in drag-reorder and tap handling like any other tab.
+function ensureDynamicKbdTabsAndPages() {
+  let anchor = document.querySelector('.tab[data-page="7"]');
+  const pagesHost = document.getElementById('pages');
+  for (let k = 4; k < KBD_COUNT; k++) {
+    const pid = kbdPageId(k);
+    if (!document.getElementById(`page-${pid}`)) {
+      const pg = document.createElement('div');
+      pg.id = `page-${pid}`; pg.className = 'page';
+      pagesHost.appendChild(pg);
+    }
+    let tab = document.querySelector(`.tab[data-page="${pid}"]`);
+    if (!tab) {
+      tab = document.createElement('div');
+      tab.className = 'tab'; tab.dataset.page = pid;
+      tab.textContent = kbdLabel(k);
+      tab.style.setProperty('--tab-accent', kbdColor(k));
+      if (anchor && anchor.parentNode) anchor.insertAdjacentElement('afterend', tab);
+      else document.getElementById('tabbar').appendChild(tab);
+    }
+    anchor = tab;
+  }
+}
 
 // ═══════════════════════════════════════════
 //  PATCHES PAGE — with snapshot capture and rename modes
@@ -1595,6 +1680,8 @@ function buildCaptureCheckboxes() {
 
 function buildPatches() {
   buildCaptureCheckboxes();
+  const secEl = document.getElementById('patches-sec');
+  if (secEl) secEl.textContent = `Song presets — Program Change on all ${KBD_COUNT} keyboard${KBD_COUNT === 1 ? '' : 's'} simultaneously`;
   const grid = document.getElementById('song-grid');
   SONG_NAMES.forEach((name, i) => {
     const el = document.createElement('div');
@@ -1635,7 +1722,7 @@ function buildPatches() {
       document.querySelectorAll('.song-btn').forEach(b => b.classList.remove('active'));
       el.classList.add('active');
       activeSong = i;
-      for (let ch = 1; ch <= KBD_COUNT; ch++) sendPC(ch, i);
+      for (let k = 0; k < KBD_COUNT; k++) sendPC(kbdChannel(k), i);
       restoreSnapshotForSong(i);
     });
     grid.appendChild(el);
@@ -1698,18 +1785,19 @@ function buildPatches() {
 //  KBD PAGES
 // ═══════════════════════════════════════════
 function buildKbdPage(k) {
-  const KBD = [
-    {name:'Keyboard 1',cls:'k1',fill:'fill-k1',ch:1},
-    {name:'Keyboard 2',cls:'k2',fill:'fill-k2',ch:2},
-    {name:'Keyboard 3',cls:'k3',fill:'fill-k3',ch:3},
-    {name:'Keyboard 4',cls:'k4',fill:'fill-k4',ch:4},
-  ];
-  const pg = document.getElementById(`page-${4+k}`);
+  const color = kbdColor(k);
+  const colorDim = hexAlpha(color, 0.13);
+  const ch = kbdChannel(k);
+  const label = kbdLabel(k);
+  const pg = document.getElementById(`page-${kbdPageId(k)}`);
+  if (!pg) return; // shouldn't happen -- ensureDynamicKbdTabsAndPages runs before this
   pg.style.height = '100%';
+  pg.style.setProperty('--kbd-c', color);
+  pg.style.setProperty('--kbd-c-dim', colorDim);
   pg.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:8px;height:100%">
       <div>
-        <div class="sec" style="color:var(--${KBD[k].cls})">${KBD[k].name.toUpperCase()} — MIDI CH ${KBD[k].ch}</div>
+        <div class="sec" style="color:${color}">${label.toUpperCase()} — MIDI CH ${ch}</div>
         <div class="sec">Toggle buttons — CC 20–35</div>
         <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:7px" id="kbtns${k}"></div>
       </div>
@@ -1725,18 +1813,19 @@ function buildKbdPage(k) {
     const cc = 20+b;
     const isLatch = b >= 8;
     const el = document.createElement('div');
-    el.className = isLatch ? `tog latch` : `tog ${KBD[k].cls}`;
+    el.className = isLatch ? `tog latch` : `tog kbd-dyn`;
+    if (!isLatch) { el.style.setProperty('--kbd-c', color); el.style.setProperty('--kbd-c-dim', colorDim); }
     el.style.minHeight = '86px';
     el.style.padding = '12px 4px';
     el.dataset.state = '0';
-    const label = isLatch ? `Latch ${b-7}` : `B${b+1}`;
-    el.innerHTML = `<span style="font-size:18px">${label}</span><span class="cc-lbl" style="font-size:13px">CC${cc}</span>`;
+    const btnLabel = isLatch ? `Latch ${b-7}` : `B${b+1}`;
+    el.innerHTML = `<span style="font-size:18px">${btnLabel}</span><span class="cc-lbl" style="font-size:13px">CC${cc}</span>`;
     el.addEventListener('pointerdown', e => {
       e.preventDefault();
       const on = el.dataset.state === '0';
       el.dataset.state = on ? '1' : '0';
       el.classList.toggle('on', on);
-      sendCC(k+1, cc, on ? 127 : 0);
+      sendCC(ch, cc, on ? 127 : 0);
     });
     btns.appendChild(el);
   }
@@ -1748,14 +1837,15 @@ function buildKbdPage(k) {
     wrap.dataset.kbd = k; wrap.dataset.faderIdx = f;
     const track = document.createElement('div'); track.className = 'fader-track'; track.style.flex = '1';
     track.id = `kfdr-track-${k}-${f}`;
-    const fill = document.createElement('div'); fill.className = `fader-fill ${KBD[k].fill}`; fill.style.height = '75%';
+    const fill = document.createElement('div'); fill.className = `fader-fill fill-kbd-dyn`; fill.style.height = '75%';
+    fill.style.setProperty('--kbd-c', color);
     fill.id = `kfdr-fill-${k}-${f}`;
     track.appendChild(fill);
     const lbl = document.createElement('div'); lbl.className = 'fader-label'; lbl.textContent = `CC${cc}`;
     lbl.id = `kfdr-lbl-${k}-${f}`;
     const val = document.createElement('div'); val.className = 'fader-val'; val.textContent = '96';
     val.id = `kfdr-val-${k}-${f}`;
-    fdrTouch(track, fill, val, pct => sendCC(k+1, cc, Math.round(pct*127)));
+    fdrTouch(track, fill, val, pct => sendCC(ch, cc, Math.round(pct*127)));
     wrap.append(track, lbl, val);
     fdrs.appendChild(wrap);
   }
@@ -2009,7 +2099,7 @@ function updateKbdDeviceHeader(kbdIdx) {
 
 function applyKbdMacros() {
   if (!m4l.kbdMacros) return;
-  for (let k = 0; k < 4; k++) {
+  for (let k = 0; k < KBD_COUNT; k++) {
     const macros = m4l.kbdMacros[k] || [];
     for (let f = 0; f < 8; f++) {
       const macro = macros[f];
@@ -2439,7 +2529,7 @@ function activateCuedSong() {
       ws.send(JSON.stringify({type:'locator_jump', index: locIdx}));
     }
   } else if (typeof song.pc === 'number') {
-    for (let ch = 1; ch <= KBD_COUNT; ch++) sendPC(ch, song.pc & 0x7F);
+    for (let k = 0; k < KBD_COUNT; k++) sendPC(kbdChannel(k), song.pc & 0x7F);
     if (wsConnected && ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({type:'song_activate', pc: song.pc}));
     }
@@ -2721,6 +2811,7 @@ function attachTabHandlers() {
   });
 }
 
+ensureDynamicKbdTabsAndPages();
 applyTabOrder();
 attachTabHandlers();
 
