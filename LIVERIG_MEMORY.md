@@ -2,7 +2,7 @@
 
 > This file replaces `SESSION_BACKUP.md` (stale as of 2026-05-01) as the canonical project memory. It lives in the repo so it's read/write for Claude every session — no manual paste-in required. Updated on request ("Jesus Saves") or at natural session boundaries.
 
-**Last updated:** 2026-06-30 (FX Return faders on Master page, automatic mute/solo via Remote Script, JS TDZ crash fix — Master page fully rendering all 11 channels; verified `feature/extensions-sdk-setup` PR #2 already merged to `main` and the `_dump_looper_params` call site already removed)
+**Last updated:** 2026-06-30 (>4 keyboard support shipped — dynamic MIDI channel assignment + tab/page generation, commit `4e971c3`; dead `_dump_looper_params` method deleted, commit `4e971c3`; FX Return faders on Master page, automatic mute/solo via Remote Script, JS TDZ crash fix from earlier the same day)
 
 ## App bundle architecture — CRITICAL deployment fact
 
@@ -152,25 +152,54 @@ Fix: moved `const RIG_CONFIG_DEFAULT`, `let RIG_CONFIG`, and the XHR load try/ca
 - **`liverig_bridge_wired.py`:** `loop_rec`/`loop_play`/`loop_stop`/`loop_undo` + new `loop_quant` JSON message types (carries `{index, value}`, packs into the `SX_LOOP_QUANT` value byte). `midi_in_callback` is a generic SysEx→WebSocket passthrough, so no bridge change was needed for the new `FB_LOOP_QUANT` feedback to reach the HTML.
 - **`live_rig_3_controller.html`:** Looper row UI rebuilt — each of the 4 rows now has: name, a **Quantization `<select>` dropdown** (all 15 real device values, wired via `setLoopQuant`/`updateLooperQuant`, fb 0x49), an estimated progress bar, state label, REC/PLAY/STOP/UNDO buttons. `loopRecStart[]` anchors progress-phase calculation to the feedback-confirmed (not optimistic) rec-start moment, captured in `updateLooperState`. A 50ms `setInterval` (`startLoopProgressTimer`) computes `pct = (elapsed % durationSec) / durationSec * 100` from `tempo` + the selected Quantization's beat count (`LOOP_QUANT_BEATS`, only defined for the 4 whole-bar options — Global/None/sub-bar settings leave the bar static since duration can't be determined client-side). This is explicitly an estimate, agreed with David as an acceptable approximation given the API ceiling above.
 - **Verified working live by David** (transport-fix confirmed: "ok it looks like its working"). Quantization dropdown + progress bar built and syntax-checked this session; **not yet confirmed live by David** — next step is reloading the Remote Script + refreshing the iPad page and testing.
-- **Cleanup done:** the temporary `_dump_looper_params(0)` call site in `_connect_listeners` has already been removed (confirmed 2026-06-30 via grep — only the unused method definition remains in `LiveRig.py`; safe to delete the dead method body whenever convenient, no rush).
+- **Cleanup done, method body deleted (commit `4e971c3`):** the `_dump_looper_params` method (both the call site, removed earlier, and the now-dead method body) is gone from `LiveRig.py`.
+
+## >4 keyboard support — built & shipped 2026-06-30 (commit `4e971c3`)
+
+The 4-keyboard ceiling is gone. Previously it was baked into three places: the controller HTML's static `page-4`..`page-7` divs + 4-tab bar, AND the assumption that MIDI channel index == KBD slot index (hardcoded `ch1-4` in both the HTML and `LiveRig.py`'s `build_midi_map`/`_dispatch_cc`). Fixed all three, config-driven end to end:
+
+- **Channel assignment (shared logic, kept in sync across JS and Python):** reserved channels (0-indexed in Python, 1-indexed in JS) = CH5 (aux Click/Guide/Loops), CH6 (stems), CH7 (FX returns), CH10 (pads), CH16 (transport). A keyboard's MIDI channel comes from `rig_config.json`'s per-keyboard `"midiChannel"` field (1-indexed) if present, else auto-assigned by walking ch1-16 skipping reserved ones. KBD1-4 land on ch1-4 either way (unchanged). KBD5 → ch8, KBD6 → ch9, KBD7 → ch11, ... up to KBD11 → ch15 (11 keyboards max with today's reserved set).
+  - JS: `kbdDefaultChannel()`/`kbdChannel()` in `live_rig_3_controller.html`.
+  - Python: `_default_kbd_channel_0idx()`/`_kbd_channels_from_config()` in `LiveRig.py`, feeding `self._kbd_channels` + `self._kbd_channel_to_index` (used by `build_midi_map()` and `_dispatch_cc()`, replacing the old hardcoded `range(4)` / `0 <= channel <= 3` checks).
+  - Verified both implementations produce identical output for indices 0-10: `[1,2,3,4,8,9,11,12,13,14,15]`.
+- **`rig_config.json`:** added explicit `"midiChannel": 1/2/3/4` to David's real 4 keyboards (same values as the old implicit default — no behavior change, just now visible/editable).
+- **`live_rig_3_controller.html`:** `KBD_COUNT` is no longer `Math.min(4, ...)` — it's just `RIG_CONFIG.keyboards.length`. New keyboards beyond the static first 4 get a dynamically created tab + page (`ensureDynamicKbdTabsAndPages()`, inserted right after the "Kbd 4" tab, called before `applyTabOrder()`/`attachTabHandlers()` so drag-reorder still works on them) and an auto-generated color (`kbdColor()` — first 4 keep their exact original hex values, 5+ use HSL generation). `buildKbdPage()`, `buildMaster()`'s KBD columns, both Patches-page PC-send loops, and `updateKbdTabs()` were all switched from assuming "channel == index + 1" / "exactly 4 keyboards" to using `kbdChannel(k)`/`kbdPageId(k)`/`KBD_COUNT`. New generic CSS classes `.kbd-dyn`/`.fill-kbd-dyn` (color via inline `--kbd-c`/`--kbd-c-dim` custom properties) handle any keyboard count without needing new CSS per index.
+- **Verified via a headless jsdom test** (not just syntax-checked): the real 4-keyboard `rig_config.json` renders byte-identical to before (12 tabs, 11 Master columns, same colors/channels — zero regression). A synthetic 6-keyboard config correctly added 2 new tabs/pages positioned right after "Kbd 4", with correct auto-assigned channels (ch8, ch9) and distinct colors, and 13 Master columns (6 KBD + 3 aux + 4 FX).
+- **Scope note:** this removes the ceiling but doesn't add a way to *provision* a 5th+ keyboard — that still means hand-editing `rig_config.json` (or waiting on the Extensions SDK setup-tool modal to grow a channel/count field, see pending task below) plus having an actual track for it in Live.
 
 ## Pending tasks (carried forward, not yet superseded)
 
-~~Remove the temporary `_dump_looper_params(0)` diagnostic call~~ — done, call site already gone (dead method body still in file, low-priority delete-whenever).
+~~Remove the temporary `_dump_looper_params(0)` diagnostic call~~ — done, call site and now the dead method body are both gone (`4e971c3`).
 ~~Open/merge PR for `feature/extensions-sdk-setup` → `main`~~ — done, merged as `c4c9430`.
+~~Restructure controller HTML markup to support >4 keyboards~~ — done, see section above (`4e971c3`).
 
 1. Decide whether to delete superseded `SESSION_BACKUP.md` from repo root (archive copy already safe at `~/Documents/LiveRig_Archive/SESSION_BACKUP_2026-05-01.md`). Still present at repo root as of 2026-06-30.
-2. Restructure controller HTML markup to support >4 keyboards (currently capped by static page/tab divs).
-3. Build "blue hand" mode — KBD pages auto-bind to currently-selected track's first 8 device params.
-4. Multi-computer routing UI (Option A architecture) — when needed.
-5. Optional: delete the now-dead `_dump_looper_params` method body from `LiveRig.py` (no live call site remains).
-6. There's a stray local branch `claude/keen-mestorf-aedfa5` with an associated worktree under `.claude/worktrees/` — diff vs. `main` is empty, looks like leftover scaffolding from a prior Claude Code session. Safe to delete unless David wants it kept.
+2. Build "blue hand" mode — KBD pages auto-bind to currently-selected track's first 8 device params.
+3. Multi-computer routing UI (Option A architecture) — when needed.
+4. Extensions SDK setup-tool modal (`liverig-setup-tool/`) has no field yet for per-keyboard `midiChannel` or for adding a 5th+ keyboard slot — currently requires hand-editing `rig_config.json` to actually use the new >4 keyboard support. Natural next step if David wants to provision a real 5th keyboard through the modal instead of by hand.
+5. **Still not deleted — needs David's own Terminal, not this session:** stray local branch `claude/keen-mestorf-aedfa5` + its worktree under `.claude/worktrees/keen-mestorf-aedfa5` (diff vs. `main` is empty, safe to delete). The sandboxed session's filesystem bridge can't unlink files inside `.git/worktrees/*` (`git worktree remove --force` fails with "Operation not permitted" from that side). Run from David's Mac Terminal:
+   ```
+   cd ~/Desktop/liverig
+   git worktree remove --force .claude/worktrees/keen-mestorf-aedfa5
+   git worktree prune
+   git branch -D claude/keen-mestorf-aedfa5
+   ```
+
+## Known sandbox quirk: stale git locks (2026-06-30)
+
+The Claude session's filesystem bridge to `~/Desktop/liverig` sometimes can't unlink git's internal lock files (`index.lock`, `HEAD.lock`, `refs/remotes/origin/*.lock`) — commands fail with "Operation not permitted" instead of actually removing them, and even read-only commands like `git status` can leave one behind. When a git command from a Claude session fails with "Another git process seems to be running" / "Unable to create '.../index.lock'", the fix is for David to run, from his own Terminal (not through Claude):
+```
+cd ~/Desktop/liverig
+rm -f .git/index.lock .git/HEAD.lock .git/refs/remotes/origin/main.lock
+```
+This is a sandbox-mount limitation, not repo corruption — David's local git is always fine underneath it. GitHub push access itself works fine once a PAT is configured as a git credential inside the session (done 2026-06-30, stored at `~/.git-credentials` inside the sandbox — separate from David's own Mac Keychain PAT).
 
 ## How to resume in a new chat
 
 1. Read this file first — it's the live state, not `SESSION_BACKUP.md`.
 2. The Master page is fully working as of 2026-06-30: 11 channels (KBD 1-4, CLICK/GUIDE/LOOPS, REV 1/REV 2/DLY 1/DLY 2), mute/solo automatic via Remote Script. No open regressions.
-3. Continue from "Pending tasks" above — both former top items (looper diagnostic cleanup, extensions-sdk-setup PR) are done; next up is the `SESSION_BACKUP.md` deletion decision and >4 keyboard markup restructure.
+3. >4 keyboard support shipped 2026-06-30 (`4e971c3`) — see dedicated section above. KBD_COUNT is dynamic now; adding a real 5th+ keyboard still means hand-editing `rig_config.json` until the setup-tool modal grows the field for it.
+4. Continue from "Pending tasks" above — top items done (looper diagnostic cleanup incl. dead method, extensions-sdk-setup PR, >4 keyboard restructure); next up is the `SESSION_BACKUP.md` deletion decision, "blue hand" mode, and the stray branch/worktree cleanup (needs David's own Terminal, see note above).
 4. Respect channel isolation and architectural decisions listed above.
 5. Don't reintroduce removed features (Record/Punch/Overdub on Setlist, STEMS nav button on Master, etc.) without confirming with David first.
 6. Use `~/Library/Preferences/Ableton/Live 12.4.2/Log.txt` for Ableton log checks — not the old 12.3.8 folder.
