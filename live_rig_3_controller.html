@@ -1091,15 +1091,18 @@ function updateMasterKbdLabel(kbdIdx, name) {
 }
 
 function buildMaster() {
-  // 10 channels (KBD_COUNT + 6): K1-K4 + Click/Guide (ch5) + Rev1/Rev2/Dly1/Dly2 (ch7)
+  // 8 channels (KBD_COUNT + 4): K1-K4 + Rev1/Rev2/Dly1/Dly2 (ch7)
   // KBD vol/mute/solo (CC7/CC1/CC2 on each kbd channel) and FX return
   // vol/mute/solo (CC1-12 ch7) are handled by the Remote Script via
   // build_midi_map — no CMD+M needed for any of those. (KBD volume, CC7,
   // added 2026-07-01 -- previously silently depended on the user Cmd+M
   // mapping it themselves, which is what broke when reported as "faders
   // aren't controlling Ableton".)
-  // CLICK/GUIDE vol/mute/solo (CC20-21/24-25/28-29 ch5) still use Ableton's
-  // MIDI map -- no rig_config binding exists yet for these two aux tracks.
+  // CLICK/GUIDE moved to the Stems tab as stem9/stem10 (2026-07-02, David) --
+  // now real name-bound stems (ch6, Remote Script handles vol/mute/solo +
+  // bidirectional feedback), dropping their old ch5 Cmd+M dependency. Their
+  // aux-* CSS classes + FB_AUX_VOLUME (0x55) plumbing are left in place but
+  // unused, since no "aux" key exists in rig_config.json.
   // LOOPS removed 2026-07-01 (David: no longer needed) -- ch5 CC22/26/30
   // are simply unused now; harmless to leave any old Cmd+M mapping in place.
   // STEMS nav button saved for future use:
@@ -1113,9 +1116,7 @@ function buildMaster() {
   }));
   const CHANNELS = [
     ...KBD_CHANNELS,
-    {label:'CLICK',           fillCls:'fill-aux-click',           colorCls:'aux-click', ch:5, cc:20, muteCc:24, soloCc:28, fbCat:'aux', fbIdx:0},
-    {label:'GUIDE',           fillCls:'fill-aux-guide',           colorCls:'aux-guide', ch:5, cc:21, muteCc:25, soloCc:29, fbCat:'aux', fbIdx:1},
-    // LOOPS fader removed from Master (2026-07-01, David: "no longer needed").
+    // CLICK/GUIDE relocated to the Stems tab (stem9/stem10) 2026-07-02.
     {label:'REV 1',           fillCls:'fill-fx-rv',               colorCls:'fx-rv',     ch:7, cc:1,  muteCc:5,  soloCc:9,  fbCat:'return', fbIdx:0},
     {label:'REV 2',           fillCls:'fill-fx-rv',               colorCls:'fx-rv',     ch:7, cc:2,  muteCc:6,  soloCc:10, fbCat:'return', fbIdx:1},
     {label:'DLY 1',           fillCls:'fill-fx-dly',              colorCls:'fx-dly',    ch:7, cc:3,  muteCc:7,  soloCc:11, fbCat:'return', fbIdx:2},

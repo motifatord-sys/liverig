@@ -121,14 +121,14 @@
     },
     {
       "id": "stem9",
-      "label": "Stem 9",
-      "trackName": null,
+      "label": "CLICK",
+      "trackName": "CLICK",
       "defaultVolume": 100
     },
     {
       "id": "stem10",
-      "label": "Stem 10",
-      "trackName": null,
+      "label": "GUIDE",
+      "trackName": "GUIDE",
       "defaultVolume": 100
     }
   ],
