@@ -1,0 +1,3103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LIVE RIG">
+<title>LIVE RIG</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0a0a0c; --surface:#111116; --surface2:#181820;
+  --border:#2a2a35; --border2:#3a3a48; --text:#e8e8f0;
+  --muted:#6a6a80; --accent:#7c6fe0;
+  --k1:#6c5fd4; --k2:#1a9e6e; --k3:#d4551e; --k4:#d423a6;
+  --red:#c02828; --red-hot:#e03030; --green:#28a048; --amber:#c07818;
+  --mono:'Share Tech Mono',monospace; --sans:'Barlow Condensed',sans-serif;
+  --tab-h:52px; --radius:6px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none;}
+html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);overflow:hidden;touch-action:none;}
+
+/* STATUS BAR */
+#statusbar{position:fixed;top:0;left:0;right:0;height:44px;background:#0d0d10;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:12px;z-index:100;}
+#midi-dot{width:14px;height:14px;border-radius:50%;background:var(--red);transition:background .3s;flex-shrink:0;}
+#midi-dot.connected{background:var(--green);box-shadow:0 0 8px var(--green);}
+#beat-pulse{width:14px;height:14px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background 0.05s;}
+#beat-pulse.playing{background:var(--green);box-shadow:0 0 8px var(--green);}
+#beat-pulse.recording{background:#ff4466;box-shadow:0 0 8px #ff4466;}
+#beat-pulse.flash{background:#fff;box-shadow:0 0 12px #fff;}
+#midi-label{font-family:var(--mono);font-size:14px;font-weight:700;letter-spacing:.05em;color:var(--muted);flex:0 0 auto;cursor:pointer;}
+#midi-label.connected{color:var(--green);}
+#status-bpm{font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:700;color:#fff;letter-spacing:1px;line-height:1;flex:0 0 auto;padding:0 8px;}
+#status-bpm-lbl{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:1.5px;flex:0 0 auto;margin-left:-4px;}
+#midi-out{font-family:var(--mono);font-size:10px;color:var(--muted);min-width:180px;text-align:right;}
+#blue-hand-btn.active{background:#1a2a5a;border-color:#4a7cff;color:#8fb8ff;box-shadow:0 0 8px #2a5adf88;}
+
+/* TAB BAR */
+#tabbar{position:fixed;top:44px;left:0;right:0;height:var(--tab-h);background:var(--surface);border-bottom:1px solid var(--border);display:flex;z-index:99;}
+@keyframes tabwiggle{0%{transform:rotate(-1deg) scale(.98);}50%{transform:rotate(1deg) scale(.98);}100%{transform:rotate(-1deg) scale(.98);}}
+.tab.wiggle{animation:tabwiggle .35s ease-in-out infinite;background:#1c1c24;}
+.tab.dragging{opacity:.6;background:#2a2a35;z-index:200;}
+body.tab-edit-mode .tab{cursor:move;}
+body.tab-edit-mode #tabbar::after{content:'TAP A TAB TO EXIT EDIT MODE';position:absolute;top:100%;left:50%;transform:translateX(-50%);font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:2px;color:#ffaa33;background:#0d0d10;padding:3px 10px;border:1px solid #ffaa33;border-radius:4px;margin-top:4px;z-index:200;pointer-events:none;}
+.tab{flex:1;display:flex;align-items:center;justify-content:center;font-family:var(--sans);font-size:15px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-right:1px solid var(--border);cursor:pointer;transition:color .15s,background .15s;position:relative;}
+.tab:last-child{border-right:none;}
+.tab.active{color:var(--text);background:var(--surface2);}
+.tab.active::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--tab-accent, var(--accent));}
+.tab[data-page="0"].active::after{background:var(--k1);}
+.tab[data-page="8"].active::after{background:#ff4466;}
+.tab[data-page="9"].active::after{background:#00d4aa;}
+.tab[data-page="1"].active::after{background:#3ab8ff;}
+.tab[data-page="2"].active::after{background:var(--amber);}
+.tab[data-page="3"].active::after{background:var(--k2);}
+.tab[data-page="10"].active::after{background:#ffaa33;}
+.tab[data-page="4"].active::after{background:var(--k1);}
+.tab[data-page="5"].active::after{background:var(--k2);}
+.tab[data-page="6"].active::after{background:var(--k3);}
+.tab[data-page="7"].active::after{background:var(--k4);}
+
+/* PAGES */
+#pages{position:fixed;top:calc(44px + var(--tab-h));left:0;right:0;bottom:0;overflow:hidden;}
+.page{display:none;position:absolute;inset:0;padding:10px;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+.page.active{display:block;}
+.sec{font-family:var(--mono);font-size:14px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px;}
+
+/* TOGGLE BUTTONS */
+.tog{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;transition:none;padding:6px 4px;touch-action:none;}
+.tog span{font-family:var(--mono);font-size:14px;color:var(--muted);line-height:1;pointer-events:none;}
+.tog .cc-lbl{font-size:12px;}
+.tog.on{border-color:currentColor;}
+.tog.on span{color:#fff;}
+.tog.flash{background:#fff2!important;}
+.k1{color:var(--k1);} .k1.on{background:#6c5fd422;border-color:var(--k1)!important;}
+.k2{color:var(--k2);} .k2.on{background:#1a9e6e22;border-color:var(--k2)!important;}
+.k3{color:var(--k3);} .k3.on{background:#d4551e22;border-color:var(--k3)!important;}
+.k4{color:var(--k4);} .k4.on{background:#d423a622;border-color:var(--k4)!important;}
+.amber-on.on{background:#c0781822;border-color:var(--amber)!important;color:var(--amber);}
+.amber-on.on span{color:var(--amber);}
+.latch{color:#e8b91c;}
+.latch.on{background:#e8b91c22;border-color:#e8b91c!important;}
+.latch.on span{color:#fff;}
+
+/* FADERS */
+.fader-wrap{display:flex;flex-direction:column;align-items:center;gap:4px;}
+.fader-track{width:100%;flex:1;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);position:relative;overflow:hidden;cursor:pointer;min-height:80px;}
+.fader-fill{position:absolute;bottom:0;left:0;right:0;border-radius:var(--radius);}
+.fader-label{font-family:var(--mono);font-size:13px;color:var(--muted);}
+.fader-val{font-family:var(--mono);font-size:14px;color:var(--text);font-weight:bold;}
+.fill-k1{background:var(--k1);} .fill-k2{background:var(--k2);}
+.fill-k3{background:var(--k3);} .fill-k4{background:var(--k4);}
+/* Dynamic per-keyboard color for KBD5+ (and reused by KBD1-4 on the Master
+   page) -- set via inline --kbd-c/--kbd-c-dim, see kbdColor() in JS. */
+.kbd-dyn{color:var(--kbd-c);}
+.kbd-dyn.on{background:var(--kbd-c-dim);border-color:var(--kbd-c)!important;}
+.fill-kbd-dyn{background:var(--kbd-c);}
+.fill-gray{background:#505060;} .fill-amber{background:var(--amber);}
+
+/* GRIDS */
+.btn-grid-16{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;}
+.fader-grid-8{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;}
+.pad-grid-16{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+.song-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+.fx-row{display:flex;gap:8px;}
+.row{display:flex;gap:8px;align-items:center;}
+.col{display:flex;flex-direction:column;gap:6px;}
+.divider{border:none;border-top:1px solid var(--border);margin:8px 0;}
+
+/* PADS */
+.pad{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;display:flex;align-items:flex-end;justify-content:center;padding-bottom:8px;touch-action:none;}
+.pad span{font-family:var(--sans);font-size:22px;font-weight:700;letter-spacing:.04em;color:var(--muted);pointer-events:none;}
+.pad.hit{background:#ffffff18;}
+
+/* SONG BUTTONS */
+.song-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;touch-action:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;height:100%;position:relative;overflow:hidden;}
+.song-btn.active{border-color:var(--accent);background:#1f1f30;}
+.song-btn .saved-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(40,140,40,0.85);color:#fff;font-family:'Share Tech Mono',monospace;font-size:24px;font-weight:700;letter-spacing:3px;opacity:0;pointer-events:none;transition:opacity .15s;}
+.song-btn .saved-overlay.show{opacity:1;}
+@keyframes capglow{0%,100%{background:#3a0c0c;border-color:#a02020;}50%{background:#7a1a1a;border-color:#ff5050;box-shadow:0 0 10px #ff5050;}}
+@keyframes rnmglow{0%,100%{background:#3a2a08;border-color:#a07020;}50%{background:#7a5510;border-color:#ffd060;box-shadow:0 0 10px #ffd060;}}
+body.patches-capture-mode .song-btn{animation:capglow 1s ease-in-out infinite;}
+body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
+.patches-action-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:13px;font-weight:700;letter-spacing:1.5px;color:#bbb;touch-action:none;user-select:none;-webkit-user-select:none;transition:background .15s,border-color .15s,color .15s;}
+.patches-action-btn:active{background:#ffffff15;}
+.patches-action-btn.armed-cap{background:#3a0c0c;border-color:#a02020;color:#ffaaaa;}
+.patches-action-btn.armed-rnm{background:#3a2a08;border-color:#a07020;color:#ffd060;}
+#patches-capture-dialog{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:200;}
+#patches-capture-dialog.show{display:flex;}
+#patches-capture-dialog .dlg{background:#1a1a25;border:1px solid var(--border2);border-radius:8px;padding:24px 28px;min-width:340px;max-width:480px;}
+#patches-capture-dialog .dlg h3{font-family:var(--mono);font-size:14px;letter-spacing:2px;color:var(--accent);margin:0 0 16px;}
+#patches-capture-dialog .dlg p{color:#bbb;font-size:14px;margin:0 0 14px;}
+#patches-capture-dialog .dlg label{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#0d0d18;border:1px solid var(--border2);border-radius:6px;margin-bottom:6px;cursor:pointer;font-size:14px;color:#ddd;}
+#patches-capture-dialog .dlg label input{width:18px;height:18px;cursor:pointer;}
+#patches-capture-dialog .dlg .btns{display:flex;gap:10px;margin-top:18px;justify-content:flex-end;}
+#patches-capture-dialog .dlg .btns button{padding:10px 22px;border-radius:6px;font-family:var(--mono);font-size:13px;font-weight:700;letter-spacing:1.5px;cursor:pointer;border:1px solid;}
+#patches-capture-dialog .dlg .btn-ok{background:#1a3a1a;border-color:#5ed06f;color:#5ed06f;}
+#patches-capture-dialog .dlg .btn-cancel{background:#2a2a35;border-color:var(--border2);color:#aaa;}
+.song-btn .sname{font-family:var(--sans);font-size:34px;font-weight:700;letter-spacing:.04em;pointer-events:none;}
+.song-btn .spc{font-family:var(--mono);font-size:13px;color:var(--muted);pointer-events:none;}
+.song-btn.active{border-color:var(--k2);background:#1a9e6e18;border-width:2px;}
+.song-btn.active .sname{color:#4de0a8;}
+
+/* MASTER PAGE */
+#page-master{display:flex;flex-direction:column;height:100%;gap:8px;}
+.master-ch{display:flex;flex-direction:column;gap:6px;min-height:0;position:relative;}
+.bind-warn-badge{display:none;font-size:18px;line-height:1;}
+.bind-warn-badge.bind-warn-visible{display:inline-block;}
+.bind-warn-badge.bind-warn-red{color:#ff5050;text-shadow:0 0 6px rgba(255,60,60,.7);}
+.bind-warn-badge.bind-warn-amber{color:#ffb020;text-shadow:0 0 6px rgba(255,176,32,.6);}
+.master-ch .bind-warn-badge{position:absolute;top:4px;right:6px;z-index:2;pointer-events:none;}
+.loop-name .bind-warn-badge{margin-left:8px;}
+.master-ch .mute-solo{display:grid;grid-template-columns:1fr 1fr;gap:4px;flex:0 0 auto;}
+.master-ch .ms-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:6px;min-height:86px;padding:12px 4px;font-family:var(--mono);font-size:22px;font-weight:700;letter-spacing:2px;text-align:center;cursor:pointer;touch-action:none;user-select:none;color:var(--muted);display:flex;align-items:center;justify-content:center;}
+.master-ch .ms-btn.active-m{background:#3a1010;border-color:#a04040;color:#ffaaaa;}
+.master-ch .ms-btn.active-s{background:#3a2a08;border-color:#d0a030;color:#ffd060;}
+.master-ch .fader-track-vert{flex:1;position:relative;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;cursor:pointer;touch-action:none;min-height:200px;}
+.master-ch .fader-fill-vert{position:absolute;bottom:0;left:0;right:0;}
+.master-ch .fader-label-vert{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;}
+.master-ch .fader-label-vert span{writing-mode:vertical-rl;transform:rotate(180deg);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:28px;letter-spacing:4px;color:#ffffffee;text-shadow:0 2px 4px rgba(0,0,0,.7);height:75%;display:flex;align-items:center;}
+.master-ch .fader-val-vert{font-family:var(--mono);font-size:13px;color:var(--text);text-align:center;font-weight:bold;flex:0 0 auto;}
+.fill-aux-click{background:#c4c4c8;}
+.fill-aux-guide{background:#4ac8e0;}
+.fill-aux-loops{background:#a466d4;}
+.fill-aux-stems{background:#3dbf9b;}
+.aux-click{color:#c4c4c8;}
+.aux-guide{color:#4ac8e0;}
+.aux-loops{color:#a466d4;}
+.aux-stems{color:#3dbf9b;}
+/* FX Return tracks (Reverb / Delay) */
+.fill-fx-rv{background:#9060e0;}
+.fill-fx-dly{background:#e09030;}
+.fx-rv{color:#9060e0;}
+.fx-dly{color:#e09030;}
+
+/* STEMS shortcut column on Master + dedicated Stems tab */
+.master-ch-nav{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;touch-action:none;user-select:none;}
+.master-ch-nav-label{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px;letter-spacing:3px;color:#3dbf9b;}
+.master-ch-nav-hint{font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.08em;}
+.tab[data-page="11"].active::after{background:#3dbf9b;}
+
+/* ── SETLIST v2 ──────────────────────────────────────── */
+.sl-lib-card{display:grid;grid-template-columns:28px 1fr 40px;align-items:center;gap:8px;padding:8px 10px;background:#111117;border:1px solid #222;border-radius:6px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;}
+.sl-lib-card *{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;}
+.sl-lib-card:active{cursor:grabbing;background:#181820;}
+.sl-lib-tag{font-family:'Share Tech Mono',monospace;font-size:11px;color:#555;text-align:center;}
+.sl-lib-name{font-family:'Barlow Condensed',sans-serif;font-weight:600;letter-spacing:.5px;color:#eee;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sl-lib-meta{font-family:'Share Tech Mono',monospace;font-size:10px;color:#555;letter-spacing:1px;text-align:right;}
+
+.sl-active-card{display:grid;grid-template-columns:20px 28px 1fr 22px 22px;align-items:center;gap:6px;padding:8px 10px;background:#10141a;border:1px solid #2a3040;border-radius:6px;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;}
+.sl-active-card *{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;}
+.sl-active-card.sl-cued{background:#0e2a18;border-color:#2a6030;box-shadow:0 0 0 1px #2a6030 inset;}
+.sl-active-grip{font-family:monospace;font-size:14px;color:#444;cursor:grab;text-align:center;}
+.sl-active-num{font-family:'Share Tech Mono',monospace;font-size:12px;color:#888;text-align:center;}
+.sl-active-name{font-family:'Barlow Condensed',sans-serif;font-weight:600;letter-spacing:.5px;color:#fff;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sl-active-status{font-size:14px;color:#5ed06f;text-align:center;}
+.sl-active-del{font-family:monospace;font-size:14px;color:#666;text-align:center;cursor:pointer;padding:2px;}
+.sl-active-del:hover{color:#e56666;}
+
+.sl-tbtn{display:flex;align-items:center;justify-content:center;background:#181820;border:1px solid #333;border-radius:6px;color:#eee;font-size:22px;cursor:pointer;touch-action:none;user-select:none;transition:background .1s;}
+.sl-tbtn.pressed{background:#2a2a35;}
+.sl-tbtn.active-state{background:#0e4a14;border-color:#2a6030;color:#5ed06f;}
+.sl-tbtn-rec.active-state{background:#5a1414;border-color:#a04040;color:#ff8888;}
+
+.sl-navbtn{display:flex;align-items:center;justify-content:center;gap:8px;background:#14141a;border:1px solid #2a2a35;border-radius:6px;color:#aaa;font-family:'Share Tech Mono',monospace;font-size:12px;letter-spacing:1.5px;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;}
+.sl-navbtn svg{flex:0 0 auto;}
+.sl-navbtn span{flex:0 0 auto;}
+.sl-navbtn:active{background:#1e1e28;}
+
+/* LOOPER */
+.looper-left{flex:1;display:flex;flex-direction:column;gap:10px;}
+.looper-right{width:230px;display:flex;flex-direction:column;gap:8px;}
+.loop-row{display:grid;grid-template-columns:130px 110px 1fr 80px 90px 90px 90px 90px;gap:8px;align-items:center;padding:14px 0;border-bottom:1px solid var(--border);}
+.loop-row:last-child{border-bottom:none;}
+.loop-name{font-family:var(--sans);font-size:22px;font-weight:700;letter-spacing:.04em;}
+.loop-bar-wrap{height:54px;background:var(--surface2);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;}
+.loop-bar{height:100%;width:0%;border-radius:var(--radius);transition:width .1s linear;}
+.loop-state{font-family:var(--mono);font-size:16px;text-align:center;font-weight:bold;}
+.loop-quant{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:12px;font-weight:bold;padding:10px 4px;text-align:center;}
+.loop-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);padding:14px 8px;cursor:pointer;font-family:var(--mono);font-size:14px;font-weight:bold;text-align:center;touch-action:none;letter-spacing:.06em;}
+.loop-btn:active{background:var(--border2);}
+.loop-btn.rec-btn{color:var(--red);}
+.loop-btn.play-btn{color:var(--green);}
+.loop-btn.stop-btn{color:#ff6060;}
+.loop-btn.undo-btn{color:#aaa;}
+.beat-row{display:flex;gap:8px;justify-content:center;}
+.beat{width:18px;height:18px;border-radius:50%;background:var(--surface2);border:1px solid var(--border2);transition:background .05s;}
+.beat.lit{background:var(--accent);box-shadow:0 0 6px var(--accent);}
+.ctrl-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);padding:12px 8px;font-family:var(--mono);font-size:13px;color:var(--text);cursor:pointer;letter-spacing:.06em;touch-action:none;}
+.ctrl-btn:active{background:var(--border2);}
+.ctrl-btn.tap-btn-looper{font-size:22px;font-weight:bold;padding:20px 16px;}
+
+/* KBD PAGES */
+#kbd-pages-container{display:grid;grid-template-columns:1fr 200px;gap:10px;height:100%;}
+.kbd-btns-col{display:flex;flex-direction:column;gap:8px;}
+.kbd-faders-col{display:flex;flex-direction:column;gap:6px;}
+
+/* TRANSPORT PAGE */
+.transport-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
+.transport-grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px;}
+.transport-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;}
+.t-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:14px 8px;touch-action:none;transition:background 0.1s;}
+.t-btn:active{background:#ffffff15;}
+.t-btn .t-icon{font-size:28px;line-height:1;pointer-events:none;display:flex;align-items:center;justify-content:center;}
+.t-btn .t-icon svg{display:block;}
+.t-btn .t-label{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;pointer-events:none;}
+.t-btn.t-play{border-color:var(--green);}
+.t-btn.t-play .t-icon svg{fill:var(--green);}
+.t-btn.t-stop{border-color:#6a6a80;}
+.t-btn.t-stop .t-icon svg{fill:#aaa;}
+.t-btn.t-rec{border-color:var(--red);}
+.t-btn.t-rec .t-icon svg{fill:var(--red);}
+.t-btn.t-over{border-color:var(--amber);}
+.t-btn.t-over .t-icon svg{stroke:var(--amber);}
+.t-btn.active-state{background:#ffffff18!important;}
+.t-btn.active-state .t-icon{filter:brightness(1.4);}
+.transport-bpm-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
+.bpm-display{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+.bpm-number{font-family:var(--mono);font-size:52px;font-weight:bold;color:var(--text);line-height:1;letter-spacing:-2px;}
+.bpm-unit{font-family:var(--mono);font-size:13px;color:var(--muted);letter-spacing:.15em;text-transform:uppercase;margin-top:2px;}
+.bar-display{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;}
+.bar-number{font-family:var(--mono);font-size:38px;font-weight:bold;color:var(--text);line-height:1;}
+.bar-beats{display:flex;gap:6px;}
+.bar-beat{width:18px;height:18px;border-radius:50%;background:var(--surface);border:1px solid var(--border2);transition:background 0.05s,box-shadow 0.05s;}
+.bar-beat.on{background:var(--accent);box-shadow:0 0 6px var(--accent);}
+.bar-beat.beat1.on{background:#fff;box-shadow:0 0 8px #fff;}
+.nudge-row{display:grid;grid-template-columns:1fr 1fr 2fr 1fr 1fr;gap:8px;margin-bottom:12px;align-items:center;}
+.nudge-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:14px 8px;touch-action:none;font-size:26px;transition:background 0.1s;color:var(--accent);}
+.nudge-btn:active{background:#ffffff20;}
+.nudge-btn svg{display:block;}
+.tap-btn-transport{background:#1a1a28;border:2px solid var(--accent);border-radius:var(--radius);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:18px 8px;touch-action:none;transition:background 0.08s;}
+.tap-btn-transport:active{background:var(--accent)!important;}
+.tap-btn-transport .t-icon{pointer-events:none;}
+.tap-btn-transport .t-label{font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:.1em;pointer-events:none;}
+
+/* CLIP LAUNCHER */
+.clip-launcher{display:flex;flex-direction:column;height:100%;gap:4px;}
+.clip-track-headers{display:grid;gap:4px;flex-shrink:0;}
+.clip-track-header{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);padding:5px 4px;font-family:var(--sans);font-size:13px;font-weight:600;letter-spacing:.05em;text-align:center;color:var(--muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+.clip-rows{flex:1;display:flex;flex-direction:column;gap:4px;overflow:hidden;}
+.clip-row{flex:1;display:grid;gap:4px;min-height:0;}
+.clip-cell{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;touch-action:none;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;transition:background 0.1s,border-color 0.1s;min-height:0;padding:2px 4px;}
+.clip-cell .clip-name-lbl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:.5px;color:#ffffffdd;text-shadow:0 1px 2px rgba(0,0,0,.7);text-align:center;padding:2px;overflow:hidden;line-height:1.05;pointer-events:none;word-break:break-word;}
+.clip-cell:active{filter:brightness(1.3);}
+.clip-cell.empty{opacity:0.4;}
+.clip-cell.playing{border-width:2px;animation:clip-pulse 0.5s ease-in-out infinite alternate;}
+.clip-cell.recording{border-color:var(--red);border-width:2px;background:#2a0808;animation:clip-rec-pulse 0.5s ease-in-out infinite alternate;}
+.clip-cell.triggered{border-width:2px;animation:clip-trigger-blink 0.22s steps(1) infinite;}
+@keyframes clip-pulse{from{filter:brightness(1);}to{filter:brightness(1.25);}}
+@keyframes clip-rec-pulse{from{border-color:var(--red);}to{border-color:#ff6666;}}
+@keyframes clip-trigger-blink{0%,49%{border-color:#ffffff;background:#ffffff2a;}50%,100%{border-color:var(--border2);background:var(--surface2);}}
+.clip-cell .clip-icon{pointer-events:none;display:flex;align-items:center;justify-content:center;position:absolute;top:3px;right:3px;opacity:.85;}
+.clip-cell.empty .clip-icon{position:static;opacity:1;}
+.clip-scene-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;touch-action:none;display:flex;align-items:center;justify-content:flex-start;padding:0 6px;gap:6px;transition:background 0.1s;overflow:hidden;}
+.clip-scene-btn .scene-icon{flex:0 0 auto;display:flex;align-items:center;justify-content:center;}
+.clip-scene-btn .scene-name{flex:1;font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:.5px;color:#bbb;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;text-align:left;}
+.clip-scene-btn:active{background:#ffffff15;}
+.clip-scene-btn:active{background:#ffffff18;}
+.clip-track-stops{display:grid;gap:4px;flex-shrink:0;height:48px;margin-top:6px;}
+.clip-track-stop{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;touch-action:none;display:flex;align-items:center;justify-content:center;padding:8px 4px;font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:1px;color:#aaa;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;}
+.clip-track-stop:active{background:#ffffff15;}
+</style>
+</head>
+<body>
+
+<div id="statusbar">
+  <div id="midi-dot"></div>
+  <span id="midi-label" onclick="showIPPrompt()">BRIDGE OFFLINE</span>
+  <div id="beat-pulse"></div>
+  <span id="status-bpm">--</span><span id="status-bpm-lbl">BPM</span>
+  <span id="meta-bar" style="font-family:var(--mono);font-size:12px;color:var(--muted);flex:1;text-align:center"></span>
+  <button onclick="showIPPrompt()" style="background:#1a1a28;border:1px solid #3a3a50;border-radius:4px;color:#8888aa;font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:.08em;padding:5px 10px;cursor:pointer;flex-shrink:0;touch-action:none;">IP</button>
+  <button id="blue-hand-btn" onclick="toggleBlueHand()" style="background:#1a1a28;border:1px solid #3a3a50;border-radius:4px;color:#8888aa;font-family:'Share Tech Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.08em;padding:5px 10px;cursor:pointer;flex-shrink:0;touch-action:none;">HAND</button>
+  <button id="panic-btn" onclick="midiPanic()" style="background:#7a1010;border:1px solid #c02020;border-radius:4px;color:#ffaaaa;font-family:'Share Tech Mono',monospace;font-size:12px;font-weight:700;letter-spacing:.1em;padding:5px 12px;cursor:pointer;flex-shrink:0;touch-action:none;">PANIC</button>
+  <span id="midi-out"></span>
+</div>
+
+<div id="tabbar">
+  <div class="tab active" data-page="0">Master</div>
+  <div class="tab" data-page="11">Stems</div>
+  <div class="tab" data-page="10">Setlist</div>
+  <div class="tab" data-page="8">Transport</div>
+  <div class="tab" data-page="3">Patches</div>
+  <div class="tab" data-page="4">Kbd 1</div>
+  <div class="tab" data-page="5">Kbd 2</div>
+  <div class="tab" data-page="6">Kbd 3</div>
+  <div class="tab" data-page="7">Kbd 4</div>
+  <div class="tab" data-page="1">Looper</div>
+  <div class="tab" data-page="2">Pads</div>
+  <div class="tab" data-page="9">Clips</div>
+</div>
+
+<div id="pages">
+
+  <!-- MASTER -->
+  <div id="page-0" class="page active">
+    <div id="page-master">
+      <div class="sec">Master Volumes</div>
+      <div id="master-faders-row" style="flex:1;display:grid;gap:10px;min-height:0;"></div>
+    </div>
+  </div>
+
+  <!-- STEMS -->
+  <div id="page-11" class="page">
+    <div id="page-stems" style="display:flex;flex-direction:column;height:100%;gap:8px;">
+      <div class="sec">Stem Channels</div>
+      <div id="stems-faders-row" style="flex:1;display:grid;grid-template-columns:repeat(8,1fr);gap:10px;min-height:0;"></div>
+    </div>
+  </div>
+
+  <!-- TRANSPORT -->
+  <div id="page-8" class="page">
+    <div class="transport-bpm-row">
+      <div class="bpm-display">
+        <div class="bpm-number" id="t-bpm-display">--</div>
+        <div class="bpm-unit">BPM</div>
+      </div>
+      <div class="bar-display">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase">BAR · BEAT</div>
+        <div class="bar-number" id="t-bar-display">-- · -</div>
+        <div class="bar-beats">
+          <div class="bar-beat beat1" id="tbeat0"></div>
+          <div class="bar-beat" id="tbeat1"></div>
+          <div class="bar-beat" id="tbeat2"></div>
+          <div class="bar-beat" id="tbeat3"></div>
+        </div>
+      </div>
+    </div>
+    <div class="transport-grid">
+      <div class="t-btn t-play" id="t-play-btn" ontouchstart="transportPlay(event)">
+        <div class="t-icon"><svg viewBox="0 0 32 32" width="28" height="28"><polygon points="8,4 28,16 8,28" fill="var(--green)"/></svg></div>
+        <div class="t-label">Play</div>
+      </div>
+      <div class="t-btn t-stop" id="t-stop-btn" ontouchstart="transportStop(event)">
+        <div class="t-icon"><svg viewBox="0 0 32 32" width="28" height="28"><rect x="6" y="6" width="20" height="20" rx="2" fill="#aaa"/></svg></div>
+        <div class="t-label">Stop</div>
+      </div>
+      <div class="t-btn t-rec" id="t-rec-btn" ontouchstart="transportRecord(event)">
+        <div class="t-icon"><svg viewBox="0 0 32 32" width="28" height="28"><circle cx="16" cy="16" r="10" fill="var(--red)"/></svg></div>
+        <div class="t-label">Record</div>
+      </div>
+      <div class="t-btn t-over" id="t-over-btn" ontouchstart="transportOverdub(event)">
+        <div class="t-icon"><svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="var(--amber)" stroke-width="2.5"><circle cx="16" cy="16" r="9"/><circle cx="16" cy="16" r="4" fill="var(--amber)"/><line x1="16" y1="4" x2="16" y2="8"/><line x1="16" y1="24" x2="16" y2="28"/><line x1="4" y1="16" x2="8" y2="16"/><line x1="24" y1="16" x2="28" y2="16"/></svg></div>
+        <div class="t-label">Overdub</div>
+      </div>
+    </div>
+    <div class="nudge-row">
+      <div class="nudge-btn" id="t-prev-marker" ontouchstart="prevMarker(event)" title="Previous Marker">
+        <svg viewBox="0 0 32 32" width="26" height="26" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="8" y1="6" x2="8" y2="26"/>
+          <polygon points="24,6 12,16 24,26" fill="var(--accent)"/>
+        </svg>
+      </div>
+      <div class="nudge-btn" id="t-nudge-down" ontouchstart="tempoBendDown(event)" ontouchend="tempoBendRelease(event)" title="Nudge Down">
+        <svg viewBox="0 0 32 32" width="26" height="26" fill="var(--accent)" stroke="none">
+          <rect x="6"  y="10" width="2.5" height="12" rx="1"/>
+          <rect x="11" y="8"  width="2.5" height="16" rx="1"/>
+          <rect x="16" y="6"  width="2.5" height="20" rx="1"/>
+          <text x="22" y="22" font-family="Share Tech Mono,monospace" font-size="14" font-weight="700">−</text>
+        </svg>
+      </div>
+      <div class="tap-btn-transport" id="transport-tap-btn" ontouchstart="tapTempo(event)">
+        <div class="t-icon"><svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"><circle cx="16" cy="22" r="5"/><line x1="16" y1="17" x2="16" y2="6"/><line x1="16" y1="6" x2="22" y2="9"/></svg></div>
+        <div class="t-label">Tap Tempo</div>
+        <div id="tap-bpm-hint" style="font-family:var(--mono);font-size:13px;color:var(--muted)"></div>
+      </div>
+      <div class="nudge-btn" id="t-nudge-up" ontouchstart="tempoBendUp(event)" ontouchend="tempoBendRelease(event)" title="Nudge Up">
+        <svg viewBox="0 0 32 32" width="26" height="26" fill="var(--accent)" stroke="none">
+          <rect x="6"  y="6"  width="2.5" height="20" rx="1"/>
+          <rect x="11" y="8"  width="2.5" height="16" rx="1"/>
+          <rect x="16" y="10" width="2.5" height="12" rx="1"/>
+          <text x="22" y="22" font-family="Share Tech Mono,monospace" font-size="14" font-weight="700">+</text>
+        </svg>
+      </div>
+      <div class="nudge-btn" id="t-next-marker" ontouchstart="nextMarker(event)" title="Next Marker">
+        <svg viewBox="0 0 32 32" width="26" height="26" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="8,6 20,16 8,26" fill="var(--accent)"/>
+          <line x1="24" y1="6" x2="24" y2="26"/>
+        </svg>
+      </div>
+    </div>
+    <div class="transport-grid-3">
+      <div class="t-btn" id="t-metro-btn" ontouchstart="transportMetronome(event)">
+        <div class="t-icon"><svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="10,28 22,28 20,4 12,4"/><line x1="13" y1="20" x2="20" y2="14"/></svg></div>
+        <div class="t-label">Metronome</div>
+      </div>
+      <div class="t-btn" id="t-loop-btn" ontouchstart="transportLoop(event)">
+        <div class="t-icon"><svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16 A10 10 0 0 1 26 16"/><polyline points="22,10 26,16 20,16"/><path d="M26 16 A10 10 0 0 1 6 16"/><polyline points="10,22 6,16 12,16"/></svg></div>
+        <div class="t-label">Loop</div>
+      </div>
+      <div class="t-btn" id="t-punch-btn" ontouchstart="transportPunch(event)">
+        <div class="t-icon"><svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="16" cy="16" r="10"/><line x1="16" y1="8" x2="16" y2="16"/><line x1="16" y1="16" x2="21" y2="21"/></svg></div>
+        <div class="t-label">Punch In</div>
+      </div>
+    </div>
+    <div class="transport-grid-2">
+      <div class="t-btn" ontouchstart="transportUndo(event)">
+        <div class="t-icon"><svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16 A10 10 0 1 1 16 26"/><polyline points="6,8 6,16 14,16"/></svg></div>
+        <div class="t-label">Undo</div>
+      </div>
+      <div class="t-btn" ontouchstart="transportRedo(event)">
+        <div class="t-icon"><svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M26 16 A10 10 0 1 0 16 26"/><polyline points="26,8 26,16 18,16"/></svg></div>
+        <div class="t-label">Redo</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CLIPS -->
+  <div id="page-9" class="page" style="padding:6px 0 0 0;">
+    <div class="clip-launcher" id="clip-launcher-root"></div>
+  </div>
+
+  <!-- LOOPER -->
+  <div id="page-1" class="page">
+    <div style="display:flex;gap:10px;height:100%;">
+      <div class="looper-left">
+        <div class="sec">Loop tracks</div>
+        <div id="loop-rows"></div>
+      </div>
+      <div class="looper-right">
+        <div class="sec">Tempo</div>
+        <div id="tempo-disp" style="font-family:var(--mono);font-size:36px;font-weight:bold;text-align:center;color:var(--text)">120</div>
+        <div class="beat-row"><div class="beat" id="beat0"></div><div class="beat" id="beat1"></div><div class="beat" id="beat2"></div><div class="beat" id="beat3"></div></div>
+        <button class="ctrl-btn tap-btn-looper" id="looper-tap-btn">TAP</button>
+        <div class="row">
+          <button class="ctrl-btn" style="flex:1" onclick="nudgeTempo(-1)">BPM –</button>
+          <button class="ctrl-btn" style="flex:1" onclick="nudgeTempo(1)">BPM +</button>
+        </div>
+        <div class="sec" style="margin-top:4px">Tempo fader</div>
+        <div class="fader-wrap" style="flex:1;min-height:80px">
+          <div class="fader-track" id="tempo-fader-track" style="width:100%;flex:1">
+            <div class="fader-fill fill-gray" id="tempo-fill" style="height:50%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PADS -->
+  <div id="page-2" class="page">
+    <div style="display:flex;flex-direction:column;height:100%;gap:8px;">
+      <div class="sec">One-shot pads — CH 10, Notes C2–D#3</div>
+      <div style="flex:1"><div class="pad-grid-16" id="pad-grid" style="height:100%"></div></div>
+      <div class="sec">FX toggles — CH 1, CC 70–73</div>
+      <div class="fx-row" id="fx-btns"></div>
+    </div>
+  </div>
+
+  <!-- PATCHES -->
+  <div id="page-3" class="page">
+    <div style="height:100%;display:flex;flex-direction:column;gap:6px">
+      <div class="sec" id="patches-sec">Song presets — Program Change on all 4 keyboards simultaneously</div>
+      <div id="song-grid" style="flex:1;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,1fr);gap:10px"></div>
+      <div id="patches-actions" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;height:64px;flex:0 0 auto;">
+        <div id="patches-capture-btn" class="patches-action-btn">CAPTURE CURRENT STATE</div>
+        <div id="patches-rename-btn" class="patches-action-btn">RENAME</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KBD 1–4 -->
+  <div id="page-4" class="page"></div>
+  <div id="page-5" class="page"></div>
+  <div id="page-6" class="page"></div>
+  <div id="page-7" class="page"></div>
+  <div id="page-10" class="page" style="padding:8px 10px;"></div>
+
+</div><!-- end #pages -->
+
+<!-- Capture confirmation dialog -->
+<div id="patches-capture-dialog">
+  <div class="dlg">
+    <h3>CAPTURE CURRENT STATE</h3>
+    <p>Select which keyboard pages to capture, then tap a song button to save the snapshot.</p>
+    <div id="cap-kbd-checkboxes"><!-- populated from RIG_CONFIG --></div>
+    <div class="btns">
+      <button class="btn-cancel" id="cap-cancel">Cancel</button>
+      <button class="btn-ok" id="cap-ok">Continue</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+//  WEBSOCKET MIDI ENGINE
+// ═══════════════════════════════════════════
+let ws = null, wsConnected = false, wsReconnectTimer = null, wsReconnectIP = null;
+
+function setDot(on) { document.getElementById('midi-dot').classList.toggle('connected', on); document.getElementById('midi-label').classList.toggle('connected', on); }
+function setLabel(txt) { document.getElementById('midi-label').textContent = txt; }
+
+function connectWS(ip) {
+  clearTimeout(wsReconnectTimer); wsReconnectTimer = null;
+  if (ws) { ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null; try{ws.close();}catch(e){} ws=null; }
+  wsConnected = false; wsReconnectIP = ip;
+  localStorage.setItem('bridgeIP', ip);
+  const url = `ws://${ip}:8765`;
+  setLabel(`Connecting to ${url}…`); setDot(false);
+  const sock = new WebSocket(url);
+  sock.binaryType = 'arraybuffer'; ws = sock;
+  sock.onopen = () => { if(sock!==ws)return; wsConnected=true; setDot(true); setLabel('BRIDGE'); };
+  sock.onclose = () => {
+    if(sock!==ws)return; wsConnected=false; setDot(false); setLabel('OFFLINE');
+    const delay = Math.min(5000, 1000+(sock._retries||0)*500);
+    wsReconnectTimer = setTimeout(()=>{ if(wsReconnectIP){sock._retries=(sock._retries||0)+1; connectWS(wsReconnectIP);} }, delay);
+  };
+  sock.onerror = () => { if(sock!==ws)return; setLabel(`Can't reach bridge at ${ip}:8765 — is the Mac script running?`); };
+  sock.onmessage = (ev) => {
+    if(sock!==ws)return;
+    if(!(ev.data instanceof ArrayBuffer)) {
+      // Try parsing as JSON - could be live_state object OR raw MIDI bytes array
+      try {
+        const parsed = JSON.parse(ev.data);
+        // New format: live_state object from Python bridge (via M4L file watcher)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          if (parsed.type === 'live_state') { onLiveState(parsed); return; }
+          // Could also be a wrapped {type:"midi",data:[...]}
+          if (parsed.type === 'midi' && Array.isArray(parsed.data)) { onMIDIIn(parsed.data); return; }
+          return;
+        }
+        // Legacy: raw MIDI bytes array
+        if (Array.isArray(parsed) && parsed.length) { onMIDIIn(parsed); return; }
+      } catch(e) { return; }
+      return;
+    }
+    // Binary MIDI
+    const bytes = Array.from(new Uint8Array(ev.data));
+    if (bytes.length) onMIDIIn(bytes);
+  };
+}
+
+function showIPPrompt() {
+  // Manual fallback if auto-connect (via the {{BRIDGE_HOST}} hostname
+  // LiveRig.app injects into this page at serve time) doesn't reach the
+  // bridge -- e.g. mDNS/.local resolution failing on this network. Launch
+  // LiveRig from Applications on your Mac; its menu bar "Copy iPad URL"
+  // item copies the working address, or just type your Mac's WiFi IP here.
+  const saved = localStorage.getItem('bridgeIP')||'';
+  const ip = prompt('Enter your Mac\'s IP address (same WiFi network as this iPad)\n\nOpen LiveRig\'s menu bar icon on your Mac and click "Copy iPad URL" for the working address, or find the IP under System Settings > WiFi > Details.', saved);
+  if(ip&&ip.trim()) connectWS(ip.trim());
+}
+
+function send(bytes) {
+  if(wsConnected&&ws&&ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify(bytes));
+  const lbl=document.getElementById('midi-out');
+  lbl.textContent=bytes.map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+  clearTimeout(send._t); send._t=setTimeout(()=>lbl.textContent='',1200);
+}
+function sendCC(ch,cc,val){send([0xB0|(ch-1),cc,val]);}
+function sendNote(ch,note,vel=127){send([0x90|(ch-1),note,vel]);setTimeout(()=>send([0x80|(ch-1),note,0]),80);}
+function sendPC(ch,pc){send([0xC0|(ch-1),pc]);}
+
+function midiPanic() {
+  for(let ch=0;ch<16;ch++){send([0xB0|ch,120,0]);send([0xB0|ch,123,0]);send([0xB0|ch,121,0]);}
+  const btn=document.getElementById('panic-btn');
+  btn.style.background='#e03030'; btn.textContent='RELEASED';
+  setTimeout(()=>{btn.style.background='#7a1010';btn.textContent='PANIC';},800);
+  document.querySelectorAll('.tog.on').forEach(el=>{el.classList.remove('on');el.dataset.state='0';});
+  for(let k=0;k<4;k++) loopStop(k);
+  const lbl=document.getElementById('midi-out');
+  lbl.textContent='PANIC — all notes off CH 1-16';
+  clearTimeout(send._t); send._t=setTimeout(()=>lbl.textContent='',2000);
+}
+
+// ═══════════════════════════════════════════
+//  INBOUND MIDI (from Ableton via M4L)
+// ═══════════════════════════════════════════
+const m4l = {bpm:'--',transport:'STOPPED',bar:0,timesig:4,song:'',tracks:['','','',''],clips:[0,0,0,0],locators:[],songs:[],sections:[],current_locator:'',current_song:'',current_section:'',song_time:0,song_len:0,activeSongIdx:-1,songLenBars:0};
+
+// ═══════════════════════════════════════════
+//  LIVE STATE from M4L → Python bridge (new JSON protocol)
+// ═══════════════════════════════════════════
+function onLiveState(s) {
+  // s: { transport, bar, beat, bpm, timesig, song, locators, current_locator }
+  if (typeof s.bpm === 'number' && s.bpm > 0) {
+    m4l.bpm = s.bpm; tempo = s.bpm;
+    const d = document.getElementById('t-bpm-display'); if(d) d.textContent = Math.round(s.bpm);
+    const t = document.getElementById('tempo-disp');    if(t) t.textContent = Math.round(s.bpm);
+    const sb = document.getElementById('status-bpm');   if(sb) sb.textContent = Math.round(s.bpm);
+  }
+  if (typeof s.transport === 'string') {
+    const tState = s.transport === 'playing' ? 'PLAYING'
+                 : s.transport === 'recording' ? 'RECORDING'
+                 : 'STOPPED';
+    m4l.transport = tState;
+    const prev = transportState;
+    transportState = tState;
+    if (prev !== transportState) {
+      updateTransportButtons();
+      updateBeatPulseColor();
+      if (transportState === 'STOPPED') {
+        clearInterval(beatPulseTimer); beatPulseTimer = null;
+      }
+    }
+  }
+  if (typeof s.bar === 'number')  m4l.bar = s.bar;
+  if (typeof s.song_len_bars === 'number') m4l.songLenBars = s.song_len_bars;
+  if (typeof s.timesig === 'number' && s.timesig > 0) m4l.timesig = s.timesig;
+  if (typeof s.song === 'string') m4l.song = s.song;
+
+  // Beat indicator — s.beat is 1-based from Max (1,2,3,4)
+  if (typeof s.beat === 'number' && s.beat > 0) {
+    const bi = (s.beat - 1) % (m4l.timesig || 4);
+    currentBeat = s.beat;
+    const timesig = m4l.timesig || 4;
+    for (let i = 0; i < 4; i++) {
+      const b = document.getElementById(`tbeat${i}`);
+      if (b) b.classList.toggle('on', i === bi);
+    }
+    // Flash the top status bar pulse on each new beat
+    const dot = document.getElementById('beat-pulse');
+    if (dot) { dot.classList.add('flash'); setTimeout(()=>dot.classList.remove('flash'),80); }
+    // Update bar · beat text
+    const tBar = document.getElementById('t-bar-display');
+    if (tBar) tBar.textContent = `${m4l.bar} · ${s.beat}`;
+  }
+
+  // Locators — store for future setlist/section display
+  if (Array.isArray(s.locators))      m4l.locators = s.locators;
+  if (Array.isArray(s.songs))         m4l.songs = s.songs;
+  if (Array.isArray(s.sections))      m4l.sections = s.sections;
+  if (typeof s.current_locator==='string') m4l.current_locator = s.current_locator;
+  if (typeof s.current_song==='string')    m4l.current_song = s.current_song;
+  if (typeof s.current_section==='string') m4l.current_section = s.current_section;
+  if (typeof s.song_time==='number')  m4l.song_time = s.song_time;
+  if (typeof s.song_len==='number')   m4l.song_len  = s.song_len;
+
+  // Session view (track + clip data from LiveAPI)
+  if (Array.isArray(s.tracks) && s.tracks.length) {
+    m4l.liveTracks = s.tracks;
+    updateClipTrackHeaders();
+  }
+  if (Array.isArray(s.clips) && s.clips.length) {
+    m4l.liveClips = s.clips;
+    updateClipNamesFromLive();
+  }
+  if (Array.isArray(s.kbd_macros)) {
+    m4l.kbdMacros = s.kbd_macros;
+    applyKbdMacros();
+  }
+
+  // Scenes from Ableton (Session view) — populate Setlist when available alongside songs
+  if (Array.isArray(s.scenes)) {
+    const newSceneHash = s.scenes.map(x => (x.name || '<unnamed>') + '#' + x.idx).join('|');
+    if (newSceneHash !== m4l._lastScenesHash) {
+      m4l._lastScenesHash = newSceneHash;
+      m4l.scenes = s.scenes;
+      if (typeof renderClipScenes === 'function') renderClipScenes();
+    }
+  }
+
+  // Re-render Setlist library if Ableton's song list changed (name added/edited/removed)
+  if (Array.isArray(s.songs)) {
+    const newHash = s.songs.map(x => x.name + '@' + x.time).join('|');
+    if (newHash !== m4l._lastSongsHash) {
+      m4l._lastSongsHash = newHash;
+      if (typeof renderLibrary === 'function') renderLibrary();
+    }
+  }
+
+  // Top status bar
+  const bar = document.getElementById('meta-bar');
+  if (bar) {
+    const tc = transportState==='PLAYING'?'#28a048':transportState==='RECORDING'?'#e03030':'#6a6a80';
+    bar.style.color = tc;
+    const secPart = m4l.current_locator ? '  ·  ' + m4l.current_locator : '';
+    bar.textContent = transportState + (m4l.song ? '  ·  '+m4l.song : '') + secPart + '  ·  BAR '+m4l.bar+'  ·  '+(m4l.timesig||4)+'/4';
+  }
+
+  // Setlist page progress bars
+  if (typeof updateSetlistProgress === 'function') updateSetlistProgress();
+
+  // Setlist + Transport button active states (PLAY/STOP/REC)
+  const syncTransportBtns = (ids, on) => ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('active-state', on);
+  });
+  syncTransportBtns(['sl-t-play'],  transportState === 'PLAYING');
+  syncTransportBtns(['sl-t-stop'],  transportState === 'STOPPED');
+}
+
+// ── Remote Script feedback parser ────────────────────────────────────────────
+// Wire format: F0 7D 60 <fb_type> <data...> F7
+const RS = { cueAccum: [], sceneAccum: [] };
+function rsDecodeStr(bytes, offset){
+  if (offset >= bytes.length) return {text:'', next:offset};
+  const n = bytes[offset];
+  let s = '';
+  for (let i=0;i<n && offset+1+i<bytes.length;i++) s += String.fromCharCode(bytes[offset+1+i]);
+  return {text:s, next:offset+1+n};
+}
+function rsUint14(b1,b2){ return ((b1&0x7F)<<7)|(b2&0x7F); }
+function rsUint28(b1,b2,b3,b4){ return ((b1&0x7F)<<21)|((b2&0x7F)<<14)|((b3&0x7F)<<7)|(b4&0x7F); }
+
+function onRemoteScriptFeedback(bytes){
+  if (bytes.length < 5) return;
+  const fb = bytes[3];
+  const data = bytes.slice(4, bytes.length-1);
+
+  if (fb === 0x00) {
+    const state = data[0]||0;
+    transportState = state===2?'RECORDING':state===1?'PLAYING':'STOPPED';
+    m4l.transport = transportState.toLowerCase();
+    if (typeof updateTransportButtons === 'function') updateTransportButtons();
+    if (state===0) { try{clearInterval(beatPulseTimer);}catch(e){} beatPulseTimer=null; currentBeat=0; }
+    else { if (typeof restartBeat === 'function') restartBeat(); }
+  } else if (fb === 0x01) {
+    const bpm = rsUint14(data[0],data[1]) / 100.0;
+    m4l.bpm = bpm; tempo = bpm;
+    const sb = document.getElementById('status-bpm'); if(sb) sb.textContent = Math.round(bpm);
+    const tDisp = document.getElementById('t-bpm-display'); if(tDisp) tDisp.textContent = Math.round(bpm);
+    const t = document.getElementById('tempo-disp'); if(t) t.textContent = Math.round(bpm);
+  } else if (fb === 0x02) {
+    m4l.song_time = rsUint28(data[0],data[1],data[2],data[3]) / 1000.0;
+  } else if (fb === 0x03) {
+    m4l.song_len = rsUint28(data[0],data[1],data[2],data[3]) / 1000.0;
+  } else if (fb === 0x12) { RS.cueAccum = [];
+  } else if (fb === 0x10) {
+    const idx = data[0];
+    const t_ms = rsUint28(data[1],data[2],data[3],data[4]);
+    const {text:name} = rsDecodeStr(data, 5);
+    RS.cueAccum.push({idx, name, time: t_ms/1000.0});
+  } else if (fb === 0x13) {
+    const raw = [], songs = [], sections = [];
+    RS.cueAccum.sort((a,b)=>a.time-b.time);
+    for (const c of RS.cueAccum) {
+      raw.push({name:c.name, time:c.time});
+      if (c.name && c.name.toLowerCase().indexOf('song:') === 0) {
+        songs.push({name: c.name.slice(5).replace(/^\s+/,''), time:c.time});
+      } else if (c.name) {
+        sections.push({name:c.name, time:c.time});
+      }
+    }
+    m4l.locators = raw; m4l.songs = songs; m4l.sections = sections;
+    const newHash = songs.map(x => x.name + '@' + x.time).join('|');
+    if (newHash !== m4l._lastSongsHash) {
+      m4l._lastSongsHash = newHash;
+      if (typeof renderLibrary === 'function') renderLibrary();
+    }
+  } else if (fb === 0x22) { RS.sceneAccum = [];
+  } else if (fb === 0x20) {
+    const idx = data[0];
+    const {text:name} = rsDecodeStr(data, 1);
+    RS.sceneAccum.push({idx, name});
+  } else if (fb === 0x23) {
+    m4l.scenes = RS.sceneAccum.slice();
+    const newSceneHash = m4l.scenes.map(x => (x.name||'<unnamed>')+'#'+x.idx).join('|');
+    if (newSceneHash !== m4l._lastScenesHash) {
+      m4l._lastScenesHash = newSceneHash;
+      if (typeof renderClipScenes === 'function') renderClipScenes();
+    }
+  } else if (fb === 0x30) {
+    const idx = data[0];
+    const {text:name} = rsDecodeStr(data, 1);
+    m4l.selectedTrack = {idx, name};
+  } else if (fb === 0x40) {
+    // Parameter value: kbdIdx, slot(0-7), v14_hi, v14_lo, nameLen, nameBytes
+    // Replaces the old "macro value" interpretation — same wire format,
+    // but now applies to ANY device parameter (not just macros).
+    const kbdIdx = data[0], slot = data[1];
+    const v14 = rsUint14(data[2], data[3]);
+    const {text:paramName} = rsDecodeStr(data, 4);
+    if (kbdIdx >= 0 && kbdIdx < KBD_COUNT && slot >= 0 && slot < 8) {
+      if (!m4l.kbdMacros) m4l.kbdMacros = [];
+      if (!Array.isArray(m4l.kbdMacros[kbdIdx])) m4l.kbdMacros[kbdIdx] = [];
+      m4l.kbdMacros[kbdIdx][slot] = { name: paramName, value: v14, min: 0, max: 0x3FFF };
+      if (typeof applyKbdMacros === 'function') applyKbdMacros();
+    }
+  } else if (fb === 0x41) {
+    // Parameter list begin: kbdIdx, count
+    const kbdIdx = data[0], count = data[1];
+    if (kbdIdx >= 0 && kbdIdx < KBD_COUNT) {
+      if (!m4l.kbdMacros) m4l.kbdMacros = [];
+      // Reset the slot to expected count; values arrive as 0x40 messages
+      m4l.kbdMacros[kbdIdx] = new Array(count).fill(null);
+    }
+  } else if (fb === 0x42) {
+    // Parameter list end: kbdIdx — finalize render
+    const kbdIdx = data[0];
+    if (kbdIdx >= 0 && kbdIdx < KBD_COUNT && typeof applyKbdMacros === 'function') {
+      applyKbdMacros();
+    }
+  } else if (fb === 0x43) {
+    // Device info: kbdIdx, nameLen, nameBytes, bankIdx, bankCount -- shows
+    // which device a KBD page's faders are bound to (fixed track, or
+    // whatever Blue Hand mode is currently driving for that slot).
+    const kbdIdx = data[0];
+    const {text:devName, next} = rsDecodeStr(data, 1);
+    const bankIdx = data[next] || 0;
+    const bankCount = data[next+1] || 1;
+    if (!m4l.kbdDeviceInfo) m4l.kbdDeviceInfo = [];
+    m4l.kbdDeviceInfo[kbdIdx] = { name: devName, bank: bankIdx, banks: bankCount };
+    if (typeof updateKbdDeviceHeader === 'function') updateKbdDeviceHeader(kbdIdx);
+  } else if (fb === 0x44) {
+    // KBD track color: kbdIdx, r14_hi, r14_lo, g14_hi, g14_lo, b14_hi, b14_lo
+    const kbdIdx = data[0];
+    const r = rsUint14(data[1], data[2]) & 0xFF;
+    const g = rsUint14(data[3], data[4]) & 0xFF;
+    const b = rsUint14(data[5], data[6]) & 0xFF;
+    if (kbdIdx >= 0 && kbdIdx < KBD_COUNT) {
+      const hex = '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+      if (!m4l.kbdColors) m4l.kbdColors = [];
+      m4l.kbdColors[kbdIdx] = hex;
+      if (kbdIdx < 4) {
+        // --k1..--k4 drive both the KBD tab underline (.tab[data-page="N"].active::after)
+        // and the Master page K1-K4 column fill/text (.fill-kN / .kN) — overriding the
+        // CSS custom property here updates both without restructuring either.
+        document.documentElement.style.setProperty('--k' + (kbdIdx + 1), hex);
+      }
+      // KBD5+ use per-element --kbd-c (see kbdColor() / buildKbdPage /
+      // buildMaster) rather than a global --kN var, so a live Ableton
+      // track-color change doesn't yet repaint those elements -- known
+      // gap, low priority since it's cosmetic only (control is unaffected).
+    }
+  } else if (fb === 0x45) {
+    // KBD track name: kbdIdx, nameLen, nameBytes
+    const kbdIdx = data[0];
+    const {text:trackName} = rsDecodeStr(data, 1);
+    if (kbdIdx >= 0 && kbdIdx < KBD_COUNT) {
+      if (!m4l.kbdNames) m4l.kbdNames = [];
+      m4l.kbdNames[kbdIdx] = trackName;
+      if (typeof updateMasterKbdLabel === 'function') updateMasterKbdLabel(kbdIdx, trackName);
+    }
+  } else if (fb === 0x46) {
+    // Stem track color: stemIdx, r14_hi, r14_lo, g14_hi, g14_lo, b14_hi, b14_lo
+    const stemIdx = data[0];
+    const r = rsUint14(data[1], data[2]) & 0xFF;
+    const g = rsUint14(data[3], data[4]) & 0xFF;
+    const b = rsUint14(data[5], data[6]) & 0xFF;
+    if (stemIdx >= 0 && stemIdx < STEM_COUNT) {
+      const hex = '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+      if (!m4l.stemColors) m4l.stemColors = new Array(STEM_COUNT).fill(null);
+      m4l.stemColors[stemIdx] = hex;
+      if (typeof updateStemColor === 'function') updateStemColor(stemIdx, hex);
+    }
+  } else if (fb === 0x47) {
+    // Stem track name: stemIdx, nameLen, nameBytes
+    const stemIdx = data[0];
+    const {text:trackName} = rsDecodeStr(data, 1);
+    if (stemIdx >= 0 && stemIdx < STEM_COUNT) {
+      if (!m4l.stemNames) m4l.stemNames = new Array(STEM_COUNT).fill(null);
+      m4l.stemNames[stemIdx] = trackName;
+      if (typeof updateStemLabel === 'function') updateStemLabel(stemIdx, trackName);
+    }
+  } else if (fb === 0x48) {
+    // Loop state feedback: loopIdx, state (0=stop, 1=record, 2=play) --
+    // the true Ableton Looper device state, not just our optimistic
+    // button-press guess. Corrects loopRec/Play/Stop's local UI update.
+    const loopIdx = data[0];
+    const state = data[1];
+    if (loopIdx >= 0 && loopIdx < 4 && typeof updateLooperState === 'function') {
+      updateLooperState(loopIdx, state);
+    }
+  } else if (fb === 0x49) {
+    // Loop Quantization feedback: loopIdx, quantIdx -- real device value,
+    // confirms/corrects the dropdown if it was changed in Ableton directly.
+    const loopIdx = data[0];
+    const quantIdx = data[1];
+    if (loopIdx >= 0 && loopIdx < 4 && typeof updateLooperQuant === 'function') {
+      updateLooperQuant(loopIdx, quantIdx);
+    }
+  } else if (fb === 0x50) {
+    // Clips page: track name for Session View column trackIdx (polled by
+    // LiveRig.py, only sent when it actually changes). Same real-track-name
+    // pipeline as KBD/stems, just for the generic 8x8 Clips grid.
+    const trackIdx = data[0];
+    const {text: trackName} = rsDecodeStr(data, 1);
+    if (trackIdx >= 0 && trackIdx < CLIP_TRACKS) {
+      if (!m4l.liveTracks) m4l.liveTracks = [];
+      m4l.liveTracks[trackIdx] = { name: trackName };
+      if (typeof updateClipTrackHeaders === 'function') updateClipTrackHeaders();
+    }
+  } else if (fb === 0x51) {
+    // Clips page: one Session View cell -- sceneIdx, trackIdx, flags, clip
+    // name. Only sent when that cell actually changes. flags mirrors
+    // Ableton's own clip-slot visual states exactly:
+    //   bit0=has_clip bit1=playing bit2=triggered(blinking) bit3=recording
+    const sceneIdx = data[0], trackIdx = data[1];
+    const flags = data[2] || 0;
+    const hasClip = !!(flags & 0x1), isPlaying = !!(flags & 0x2),
+          isTriggered = !!(flags & 0x4), isRecording = !!(flags & 0x8);
+    const {text: clipName} = rsDecodeStr(data, 3);
+    if (sceneIdx >= 0 && sceneIdx < CLIP_SCENES && trackIdx >= 0 && trackIdx < CLIP_TRACKS) {
+      if (!m4l.liveClips) m4l.liveClips = Array.from({length: CLIP_SCENES}, () => []);
+      if (!Array.isArray(m4l.liveClips[sceneIdx])) m4l.liveClips[sceneIdx] = [];
+      m4l.liveClips[sceneIdx][trackIdx] = { has: hasClip, name: clipName, playing: isPlaying, triggered: isTriggered, recording: isRecording };
+      if (typeof updateClipNamesFromLive === 'function') updateClipNamesFromLive();
+    }
+  } else if (fb === 0x52 || fb === 0x53 || fb === 0x54 || fb === 0x55) {
+    // Channel volume feedback (2026-07-01): Ableton -> iPad, so moving a
+    // fader with the mouse in Live keeps the corresponding Master/Stems
+    // fader in sync. data: idx, v14_hi, v14_lo. Category is implied by fb:
+    //   0x52=kbd  0x53=stem  0x54=return(REV1/2,DLY1/2)  0x55=aux(Click/Guide)
+    const cat = fb === 0x52 ? 'kbd' : fb === 0x53 ? 'stem' : fb === 0x54 ? 'return' : 'aux';
+    const idx = data[0];
+    const v14 = rsUint14(data[1], data[2]);
+    updateChannelVolumeFeedback(cat, idx, v14);
+  } else if (fb === 0x56) {
+    // Binding-status feedback (2026-07-01): cat, idx, status -- see
+    // LiveRig.py BIND_CAT_*/BIND_STATUS_* constants. Only sent when a
+    // channel's binding health actually changes (or on full resync).
+    // Covers the 4 name-bound categories only (kbd/stem/looper/aux) --
+    // FX returns are fixed tracks, never name-bound, so they never get this.
+    updateBindingIndicator(data[0], data[1], data[2]);
+  }
+}
+
+// Shared by Master (kbd/aux/return) and Stems page fader feedback -- finds
+// the fader by the ids set in buildMaster()/buildStems() (master-fdr-* /
+// stem-fdr-*), skips the update if the user is actively dragging it
+// (same touch-guard pattern as applyKbdMacros), and mirrors fdrTouch's own
+// height/text formatting so a Live-side change looks identical to a local
+// drag.
+function updateChannelVolumeFeedback(cat, idx, v14) {
+  const pct = Math.max(0, Math.min(1, v14 / 0x3FFF));
+  const midiVal = Math.round(pct * 127);
+  const prefix = cat === 'stem' ? 'stem-fdr' : 'master-fdr';
+  const trackEl = document.getElementById(cat === 'stem' ? `${prefix}-track-${idx}` : `${prefix}-track-${cat}-${idx}`);
+  const fillEl  = document.getElementById(cat === 'stem' ? `${prefix}-fill-${idx}`  : `${prefix}-fill-${cat}-${idx}`);
+  const valEl   = document.getElementById(cat === 'stem' ? `${prefix}-val-${idx}`   : `${prefix}-val-${cat}-${idx}`);
+  if (!fillEl) return;
+  if (trackEl && trackEl.dataset.touching === '1') return; // don't fight an active drag
+  fillEl.style.height = (pct * 100) + '%';
+  if (valEl) valEl.textContent = String(midiVal);
+}
+
+// Binding-status indicator (2026-07-01) -- surfaces the config-vs-Live-Set
+// mismatches LiveRig.py now detects (see BIND_STATUS_* in LiveRig.py) so a
+// bad/duplicate track name shows up as a visible badge instead of a fader
+// that silently does nothing. Badge ids are set in buildMaster() (kbd/aux),
+// buildStems(), and buildLooper() -- one per name-bound channel.
+const BIND_CAT_NAMES = ['kbd', 'stem', 'looper', 'aux'];
+// Mirrors LiveRig.py: OK=0 OK_POSITIONAL=1 UNBOUND=2 AMBIGUOUS=3 EMPTY=4 FALLBACK_MISMATCH=5
+function updateBindingIndicator(catInt, idx, status) {
+  const catName = BIND_CAT_NAMES[catInt];
+  if (!catName) return;
+  let el;
+  if (catName === 'kbd' || catName === 'aux') el = document.getElementById(`master-bind-warn-${catName}-${idx}`);
+  else if (catName === 'stem') el = document.getElementById(`stem-bind-warn-${idx}`);
+  else if (catName === 'looper') el = document.getElementById(`loop-bind-warn-${idx}`);
+  if (!el) return;
+  el.classList.remove('bind-warn-visible', 'bind-warn-red', 'bind-warn-amber');
+  if (status === 2 || status === 5) {
+    // UNBOUND or FALLBACK_MISMATCH -- no track name in the Live Set matches
+    // this binding; channel is either dead or silently on the wrong track.
+    el.textContent = '⚠';
+    el.title = status === 2
+      ? 'No track in this Live Set matches the configured name — this channel is unbound.'
+      : 'Configured track name not found — falling back to track position. Double-check this channel.';
+    el.classList.add('bind-warn-visible', 'bind-warn-red');
+  } else if (status === 3) {
+    // AMBIGUOUS -- multiple tracks share the configured name.
+    el.textContent = '⚠';
+    el.title = 'Multiple tracks share this name — bound to the first match. Rename tracks to avoid ambiguity.';
+    el.classList.add('bind-warn-visible', 'bind-warn-amber');
+  }
+  // OK / OK_POSITIONAL / EMPTY: no badge, nothing to flag.
+}
+
+function onMIDIIn(bytes) {
+  if(!bytes||bytes.length<2) return;
+  const status=bytes[0]&0xF0, ch=(bytes[0]&0x0F)+1;
+  if(status===0xB0&&ch===1&&bytes.length>=3) {
+    const cc=bytes[1],val=bytes[2];
+    if(cc===14){
+      const bpm=Math.round(40+(val/127)*200); m4l.bpm=bpm; tempo=bpm;
+      const disp=document.getElementById('tempo-disp'); if(disp) disp.textContent=bpm;
+      const tDisp=document.getElementById('t-bpm-display'); if(tDisp) tDisp.textContent=bpm;
+      restartBeat();
+    } else if(cc===15){m4l.transport=val===127?'PLAYING':val===64?'REC':'STOPPED';updateMetaBar();}
+    else if(cc===16){m4l.bar=val;updateMetaBar();}
+    else if(cc===17){m4l.timesig=val;updateMetaBar();}
+    else if(cc>=18&&cc<=21){m4l.clips[cc-18]=val;updateMetaBar();}
+    return;
+  }
+  if(bytes[0]===0xF0&&bytes[1]===0x7D&&bytes[bytes.length-1]===0xF7) {
+    const type=bytes[2];
+    // Remote Script feedback (code 0x60 — see LiveRig.py FB_* constants)
+    if(type===0x60){ onRemoteScriptFeedback(bytes); return; }
+    if(type===0x01){
+      const bpm=parseFloat(bytes.slice(3,-1).map(b=>String.fromCharCode(b)).join(''));
+      if(!isNaN(bpm)){m4l.bpm=bpm;tempo=bpm;restartBeat();const d=document.getElementById('t-bpm-display');if(d)d.textContent=Math.round(bpm);}
+    } else if(type===0x02){
+      m4l.song=bytes.slice(3,-1).map(b=>String.fromCharCode(b)).join('');updateMetaBar();
+    } else if(type>=0x03&&type<=0x06){
+      m4l.tracks[type-0x03]=bytes.slice(3,-1).map(b=>String.fromCharCode(b)).join('');updateKbdTabs();
+    } else if(type===0x10){
+      const ti=bytes[3], name=bytes.slice(4,-1).map(b=>String.fromCharCode(b)).join('');
+      updateTrackName(ti,name);
+    } else if(type===0x20){
+      updateClipCell(bytes[3],bytes[4],bytes[5]);
+    }
+    return;
+  }
+}
+
+function updateMetaBar() {
+  const bar=document.getElementById('meta-bar'); if(!bar)return;
+  const tc=m4l.transport==='PLAYING'?'#28a048':m4l.transport==='REC'?'#e03030':'#6a6a80';
+  bar.style.color=tc;
+  bar.textContent=m4l.transport+(m4l.song?'  ·  '+m4l.song:'')+'  ·  BAR '+(m4l.bar+1)+'  ·  '+m4l.timesig+'/4';
+  const prev=transportState;
+  if(m4l.transport==='PLAYING') transportState='PLAYING';
+  else if(m4l.transport==='REC') transportState='RECORDING';
+  else transportState='STOPPED';
+  if(prev!==transportState){updateTransportButtons();updateBeatPulseColor();if(transportState==='STOPPED'){clearInterval(beatPulseTimer);beatPulseTimer=null;}else if(prev==='STOPPED'){restartBeat();}}
+  const tDisp=document.getElementById('t-bpm-display'); if(tDisp&&m4l.bpm!=='--') tDisp.textContent=typeof m4l.bpm==='number'?Math.round(m4l.bpm):m4l.bpm;
+  const tBar=document.getElementById('t-bar-display'); if(tBar) tBar.textContent=`${m4l.bar+1} · -`;
+}
+
+function updateKbdTabs() {
+  for(let k=0;k<KBD_COUNT;k++){if(m4l.tracks[k]){const tab=document.querySelector(`.tab[data-page="${kbdPageId(k)}"]`);if(tab)tab.textContent=m4l.tracks[k].substring(0,8);}}
+}
+
+// ═══════════════════════════════════════════
+//  BEAT PULSE
+// ═══════════════════════════════════════════
+let beatPulseTimer=null, currentBeat=0, transportState='STOPPED';
+
+function pulseBeat() {
+  const dot=document.getElementById('beat-pulse'); if(!dot)return;
+  dot.classList.add('flash'); setTimeout(()=>dot.classList.remove('flash'),80);
+  const timesig=m4l.timesig||4;
+  for(let i=0;i<4;i++){const b=document.getElementById(`tbeat${i}`);if(b)b.classList.toggle('on',i===currentBeat%timesig);}
+  currentBeat++;
+  const tBar=document.getElementById('t-bar-display');
+  if(tBar) tBar.textContent=`${m4l.bar+1} · ${(currentBeat%timesig)+1}`;
+}
+
+function updateBeatPulseColor() {
+  const dot=document.getElementById('beat-pulse'); if(!dot)return;
+  dot.classList.remove('playing','recording');
+  if(transportState==='PLAYING') dot.classList.add('playing');
+  else if(transportState==='RECORDING') dot.classList.add('recording');
+}
+
+// ═══════════════════════════════════════════
+//  MASTER PAGE
+// ═══════════════════════════════════════════
+function kbdMasterLabel(k) {
+  // Prefer the real Ableton track name fed back over SysEx (0x45); fall back
+  // to the rig_config.json keyboard label, then a generic placeholder.
+  if (m4l.kbdNames && m4l.kbdNames[k]) return m4l.kbdNames[k];
+  return RIG_CONFIG.keyboards[k]?.label || `K${k + 1}`;
+}
+
+function updateMasterKbdLabel(kbdIdx, name) {
+  const span = document.querySelector(`.master-ch[data-kbd-idx="${kbdIdx}"] .fader-label-vert span`);
+  if (span) span.textContent = name || kbdMasterLabel(kbdIdx);
+}
+
+function buildMaster() {
+  // 10 channels (KBD_COUNT + 6): K1-K4 + Click/Guide (ch5) + Rev1/Rev2/Dly1/Dly2 (ch7)
+  // KBD vol/mute/solo (CC7/CC1/CC2 on each kbd channel) and FX return
+  // vol/mute/solo (CC1-12 ch7) are handled by the Remote Script via
+  // build_midi_map — no CMD+M needed for any of those. (KBD volume, CC7,
+  // added 2026-07-01 -- previously silently depended on the user Cmd+M
+  // mapping it themselves, which is what broke when reported as "faders
+  // aren't controlling Ableton".)
+  // CLICK/GUIDE vol/mute/solo (CC20-21/24-25/28-29 ch5) still use Ableton's
+  // MIDI map -- no rig_config binding exists yet for these two aux tracks.
+  // LOOPS removed 2026-07-01 (David: no longer needed) -- ch5 CC22/26/30
+  // are simply unused now; harmless to leave any old Cmd+M mapping in place.
+  // STEMS nav button saved for future use:
+  //   {label:'STEMS', colorCls:'aux-stems', nav:'11'},
+  // KBD columns are config-driven so the row scales past 4 keyboards --
+  // each gets kbdColor(k)'s hex applied via --kbd-c/--kbd-c-dim below.
+  const KBD_CHANNELS = Array.from({length: KBD_COUNT}, (_, k) => ({
+    label: kbdMasterLabel(k), kbdIdx: k, fillCls: 'fill-kbd-dyn', colorCls: 'kbd-dyn',
+    kbdColorHex: kbdColor(k), ch: kbdChannel(k), cc: 7, muteCc: 1, soloCc: 2,
+    fbCat: 'kbd', fbIdx: k,
+  }));
+  const CHANNELS = [
+    ...KBD_CHANNELS,
+    {label:'CLICK',           fillCls:'fill-aux-click',           colorCls:'aux-click', ch:5, cc:20, muteCc:24, soloCc:28, fbCat:'aux', fbIdx:0},
+    {label:'GUIDE',           fillCls:'fill-aux-guide',           colorCls:'aux-guide', ch:5, cc:21, muteCc:25, soloCc:29, fbCat:'aux', fbIdx:1},
+    // LOOPS fader removed from Master (2026-07-01, David: "no longer needed").
+    {label:'REV 1',           fillCls:'fill-fx-rv',               colorCls:'fx-rv',     ch:7, cc:1,  muteCc:5,  soloCc:9,  fbCat:'return', fbIdx:0},
+    {label:'REV 2',           fillCls:'fill-fx-rv',               colorCls:'fx-rv',     ch:7, cc:2,  muteCc:6,  soloCc:10, fbCat:'return', fbIdx:1},
+    {label:'DLY 1',           fillCls:'fill-fx-dly',              colorCls:'fx-dly',    ch:7, cc:3,  muteCc:7,  soloCc:11, fbCat:'return', fbIdx:2},
+    {label:'DLY 2',           fillCls:'fill-fx-dly',              colorCls:'fx-dly',    ch:7, cc:4,  muteCc:8,  soloCc:12, fbCat:'return', fbIdx:3},
+  ];
+  const host = document.getElementById('master-faders-row');
+  // Set grid dynamically from channel count
+  host.style.gridTemplateColumns = `repeat(${CHANNELS.length},1fr)`;
+  host.innerHTML = '';
+  CHANNELS.forEach(c => {
+    const col = document.createElement('div');
+    col.className = `master-ch ${c.colorCls}`;
+    if (c.kbdIdx !== undefined) col.dataset.kbdIdx = c.kbdIdx;
+    if (c.kbdColorHex) {
+      col.style.setProperty('--kbd-c', c.kbdColorHex);
+      col.style.setProperty('--kbd-c-dim', hexAlpha(c.kbdColorHex, 0.13));
+    }
+
+    if (c.nav) {
+      // Shortcut column (e.g. STEMS) — taps jump to a dedicated tab instead
+      // of acting as a fader, since 8 named stem channels don't fit this row.
+      col.classList.add('master-ch-nav');
+      const lbl = document.createElement('div'); lbl.className = 'master-ch-nav-label'; lbl.textContent = c.label;
+      const hint = document.createElement('div'); hint.className = 'master-ch-nav-hint'; hint.textContent = '8 CH ▸';
+      col.append(lbl, hint);
+      col.addEventListener('pointerdown', e => { e.preventDefault(); switchToPage(c.nav); });
+      host.appendChild(col);
+      return;
+    }
+
+    // Mute/Solo row (above fader)
+    const ms = document.createElement('div'); ms.className = 'mute-solo';
+    const mBtn = document.createElement('div');
+    mBtn.className = 'ms-btn'; mBtn.textContent = 'M'; mBtn.dataset.state = '0';
+    mBtn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const on = mBtn.dataset.state === '0';
+      mBtn.dataset.state = on ? '1' : '0';
+      mBtn.classList.toggle('active-m', on);
+      sendCC(c.ch, c.muteCc, on ? 127 : 0);
+    });
+    const sBtn = document.createElement('div');
+    sBtn.className = 'ms-btn'; sBtn.textContent = 'S'; sBtn.dataset.state = '0';
+    sBtn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const on = sBtn.dataset.state === '0';
+      sBtn.dataset.state = on ? '1' : '0';
+      sBtn.classList.toggle('active-s', on);
+      sendCC(c.ch, c.soloCc, on ? 127 : 0);
+    });
+    ms.append(mBtn, sBtn);
+
+    // Fader track with vertical label overlay
+    const track = document.createElement('div'); track.className = 'fader-track-vert';
+    track.id = `master-fdr-track-${c.fbCat}-${c.fbIdx}`;
+    const fill = document.createElement('div'); fill.className = `fader-fill-vert ${c.fillCls}`; fill.style.height = '75%';
+    fill.id = `master-fdr-fill-${c.fbCat}-${c.fbIdx}`;
+    const lblWrap = document.createElement('div'); lblWrap.className = 'fader-label-vert';
+    const lblSpan = document.createElement('span'); lblSpan.textContent = c.label;
+    lblWrap.appendChild(lblSpan);
+    track.append(fill, lblWrap);
+
+    // MIDI value display below fader
+    const val = document.createElement('div'); val.className = 'fader-val-vert'; val.textContent = '96';
+    val.id = `master-fdr-val-${c.fbCat}-${c.fbIdx}`;
+
+    fdrTouch(track, fill, val, pct => sendCC(c.ch, c.cc, Math.round(pct * 127)));
+
+    col.append(ms, track, val);
+    // Binding-status badge -- kbd/aux are name-bound (rig_config.json), so
+    // they're the two Master categories that can be unbound/ambiguous.
+    // FX returns (fbCat 'return') are fixed tracks, never name-bound.
+    if (c.fbCat === 'kbd' || c.fbCat === 'aux') {
+      const warn = document.createElement('div');
+      warn.className = 'bind-warn-badge';
+      warn.id = `master-bind-warn-${c.fbCat}-${c.fbIdx}`;
+      col.appendChild(warn);
+    }
+    host.appendChild(col);
+  });
+}
+
+// ═══════════════════════════════════════════
+//  RIG CONFIG — loaded from rig_config.json, served by the same
+//  http.server that serves this page (started by liverig-app/liverig_app.py,
+//  port 8080). Falls back to the original hardcoded 4-keyboard/8-patch
+//  layout if the file is missing or malformed, so absence of the file
+//  changes nothing.
+//
+//  NOTE: the markup below still has exactly 4 fixed KBD page slots
+//  (page-4..page-7) and a 4-tab bar. KBD_COUNT here drives per-keyboard
+//  button/fader/capture counts; supporting a keyboard COUNT other than 4
+//  needs new page-N divs + tabs added to the markup — a separate follow-up.
+// ═══════════════════════════════════════════
+const RIG_CONFIG_DEFAULT = {
+  keyboards: [
+    {id:'kbd1',label:'KBD 1',bankSize:8,buttonCount:16,faderCount:8},
+    {id:'kbd2',label:'KBD 2',bankSize:8,buttonCount:16,faderCount:8},
+    {id:'kbd3',label:'KBD 3',bankSize:8,buttonCount:16,faderCount:8},
+    {id:'kbd4',label:'KBD 4',bankSize:8,buttonCount:16,faderCount:8},
+  ],
+  patches: { maxPatches: 8, captureScope: ['kbd1','kbd2','kbd3','kbd4'] }
+};
+let RIG_CONFIG = RIG_CONFIG_DEFAULT;
+try {
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', 'rig_config.json', false); // sync — tiny same-machine file, runs once at load
+  xhr.send(null);
+  if (xhr.status === 200 && xhr.responseText) {
+    const parsed = JSON.parse(xhr.responseText);
+    if (parsed && Array.isArray(parsed.keyboards) && parsed.keyboards.length) RIG_CONFIG = parsed;
+  }
+} catch(e) { /* keep default — page must never fail to load over this */ }
+
+// ═══════════════════════════════════════════
+//  STEMS PAGE (dedicated tab — config-driven channel count, 10 as of
+//  2026-06-29)
+// ═══════════════════════════════════════════
+// Own CC scheme on channel 6 (non-overlapping with KBD1-4 ch1-4, Master
+// aux row ch5, and global transport/loop controls on ch16). Ranges are
+// calculated dynamically from STEM_COUNT so they never collide regardless
+// of how many stems are configured:
+//   faders : CC 1        … N       (si + 1)
+//   mutes  : CC N+1      … 2N      (N + si + 1)
+//   solos  : CC 2N+1     … 3N      (2N + si + 1)
+// This supports up to ~42 stems before exceeding CC127.
+const STEM_COUNT = (RIG_CONFIG.stems || []).length || 8;
+const STEM_DEFAULT_COLOR = '#3dbf9b';
+
+function stemLabel(si) {
+  // Prefer the real Ableton track name fed back over SysEx (0x47); fall
+  // back to the rig_config.json stem label, then a generic placeholder.
+  if (m4l.stemNames && m4l.stemNames[si]) return m4l.stemNames[si];
+  return RIG_CONFIG.stems?.[si]?.label || `Stem ${si + 1}`;
+}
+
+function stemColor(si) {
+  return (m4l.stemColors && m4l.stemColors[si]) || STEM_DEFAULT_COLOR;
+}
+
+function updateStemLabel(si, name) {
+  const span = document.querySelector(`.stem-ch[data-stem-idx="${si}"] .fader-label-vert span`);
+  if (span) span.textContent = name || stemLabel(si);
+}
+
+function updateStemColor(si, hex) {
+  const col = document.querySelector(`.stem-ch[data-stem-idx="${si}"]`);
+  if (!col) return;
+  const fill = col.querySelector('.fader-fill-vert');
+  if (fill) fill.style.background = hex;
+}
+
+function buildStems() {
+  const host = document.getElementById('stems-faders-row');
+  host.innerHTML = '';
+  // Single row, same as the Master page (repeat(N,1fr)) -- previously this
+  // switched to a 2-row layout above 8 stems, which halved each fader's
+  // height vs. Master's and made them look visually inconsistent/squat.
+  // David's real rig runs 10 stems, so this was always in effect.
+  host.style.gridTemplateColumns = `repeat(${STEM_COUNT},1fr)`;
+  host.style.gridTemplateRows = '1fr';
+  for (let si = 0; si < STEM_COUNT; si++) {
+    // CC ranges are calculated from STEM_COUNT so they never collide:
+    // faders CC1..N, mutes CC(N+1)..2N, solos CC(2N+1)..3N -- all three
+    // now handled directly by the Remote Script (volume added 2026-07-01,
+    // same fix as KBD above), no Cmd+M mapping needed.
+    const ch = 6, cc = si + 1, muteCc = STEM_COUNT + si + 1, soloCc = 2 * STEM_COUNT + si + 1;
+    const col = document.createElement('div');
+    col.className = 'master-ch stem-ch';
+    col.dataset.stemIdx = si;
+
+    const ms = document.createElement('div'); ms.className = 'mute-solo';
+    const mBtn = document.createElement('div');
+    mBtn.className = 'ms-btn'; mBtn.textContent = 'M'; mBtn.dataset.state = '0';
+    mBtn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const on = mBtn.dataset.state === '0';
+      mBtn.dataset.state = on ? '1' : '0';
+      mBtn.classList.toggle('active-m', on);
+      sendCC(ch, muteCc, on ? 127 : 0);
+    });
+    const sBtn = document.createElement('div');
+    sBtn.className = 'ms-btn'; sBtn.textContent = 'S'; sBtn.dataset.state = '0';
+    sBtn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const on = sBtn.dataset.state === '0';
+      sBtn.dataset.state = on ? '1' : '0';
+      sBtn.classList.toggle('active-s', on);
+      sendCC(ch, soloCc, on ? 127 : 0);
+    });
+    ms.append(mBtn, sBtn);
+
+    const track = document.createElement('div'); track.className = 'fader-track-vert';
+    track.id = `stem-fdr-track-${si}`;
+    const fill = document.createElement('div'); fill.className = 'fader-fill-vert'; fill.style.height = '75%'; fill.style.background = stemColor(si);
+    fill.id = `stem-fdr-fill-${si}`;
+    const lblWrap = document.createElement('div'); lblWrap.className = 'fader-label-vert';
+    const lblSpan = document.createElement('span'); lblSpan.textContent = stemLabel(si);
+    lblWrap.appendChild(lblSpan);
+    track.append(fill, lblWrap);
+
+    const val = document.createElement('div'); val.className = 'fader-val-vert'; val.textContent = '96';
+    val.id = `stem-fdr-val-${si}`;
+
+    fdrTouch(track, fill, val, pct => sendCC(ch, cc, Math.round(pct * 127)));
+
+    const warn = document.createElement('div');
+    warn.className = 'bind-warn-badge';
+    warn.id = `stem-bind-warn-${si}`;
+
+    col.append(ms, track, val, warn);
+    host.appendChild(col);
+  }
+}
+
+function fdrTouch(track, fill, valEl, cb) {
+  let lastVal = -1;
+  function update(e) {
+    e.preventDefault(); e.stopPropagation();
+    const r = track.getBoundingClientRect();
+    const clientY = (e.touches ? e.touches[0].clientY : e.clientY);
+    const pct = Math.max(0, Math.min(1, 1 - (clientY - r.top) / r.height));
+    const midiVal = Math.round(pct * 127);
+    fill.style.height = (pct * 100) + '%';
+    if(valEl) valEl.textContent = midiVal;
+    if(midiVal !== lastVal) { lastVal = midiVal; cb(pct); }
+  }
+  track.addEventListener('pointerdown', e => { track.setPointerCapture(e.pointerId); track.dataset.touching='1'; update(e); }, {passive:false});
+  track.addEventListener('pointermove', e => { if(e.buttons) update(e); }, {passive:false});
+  track.addEventListener('pointerup',     e => { update(e); track.dataset.touching='0'; }, {passive:false});
+  track.addEventListener('pointercancel', e => { track.dataset.touching='0'; }, {passive:false});
+}
+
+// ═══════════════════════════════════════════
+//  LOOPER PAGE
+// ═══════════════════════════════════════════
+let tempo=120, beatTimer=null, beatIdx=0, lastTap=0, tapTimesLooper=[];
+const LOOP_COLORS=['#6c5fd4','#1a9e6e','#d4551e','#c07818'];
+let loopState=['idle','idle','idle','idle'];
+let loopProgress=[0,0,0,0];
+// Real Looper device Quantization value_items, in their actual enum order
+// (confirmed via diagnostic param dump -- index sent here must match this
+// order exactly since it's written straight into the device's param).
+const LOOP_QUANT_ITEMS=['Global','None','8 Bars','4 Bars','2 Bars','1 Bar','1/2','1/2T','1/4','1/4T','1/8','1/8T','1/16','1/16T','1/32'];
+// Only whole-bar settings give us a known loop duration to animate against --
+// Ableton doesn't expose an actual playhead/position for the Looper, so
+// progress for anything else (Global/None/sub-bar) can't be calculated and
+// is left static.
+const LOOP_QUANT_BEATS={'8 Bars':32,'4 Bars':16,'2 Bars':8,'1 Bar':4};
+let loopQuantIdx=[0,0,0,0];
+let loopRecStart=[0,0,0,0];
+
+function buildLooper() {
+  const rows=document.getElementById('loop-rows');
+  for(let k=0;k<4;k++){
+    const row=document.createElement('div'); row.className='loop-row'; row.id=`loop-row-${k}`;
+    const name=document.createElement('div'); name.className='loop-name'; name.style.color=LOOP_COLORS[k];
+    const nameLabel=document.createElement('span'); nameLabel.textContent=`Loop ${k+1}`;
+    const warn=document.createElement('span'); warn.className='bind-warn-badge'; warn.id=`loop-bind-warn-${k}`;
+    name.append(nameLabel, warn);
+    const quantSel=document.createElement('select'); quantSel.className='loop-quant'; quantSel.id=`loop-quant-${k}`;
+    LOOP_QUANT_ITEMS.forEach((label,i)=>{ const opt=document.createElement('option'); opt.value=i; opt.textContent=label; quantSel.appendChild(opt); });
+    quantSel.value=loopQuantIdx[k];
+    quantSel.addEventListener('change',()=>{ setLoopQuant(k,parseInt(quantSel.value,10)); });
+    const barWrap=document.createElement('div'); barWrap.className='loop-bar-wrap';
+    const bar=document.createElement('div'); bar.className='loop-bar'; bar.id=`loop-bar-${k}`; bar.style.background=LOOP_COLORS[k];
+    barWrap.appendChild(bar);
+    const state=document.createElement('div'); state.className='loop-state'; state.id=`loop-state-${k}`; state.style.color=LOOP_COLORS[k]; state.textContent='IDLE';
+    const recBtn=document.createElement('div'); recBtn.className='loop-btn rec-btn'; recBtn.textContent='REC';
+    recBtn.addEventListener('touchstart',e=>{e.preventDefault();loopRec(k);},{passive:false});
+    const playBtn=document.createElement('div'); playBtn.className='loop-btn play-btn'; playBtn.textContent='PLAY';
+    playBtn.addEventListener('touchstart',e=>{e.preventDefault();loopPlay(k);},{passive:false});
+    const stopBtn=document.createElement('div'); stopBtn.className='loop-btn stop-btn'; stopBtn.textContent='STOP';
+    stopBtn.addEventListener('touchstart',e=>{e.preventDefault();loopStop(k);},{passive:false});
+    const undoBtn=document.createElement('div'); undoBtn.className='loop-btn undo-btn'; undoBtn.textContent='UNDO';
+    undoBtn.addEventListener('touchstart',e=>{e.preventDefault();loopUndo(k);},{passive:false});
+    row.append(name,quantSel,barWrap,state,recBtn,playBtn,stopBtn,undoBtn); rows.appendChild(row);
+  }
+  startLoopProgressTimer();
+  const tempoFader=document.getElementById('tempo-fader-track');
+  const tempoFill=document.getElementById('tempo-fill');
+  const tempoDisp=document.getElementById('tempo-disp');
+  if(tempoFader&&tempoFill&&tempoDisp){
+    fdrTouch(tempoFader,tempoFill,{textContent:''},pct=>{
+      tempo=Math.round(40+pct*200); tempoDisp.textContent=tempo;
+      sendCC(16,14,Math.round(pct*127)); restartBeat();
+    });
+  }
+  document.getElementById('looper-tap-btn').addEventListener('pointerdown',e=>{e.preventDefault();tapTempoLooper();});
+  restartBeat();
+}
+
+function restartBeat() {
+  clearInterval(beatTimer);
+  const ms=Math.round(60000/tempo);
+  beatTimer=setInterval(()=>{
+    document.querySelectorAll('.beat').forEach(b=>b.classList.remove('lit'));
+    const b=document.getElementById('beat'+beatIdx); if(b) b.classList.add('lit');
+    beatIdx=(beatIdx+1)%4;
+  },ms);
+  clearInterval(beatPulseTimer); currentBeat=0;
+  if(transportState!=='STOPPED'&&tempo>0) beatPulseTimer=setInterval(pulseBeat,ms);
+  updateBeatPulseColor();
+}
+
+function tapTempoLooper() {
+  const now=Date.now();
+  // Always send the tap to Ableton — even if we don't have enough samples yet
+  sendCC(16,89,127);
+  if(typeof sendTransportNative==='function') sendTransportNative('tap');
+  if(lastTap&&now-lastTap<3000){
+    tapTimesLooper.push(now-lastTap);
+    if(tapTimesLooper.length>4) tapTimesLooper.shift();
+    const avg=tapTimesLooper.reduce((a,b)=>a+b)/tapTimesLooper.length;
+    tempo=Math.max(20,Math.min(300,Math.round(60000/avg*100)/100));
+    document.getElementById('tempo-disp').textContent=tempo%1===0?tempo:tempo.toFixed(2);
+    restartBeat();
+  } else { tapTimesLooper=[]; }
+  lastTap=now;
+  const btn=document.getElementById('looper-tap-btn');
+  if(btn){btn.style.background='#fff3';setTimeout(()=>btn.style.background='',120);}
+}
+
+function nudgeTempo(d){tempo=Math.max(20,Math.min(300,tempo+d));document.getElementById('tempo-disp').textContent=tempo;sendCC(16,d>0?90:91,127);restartBeat();}
+
+// Loop1-4 control — native Looper-device control via the bridge's JSON
+// WebSocket "native action" pattern (same mechanism as sendTransportNative),
+// NOT plain MIDI CC. Ableton's native Looper device exposes one combined
+// State enum (Stop/Record/Play), which doesn't map cleanly to discrete
+// momentary CC button presses via Cmd+M — the script instead sets the
+// State parameter directly via the Live Object Model. Local UI updates
+// here are optimistic and get corrected by the loop-state feedback
+// handler (fb 0x48 -> updateLooperState) once Ableton confirms the real
+// device state.
+function sendLoopNative(action,k){
+  if (typeof wsConnected !== 'undefined' && wsConnected && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:'loop_'+action, index:k}));
+  }
+}
+function loopRec(k){loopState[k]='rec';const el=document.getElementById(`loop-state-${k}`);if(el)el.textContent='REC';sendLoopNative('rec',k);}
+function loopPlay(k){loopState[k]='play';const el=document.getElementById(`loop-state-${k}`);if(el)el.textContent='PLAY';sendLoopNative('play',k);}
+function loopStop(k){loopState[k]='idle';const el=document.getElementById(`loop-state-${k}`);if(el)el.textContent='IDLE';const bar=document.getElementById(`loop-bar-${k}`);if(bar)bar.style.width='0%';sendLoopNative('stop',k);}
+function loopUndo(k){sendLoopNative('undo',k);}
+
+// Looper Quantization control -- the real device "Quantization" param
+// (same control as the dropdown on the device's own UI), which is the
+// closest thing the Live API exposes to a bar-length selector. Sent via
+// the same JSON WebSocket native-action channel as sendLoopNative.
+function setLoopQuant(k,idx){
+  loopQuantIdx[k]=idx;
+  if (typeof wsConnected !== 'undefined' && wsConnected && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:'loop_quant', index:k, value:idx}));
+  }
+}
+// Corrects/syncs the dropdown with the real device Quantization value,
+// fed back from LiveRig.py via SysEx fb 0x49 (loop_idx, quant_idx).
+function updateLooperQuant(k,idx){
+  loopQuantIdx[k]=idx;
+  const sel=document.getElementById(`loop-quant-${k}`);
+  if(sel) sel.value=idx;
+}
+
+// Corrects the optimistic UI above with the real Ableton Looper device
+// state, fed back from LiveRig.py via SysEx fb 0x48 (loop_idx, state).
+// state: 0=stop, 1=record, 2=play (matches the FB_TRANSPORT convention).
+function updateLooperState(k,state){
+  const stateNames=['idle','rec','play'];
+  const stateLabels=['IDLE','REC','PLAY'];
+  const prevState=loopState[k];
+  loopState[k]=stateNames[state]||'idle';
+  const el=document.getElementById(`loop-state-${k}`);
+  if(el) el.textContent=stateLabels[state]||'IDLE';
+  if(state===1){
+    // Fresh transition into rec (confirmed by Ableton, not just our
+    // optimistic press) -- anchor the progress-bar phase calculation here.
+    if(prevState!=='rec') loopRecStart[k]=Date.now();
+  } else if(state===0){
+    loopRecStart[k]=0;
+    const bar=document.getElementById(`loop-bar-${k}`);
+    if(bar) bar.style.width='0%';
+  }
+}
+
+// Estimated loop progress animation. Ableton's Looper device does not
+// expose a playhead/position or its "Record N bars" auto-stop length via
+// the Live API at all (confirmed via diagnostic param dump + Ableton
+// forum research) -- so this is a best-effort visual computed client-side
+// from BPM and the selected whole-bar Quantization setting, anchored to
+// the feedback-confirmed rec-start timestamp. It is NOT a true readout;
+// for Global/None/sub-bar Quantization settings the loop length can't be
+// determined, so the bar is left static in those cases.
+let loopProgressTimerStarted=false;
+function startLoopProgressTimer(){
+  if(loopProgressTimerStarted) return;
+  loopProgressTimerStarted=true;
+  setInterval(()=>{
+    for(let k=0;k<4;k++){
+      if(loopState[k]!=='rec' && loopState[k]!=='play') continue;
+      if(!loopRecStart[k]) continue;
+      const quantLabel=LOOP_QUANT_ITEMS[loopQuantIdx[k]];
+      const beats=LOOP_QUANT_BEATS[quantLabel];
+      if(!beats) continue; // unknowable length, leave bar static
+      const secPerBeat=60/tempo;
+      const durationSec=beats*secPerBeat;
+      const elapsedSec=(Date.now()-loopRecStart[k])/1000;
+      const pct=Math.min(100,((elapsedSec%durationSec)/durationSec)*100);
+      const bar=document.getElementById(`loop-bar-${k}`);
+      if(bar) bar.style.width=pct+'%';
+    }
+  },50);
+}
+
+// ═══════════════════════════════════════════
+//  PADS PAGE
+// ═══════════════════════════════════════════
+const PAD_NAMES=['C2','D2','E2','F2','G2','A2','B2','C3','D3','E3','F3','G3','A3','B3','C4','D4'];
+try{const s=localStorage.getItem('padNames');if(s)Object.assign(PAD_NAMES,JSON.parse(s));}catch(e){}
+const FX_NAMES=['Reverb','Delay','Chorus','Distort'];
+
+function buildPads() {
+  const grid=document.getElementById('pad-grid');
+  for(let i=0;i<16;i++){
+    const el=document.createElement('div'); el.className='pad amber-on'; el.dataset.idx=i;
+    const sp=document.createElement('span'); sp.textContent=PAD_NAMES[i]; el.appendChild(sp);
+    let pressTimer=null;
+    let fired=false;
+    el.addEventListener('pointerdown',e=>{
+      e.preventDefault();
+      // FIRE IMMEDIATELY on press (visual + MIDI)
+      el.classList.add('hit');
+      sendNote(10,36+i,127);
+      fired=true;
+      // Long-press still triggers rename (note already played briefly)
+      pressTimer=setTimeout(()=>{
+        pressTimer=null;
+        const name=prompt(`Rename pad ${i+1}:`,PAD_NAMES[i]);
+        if(name!==null&&name.trim()!==''){
+          PAD_NAMES[i]=name.trim(); sp.textContent=PAD_NAMES[i];
+          localStorage.setItem('padNames',JSON.stringify(PAD_NAMES));
+        }
+      },650);
+    });
+    const release = () => {
+      if(pressTimer!==null){clearTimeout(pressTimer);pressTimer=null;}
+      if(fired){ el.classList.remove('hit'); fired=false; }
+    };
+    el.addEventListener('pointerup',release);
+    el.addEventListener('pointerleave',release);
+    el.addEventListener('pointercancel',release);
+    grid.appendChild(el);
+  }
+  const fx=document.getElementById('fx-btns');
+  FX_NAMES.forEach((name,i)=>{
+    const el=document.createElement('div'); el.className='tog amber-on'; el.style.flex='1'; el.style.padding='12px 4px'; el.dataset.state='0';
+    el.innerHTML=`<span style="font-size:18px;font-weight:600">${name}</span><span class="cc-lbl">CC${70+i}</span>`;
+    el.addEventListener('pointerdown',e=>{
+      e.preventDefault(); const on=el.dataset.state==='0'; el.dataset.state=on?'1':'0';
+      el.classList.toggle('on',on); sendCC(1,70+i,on?127:0);
+    });
+    fx.appendChild(el);
+  });
+}
+
+const KBD_COUNT     = RIG_CONFIG.keyboards.length;
+const BANK_SIZES    = RIG_CONFIG.keyboards.map(k => k.bankSize ?? 8);
+const BUTTON_COUNTS = RIG_CONFIG.keyboards.map(k => k.buttonCount ?? 16);
+const FADER_COUNTS  = RIG_CONFIG.keyboards.map(k => k.faderCount ?? 8);
+const MAX_PATCHES   = (RIG_CONFIG.patches && RIG_CONFIG.patches.maxPatches) || 8;
+
+// ── Dynamic keyboard count support (>4 keyboards, 2026-06-30) ───────────────
+// The markup originally had exactly 4 fixed KBD page/tab slots (page-4..
+// page-7) tied 1:1 to MIDI ch1-4. KBD_COUNT can now exceed 4: keyboards
+// beyond the static first 4 get a dynamically-created page+tab (see
+// ensureDynamicKbdTabsAndPages, called once during init below) and an
+// auto-assigned MIDI channel that skips channels already claimed elsewhere
+// (CH5 aux, CH6 stems, CH7 FX returns, CH10 pads, CH16 transport) -- unless
+// rig_config.json specifies an explicit "midiChannel" per keyboard.
+const RESERVED_KBD_CHANNELS = [5, 6, 7, 10, 15, 16]; // 15 = Blue Hand (see BLUE_HAND_CHANNEL below)
+const KBD_COLOR_BASE = ['#6c5fd4', '#1a9e6e', '#d4551e', '#d423a6']; // KBD1-4, unchanged
+
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const toHex = x => Math.round(255 * x).toString(16).padStart(2, '0');
+  return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
+}
+function hexAlpha(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+function kbdDefaultChannel(k) {
+  let count = 0;
+  for (let ch = 1; ch <= 16; ch++) {
+    if (RESERVED_KBD_CHANNELS.includes(ch)) continue;
+    if (count === k) return ch;
+    count++;
+  }
+  return k + 1; // unreachable with <=11 keyboards given today's reserved set
+}
+function kbdChannel(k) {
+  const configured = RIG_CONFIG.keyboards[k] && RIG_CONFIG.keyboards[k].midiChannel;
+  return (typeof configured === 'number' && configured >= 1 && configured <= 16) ? configured : kbdDefaultChannel(k);
+}
+function kbdColor(k) {
+  if (k < KBD_COLOR_BASE.length) return KBD_COLOR_BASE[k];
+  return hslToHex((40 + (k - KBD_COLOR_BASE.length) * 55) % 360, 65, 55);
+}
+function kbdLabel(k) {
+  return (RIG_CONFIG.keyboards[k] && RIG_CONFIG.keyboards[k].label) || `KBD ${k + 1}`;
+}
+// KBD1-4 keep their original static page-4..page-7 / data-page="4..7" markup;
+// anything beyond that gets a dynamically-created page+tab with this id.
+function kbdPageId(k) { return k < 4 ? String(4 + k) : ('kbd' + k); }
+
+// Creates tab + page DOM for any keyboard beyond the static first 4. Called
+// once during init, before applyTabOrder()/attachTabHandlers() so the new
+// tabs participate in drag-reorder and tap handling like any other tab.
+function ensureDynamicKbdTabsAndPages() {
+  let anchor = document.querySelector('.tab[data-page="7"]');
+  const pagesHost = document.getElementById('pages');
+  for (let k = 4; k < KBD_COUNT; k++) {
+    const pid = kbdPageId(k);
+    if (!document.getElementById(`page-${pid}`)) {
+      const pg = document.createElement('div');
+      pg.id = `page-${pid}`; pg.className = 'page';
+      pagesHost.appendChild(pg);
+    }
+    let tab = document.querySelector(`.tab[data-page="${pid}"]`);
+    if (!tab) {
+      tab = document.createElement('div');
+      tab.className = 'tab'; tab.dataset.page = pid;
+      tab.textContent = kbdLabel(k);
+      tab.style.setProperty('--tab-accent', kbdColor(k));
+      if (anchor && anchor.parentNode) anchor.insertAdjacentElement('afterend', tab);
+      else document.getElementById('tabbar').appendChild(tab);
+    }
+    anchor = tab;
+  }
+}
+
+// ═══════════════════════════════════════════
+//  BLUE HAND MODE (2026-06-30) — global toggle. While on, whichever KBD
+//  page is currently visible stops reflecting its fixed defaultTrackBinding
+//  and instead directly drives whatever track is selected in Ableton right
+//  now (its first device's first 8 params, CC10-17 on a dedicated channel
+//  handled entirely by LiveRig.py -- see BLUE_HAND_CHANNEL_0IDX there).
+//  Switching KBD tabs while active re-targets to the new tab; navigating to
+//  a non-KBD page pauses it (Python reverts that slot to normal feedback).
+// ═══════════════════════════════════════════
+let blueHandActive = false;
+let blueHandBoundKbdIdx = null;
+
+function sendBlueHand(msgType, kbdIdx) {
+  if (wsConnected && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({type: msgType, index: kbdIdx}));
+  }
+}
+
+// Returns the KBD index (0..KBD_COUNT-1) for the currently active page, or
+// null if the active page isn't a KBD page at all.
+function currentActiveKbdIndex() {
+  const activePage = document.querySelector('#pages .page.active');
+  if (!activePage) return null;
+  const pid = activePage.id.replace('page-', '');
+  for (let k = 0; k < KBD_COUNT; k++) if (kbdPageId(k) === pid) return k;
+  return null;
+}
+
+// Called after every page switch (see switchToPage) and on toggle. Keeps
+// Python's Blue Hand binding in sync with whatever KBD page (if any) is
+// actually on screen right now.
+function syncBlueHandToActivePage() {
+  if (!blueHandActive) return;
+  const k = currentActiveKbdIndex();
+  if (k === null) {
+    if (blueHandBoundKbdIdx !== null) {
+      const prev = blueHandBoundKbdIdx;
+      sendBlueHand('blue_hand_off', prev);
+      blueHandBoundKbdIdx = null;
+      if (typeof updateKbdDeviceHeader === 'function') updateKbdDeviceHeader(prev);
+    }
+    return;
+  }
+  if (k !== blueHandBoundKbdIdx) {
+    const prev = blueHandBoundKbdIdx;
+    blueHandBoundKbdIdx = k;
+    sendBlueHand('blue_hand_on', k);
+    if (prev !== null && typeof updateKbdDeviceHeader === 'function') updateKbdDeviceHeader(prev);
+    // Note: the new page's header shows "BLUE HAND -> ..." once LiveRig.py's
+    // FB_KBD_DEVICE feedback arrives (round-trip); no local placeholder text
+    // here since we don't yet know what device it'll be until Python resolves
+    // the selected track.
+  }
+}
+
+function toggleBlueHand() {
+  blueHandActive = !blueHandActive;
+  const btn = document.getElementById('blue-hand-btn');
+  if (btn) btn.classList.toggle('active', blueHandActive);
+  if (blueHandActive) {
+    syncBlueHandToActivePage();
+  } else if (blueHandBoundKbdIdx !== null) {
+    const prev = blueHandBoundKbdIdx;
+    sendBlueHand('blue_hand_off', prev);
+    blueHandBoundKbdIdx = null;
+    if (typeof updateKbdDeviceHeader === 'function') updateKbdDeviceHeader(prev);
+  }
+}
+
+// ═══════════════════════════════════════════
+//  PATCHES PAGE — with snapshot capture and rename modes
+// ═══════════════════════════════════════════
+let activeSong = -1;
+const SONG_COLORS = ['#6c5fd4','#1a9e6e','#d4551e','#d423a6','#3ab8ff','#e040fb','#ff6b6b','#00d4aa'];
+const SONG_NAMES = Array.from({length: MAX_PATCHES}, (_, i) => `Song ${i+1}`);
+try{const s=localStorage.getItem('songNames');if(s)Object.assign(SONG_NAMES,JSON.parse(s));}catch(e){}
+
+// Snapshot data: PATCH_SNAPSHOTS[songIdx] = { kbds: { 0:{buttons:[...],faders:[...]}, ... } }
+// KBD indices missing from `kbds` are NOT restored on song tap.
+let PATCH_SNAPSHOTS = Array.from({length: MAX_PATCHES}, () => ({}));
+try{
+  const s=localStorage.getItem('patchSnapshots');
+  if(s){const parsed=JSON.parse(s); if(Array.isArray(parsed)) PATCH_SNAPSHOTS=parsed;}
+}catch(e){}
+function savePatchSnapshots(){
+  try{ localStorage.setItem('patchSnapshots', JSON.stringify(PATCH_SNAPSHOTS)); }catch(e){}
+}
+
+// Mode state for the patches page. Only one mode active at a time.
+let patchesMode = null;  // null | 'capture' | 'rename'
+let captureKbds = Array(KBD_COUNT).fill(true);  // which KBD pages to capture, from dialog
+
+function setPatchesMode(mode) {
+  patchesMode = mode;
+  document.body.classList.toggle('patches-capture-mode', mode === 'capture');
+  document.body.classList.toggle('patches-rename-mode',  mode === 'rename');
+  const capBtn = document.getElementById('patches-capture-btn');
+  const rnmBtn = document.getElementById('patches-rename-btn');
+  if (capBtn) capBtn.classList.toggle('armed-cap', mode === 'capture');
+  if (rnmBtn) rnmBtn.classList.toggle('armed-rnm', mode === 'rename');
+}
+
+function readKbdState(kbdIdx) {
+  // Read buttons (B1-Bn = CC20+) and faders (CC10+) for KBD page kbdIdx (0-based).
+  const buttonCount = BUTTON_COUNTS[kbdIdx] ?? 16;
+  const faderCount = FADER_COUNTS[kbdIdx] ?? 8;
+  const buttons = [];
+  for (let b = 0; b < buttonCount; b++) {
+    const el = document.querySelector(`#kbtns${kbdIdx} .tog:nth-child(${b+1})`);
+    buttons.push(el ? el.dataset.state === '1' : false);
+  }
+  const faders = [];
+  for (let f = 0; f < faderCount; f++) {
+    const valEl = document.getElementById(`kfdr-val-${kbdIdx}-${f}`);
+    const v = valEl ? parseInt(valEl.textContent, 10) : 96;
+    faders.push(isFinite(v) ? Math.max(0, Math.min(127, v)) : 96);
+  }
+  return { buttons, faders };
+}
+
+function applyKbdState(kbdIdx, state) {
+  if (!state) return;
+  const ch = kbdIdx + 1;
+  const buttonCount = BUTTON_COUNTS[kbdIdx] ?? 16;
+  const faderCount = FADER_COUNTS[kbdIdx] ?? 8;
+  // Buttons — set state and send CC immediately
+  if (Array.isArray(state.buttons)) {
+    for (let b = 0; b < buttonCount && b < state.buttons.length; b++) {
+      const cc = 20 + b;
+      const on = !!state.buttons[b];
+      const el = document.querySelector(`#kbtns${kbdIdx} .tog:nth-child(${b+1})`);
+      if (el) {
+        el.dataset.state = on ? '1' : '0';
+        el.classList.toggle('on', on);
+      }
+      sendCC(ch, cc, on ? 127 : 0);
+    }
+  }
+  // Faders — animate over 500ms with intermediate CC values so Ableton slides
+  if (Array.isArray(state.faders)) {
+    for (let f = 0; f < faderCount && f < state.faders.length; f++) {
+      const cc = 10 + f;
+      const target = Math.max(0, Math.min(127, state.faders[f] | 0));
+      animateFader(kbdIdx, f, ch, cc, target, 500);
+    }
+  }
+}
+
+// Animate a fader from current value to target over duration ms,
+// sending intermediate CC values so Ableton's parameter slides smoothly.
+function animateFader(kbdIdx, f, ch, cc, target, duration) {
+  const fillEl = document.getElementById(`kfdr-fill-${kbdIdx}-${f}`);
+  const valEl  = document.getElementById(`kfdr-val-${kbdIdx}-${f}`);
+  if (!fillEl || !valEl) return;
+  const trackEl = document.getElementById(`kfdr-track-${kbdIdx}-${f}`);
+  // Don't override if user is currently dragging the fader
+  if (trackEl && trackEl.dataset.touching === '1') return;
+
+  const startVal = Math.max(0, Math.min(127, parseInt(valEl.textContent, 10) || 0));
+  const startTime = performance.now();
+  const ease = t => 1 - Math.pow(1 - t, 3);  // ease-out cubic
+  const intervalMs = 20;
+  let lastSent = -1;
+  const tick = (now) => {
+    const elapsed = now - startTime;
+    const t = Math.min(1, elapsed / duration);
+    const v = Math.round(startVal + (target - startVal) * ease(t));
+    if (v !== lastSent) {
+      lastSent = v;
+      fillEl.style.height = (v / 127 * 100).toFixed(1) + '%';
+      valEl.textContent = String(v);
+      sendCC(ch, cc, v);
+    }
+    if (t < 1) {
+      setTimeout(() => requestAnimationFrame(tick), intervalMs);
+    } else if (lastSent !== target) {
+      // Final sync
+      fillEl.style.height = (target / 127 * 100).toFixed(1) + '%';
+      valEl.textContent = String(target);
+      sendCC(ch, cc, target);
+    }
+  };
+  requestAnimationFrame(tick);
+}
+
+function captureSnapshotForSong(songIdx) {
+  const snap = { kbds: {} };
+  for (let k = 0; k < KBD_COUNT; k++) {
+    if (captureKbds[k]) snap.kbds[k] = readKbdState(k);
+  }
+  PATCH_SNAPSHOTS[songIdx] = snap;
+  savePatchSnapshots();
+}
+
+function restoreSnapshotForSong(songIdx) {
+  const snap = PATCH_SNAPSHOTS[songIdx];
+  if (!snap || !snap.kbds) return;
+  for (const k of Object.keys(snap.kbds)) {
+    applyKbdState(parseInt(k, 10), snap.kbds[k]);
+  }
+}
+
+function showSavedOverlay(el) {
+  let ov = el.querySelector('.saved-overlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.className = 'saved-overlay';
+    ov.textContent = 'SAVED!';
+    el.appendChild(ov);
+  } else {
+    ov.textContent = 'SAVED!';
+  }
+  // Force reflow so transition fires
+  // eslint-disable-next-line no-unused-expressions
+  ov.offsetHeight;
+  ov.classList.add('show');
+  setTimeout(() => ov.classList.remove('show'), 900);
+  setTimeout(() => { try { ov.remove(); } catch(e){} }, 1200);
+}
+
+function buildCaptureCheckboxes() {
+  const box = document.getElementById('cap-kbd-checkboxes');
+  if (!box) return;
+  box.innerHTML = '';
+  for (let k = 0; k < KBD_COUNT; k++) {
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.id = `cap-kbd${k+1}`;
+    input.checked = true;
+    label.appendChild(input);
+    label.append(' ' + (RIG_CONFIG.keyboards[k]?.label || `KBD ${k+1}`));
+    box.appendChild(label);
+  }
+}
+
+function buildPatches() {
+  buildCaptureCheckboxes();
+  const secEl = document.getElementById('patches-sec');
+  if (secEl) secEl.textContent = `Song presets — Program Change on all ${KBD_COUNT} keyboard${KBD_COUNT === 1 ? '' : 's'} simultaneously`;
+  const grid = document.getElementById('song-grid');
+  SONG_NAMES.forEach((name, i) => {
+    const el = document.createElement('div');
+    el.className = 'song-btn';
+    el.dataset.idx = i;
+    const sname = document.createElement('div');
+    sname.className = 'sname';
+    sname.id = `song-name-${i}`;
+    sname.style.color = SONG_COLORS[i % SONG_COLORS.length];
+    sname.textContent = name;
+    const spc = document.createElement('div');
+    spc.className = 'spc';
+    spc.textContent = `PC ${i}`;
+    el.append(sname, spc);
+
+    el.addEventListener('pointerdown', e => { e.preventDefault(); });
+    el.addEventListener('pointerup', e => {
+      e.preventDefault();
+      // Capture mode: save snapshot to this song
+      if (patchesMode === 'capture') {
+        captureSnapshotForSong(i);
+        showSavedOverlay(el);
+        setPatchesMode(null);
+        return;
+      }
+      // Rename mode: prompt for new name
+      if (patchesMode === 'rename') {
+        const n = prompt(`Rename song ${i+1}:`, SONG_NAMES[i]);
+        if (n !== null && n.trim() !== '') {
+          SONG_NAMES[i] = n.trim();
+          sname.textContent = SONG_NAMES[i];
+          localStorage.setItem('songNames', JSON.stringify(SONG_NAMES));
+        }
+        setPatchesMode(null);
+        return;
+      }
+      // Normal tap: fire PC, restore snapshot
+      document.querySelectorAll('.song-btn').forEach(b => b.classList.remove('active'));
+      el.classList.add('active');
+      activeSong = i;
+      for (let k = 0; k < KBD_COUNT; k++) sendPC(kbdChannel(k), i);
+      restoreSnapshotForSong(i);
+    });
+    grid.appendChild(el);
+  });
+
+  // Wire up Capture and Rename action buttons
+  const capBtn = document.getElementById('patches-capture-btn');
+  const rnmBtn = document.getElementById('patches-rename-btn');
+  if (capBtn) {
+    capBtn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      // If already in capture mode, cancel
+      if (patchesMode === 'capture') { setPatchesMode(null); return; }
+      // If in rename mode, switch
+      if (patchesMode === 'rename') setPatchesMode(null);
+      // Open dialog
+      const dlg = document.getElementById('patches-capture-dialog');
+      if (dlg) dlg.classList.add('show');
+    });
+  }
+  if (rnmBtn) {
+    rnmBtn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (patchesMode === 'rename') { setPatchesMode(null); return; }
+      if (patchesMode === 'capture') setPatchesMode(null);
+      setPatchesMode('rename');
+    });
+  }
+
+  // Dialog wiring
+  const dlg = document.getElementById('patches-capture-dialog');
+  const okBtn = document.getElementById('cap-ok');
+  const cancelBtn = document.getElementById('cap-cancel');
+  if (okBtn) {
+    okBtn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      captureKbds = [];
+      for (let k = 0; k < KBD_COUNT; k++) {
+        const el = document.getElementById(`cap-kbd${k+1}`);
+        captureKbds.push(el ? el.checked : true);
+      }
+      if (!captureKbds.some(x => x)) {
+        // No KBDs selected — abort
+        if (dlg) dlg.classList.remove('show');
+        return;
+      }
+      if (dlg) dlg.classList.remove('show');
+      setPatchesMode('capture');
+    });
+  }
+  if (cancelBtn) {
+    cancelBtn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (dlg) dlg.classList.remove('show');
+    });
+  }
+}
+
+// ═══════════════════════════════════════════
+//  KBD PAGES
+// ═══════════════════════════════════════════
+function buildKbdPage(k) {
+  const color = kbdColor(k);
+  const colorDim = hexAlpha(color, 0.13);
+  const ch = kbdChannel(k);
+  const label = kbdLabel(k);
+  const pg = document.getElementById(`page-${kbdPageId(k)}`);
+  if (!pg) return; // shouldn't happen -- ensureDynamicKbdTabsAndPages runs before this
+  pg.style.height = '100%';
+  pg.style.setProperty('--kbd-c', color);
+  pg.style.setProperty('--kbd-c-dim', colorDim);
+  pg.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:8px;height:100%">
+      <div>
+        <div class="sec" style="color:${color}">${label.toUpperCase()} — MIDI CH ${ch}</div>
+        <div class="sec" id="kbd-device-header-${k}" style="font-size:11px;opacity:.8"></div>
+        <div class="sec">Toggle buttons — CC 20–35</div>
+        <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:7px" id="kbtns${k}"></div>
+      </div>
+      <div class="divider"></div>
+      <div style="flex:1;display:flex;flex-direction:column">
+        <div class="sec">CC sliders — CC 10–17</div>
+        <div class="fader-grid-8" id="kfdrs${k}" style="flex:1"></div>
+      </div>
+    </div>
+  `;
+  const btns = document.getElementById(`kbtns${k}`);
+  for(let b=0; b<16; b++) {
+    const cc = 20+b;
+    const isLatch = b >= 8;
+    const el = document.createElement('div');
+    el.className = isLatch ? `tog latch` : `tog kbd-dyn`;
+    if (!isLatch) { el.style.setProperty('--kbd-c', color); el.style.setProperty('--kbd-c-dim', colorDim); }
+    el.style.minHeight = '86px';
+    el.style.padding = '12px 4px';
+    el.dataset.state = '0';
+    const btnLabel = isLatch ? `Latch ${b-7}` : `B${b+1}`;
+    el.innerHTML = `<span style="font-size:18px">${btnLabel}</span><span class="cc-lbl" style="font-size:13px">CC${cc}</span>`;
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const on = el.dataset.state === '0';
+      el.dataset.state = on ? '1' : '0';
+      el.classList.toggle('on', on);
+      sendCC(ch, cc, on ? 127 : 0);
+    });
+    btns.appendChild(el);
+  }
+  const fdrs = document.getElementById(`kfdrs${k}`);
+  for(let f=0; f<8; f++) {
+    const cc = 10+f;
+    const wrap = document.createElement('div'); wrap.className = 'fader-wrap'; wrap.style.height = '100%';
+    wrap.id = `kfdr-wrap-${k}-${f}`;
+    wrap.dataset.kbd = k; wrap.dataset.faderIdx = f;
+    const track = document.createElement('div'); track.className = 'fader-track'; track.style.flex = '1';
+    track.id = `kfdr-track-${k}-${f}`;
+    const fill = document.createElement('div'); fill.className = `fader-fill fill-kbd-dyn`; fill.style.height = '75%';
+    fill.style.setProperty('--kbd-c', color);
+    fill.id = `kfdr-fill-${k}-${f}`;
+    track.appendChild(fill);
+    const lbl = document.createElement('div'); lbl.className = 'fader-label'; lbl.textContent = `CC${cc}`;
+    lbl.id = `kfdr-lbl-${k}-${f}`;
+    const val = document.createElement('div'); val.className = 'fader-val'; val.textContent = '96';
+    val.id = `kfdr-val-${k}-${f}`;
+    fdrTouch(track, fill, val, pct => sendCC(ch, cc, Math.round(pct*127)));
+    wrap.append(track, lbl, val);
+    fdrs.appendChild(wrap);
+  }
+}
+
+// ═══════════════════════════════════════════
+//  TRANSPORT PAGE
+// ═══════════════════════════════════════════
+let transportOverdubState=false, transportMetroState=false, transportLoopState=false, transportPunchState=false;
+let tempoBendTimer=null, tapTimesTransport=[];
+
+// Send a transport message to the bridge → M4L → native Live API call.
+// Works without the user setting up Cmd+M mappings. We also send the CC as fallback
+// for setups without the M4L device loaded.
+function sendTransportNative(action){
+  if (typeof wsConnected !== 'undefined' && wsConnected && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:'transport_'+action}));
+  }
+}
+
+function transportPlay(e){e&&e.preventDefault();sendCC(16,116,127);sendTransportNative('play');transportState='PLAYING';updateTransportButtons();restartBeat();}
+function transportStop(e){
+  e&&e.preventDefault();sendCC(16,117,127);sendTransportNative('stop');transportState='STOPPED';
+  clearInterval(beatPulseTimer);beatPulseTimer=null;currentBeat=0;
+  updateTransportButtons();updateBeatPulseColor();
+  for(let i=0;i<4;i++){const b=document.getElementById(`tbeat${i}`);if(b)b.classList.remove('on');}
+}
+function transportRecord(e){e&&e.preventDefault();sendCC(16,118,127);sendTransportNative('record');transportState=transportState==='RECORDING'?'PLAYING':'RECORDING';updateTransportButtons();updateBeatPulseColor();}
+function transportOverdub(e){e&&e.preventDefault();transportOverdubState=!transportOverdubState;sendCC(16,119,transportOverdubState?127:0);sendTransportNative('overdub');const btn=document.getElementById('t-over-btn');if(btn)btn.classList.toggle('active-state',transportOverdubState);const sl=document.getElementById('sl-t-over');if(sl)sl.classList.toggle('active-state',transportOverdubState);}
+function transportMetronome(e){e&&e.preventDefault();transportMetroState=!transportMetroState;sendCC(16,112,transportMetroState?127:0);sendTransportNative('metronome');const btn=document.getElementById('t-metro-btn');if(btn)btn.classList.toggle('active-state',transportMetroState);const sl=document.getElementById('sl-t-metro');if(sl)sl.classList.toggle('active-state',transportMetroState);}
+function transportLoop(e){e&&e.preventDefault();transportLoopState=!transportLoopState;sendCC(16,113,transportLoopState?127:0);sendTransportNative('loop');const btn=document.getElementById('t-loop-btn');if(btn)btn.classList.toggle('active-state',transportLoopState);const sl=document.getElementById('sl-t-loop');if(sl)sl.classList.toggle('active-state',transportLoopState);}
+function transportPunch(e){e&&e.preventDefault();transportPunchState=!transportPunchState;sendCC(16,114,transportPunchState?127:0);sendTransportNative('punch');const btn=document.getElementById('t-punch-btn');if(btn)btn.classList.toggle('active-state',transportPunchState);const sl=document.getElementById('sl-t-punch');if(sl)sl.classList.toggle('active-state',transportPunchState);}
+function transportUndo(e){e&&e.preventDefault();sendCC(16,115,127);sendTransportNative('undo');}
+function transportRedo(e){e&&e.preventDefault();sendCC(16,111,127);sendTransportNative('redo');}
+
+function tempoBendDown(e){e&&e.preventDefault();clearInterval(tempoBendTimer);tempoBendTimer=setInterval(()=>sendCC(16,108,127),80);}
+function tempoBendUp(e){e&&e.preventDefault();clearInterval(tempoBendTimer);tempoBendTimer=setInterval(()=>sendCC(16,107,127),80);}
+function tempoBendRelease(e){e&&e.preventDefault();clearInterval(tempoBendTimer);tempoBendTimer=null;sendCC(16,108,0);sendCC(16,107,0);}
+
+// Marker (locator) navigation. Sends locator nav via WebSocket → bridge → M4L → Live API call.
+// Also sends a CC on CH16 so users who prefer Cmd+M mapping can map this to anything.
+function prevMarker(e){
+  e&&e.preventDefault();
+  sendCC(16, 92, 127);
+  if(typeof wsConnected!=='undefined' && wsConnected && ws && ws.readyState===WebSocket.OPEN){
+    ws.send(JSON.stringify({type:'locator_prev'}));
+  }
+  flashBtn('t-prev-marker');
+}
+function nextMarker(e){
+  e&&e.preventDefault();
+  sendCC(16, 93, 127);
+  if(typeof wsConnected!=='undefined' && wsConnected && ws && ws.readyState===WebSocket.OPEN){
+    ws.send(JSON.stringify({type:'locator_next'}));
+  }
+  flashBtn('t-next-marker');
+}
+function flashBtn(id){const b=document.getElementById(id); if(!b) return; b.style.background='var(--accent)'; setTimeout(()=>b.style.background='',120);}
+
+function tapTempo(e) {
+  e&&e.preventDefault();
+  // Send the tap to Ableton — let Ableton's Tap Tempo do the BPM math
+  sendCC(16, 89, 127);
+  sendTransportNative('tap');
+
+  // Local BPM display for visual feedback only (not authoritative — Ableton's calc wins)
+  const now = Date.now(); tapTimesTransport.push(now);
+  if (tapTimesTransport.length > 8) tapTimesTransport.shift();
+  if (tapTimesTransport.length >= 2 && now - tapTimesTransport[tapTimesTransport.length-2] < 3000) {
+    const intervals = [];
+    for (let i = 1; i < tapTimesTransport.length; i++) intervals.push(tapTimesTransport[i] - tapTimesTransport[i-1]);
+    const avg = intervals.reduce((a,b)=>a+b, 0) / intervals.length;
+    const bpm = Math.round(60000 / avg);
+    if (bpm >= 20 && bpm <= 300) {
+      const tDisp = document.getElementById('t-bpm-display'); if (tDisp) tDisp.textContent = bpm;
+      const hint  = document.getElementById('tap-bpm-hint'); if (hint) { hint.textContent = bpm + ' BPM'; clearTimeout(hint._t); hint._t = setTimeout(() => hint.textContent = '', 2000); }
+    }
+  } else if (tapTimesTransport.length >= 2 && now - tapTimesTransport[tapTimesTransport.length-2] >= 3000) {
+    tapTimesTransport = [now];
+  }
+  const btn = document.getElementById('transport-tap-btn');
+  if (btn) { btn.style.background = 'var(--accent)'; setTimeout(() => btn.style.background = '', 100); }
+}
+
+function updateTransportButtons() {
+  const play=document.getElementById('t-play-btn'),stop=document.getElementById('t-stop-btn'),rec=document.getElementById('t-rec-btn');
+  if(play) play.classList.toggle('active-state',transportState==='PLAYING'||transportState==='RECORDING');
+  if(stop) stop.classList.toggle('active-state',transportState==='STOPPED');
+  if(rec) rec.classList.toggle('active-state',transportState==='RECORDING');
+}
+
+// ═══════════════════════════════════════════
+//  CLIP LAUNCHER  (2026-07-01: native Live Object Model control)
+//  No MIDI Map / Cmd+M mapping needed -- every action here goes straight
+//  to LiveRig.py over the WebSocket, which drives the real Session View
+//  via the Live API (ClipSlot.fire/Track.stop_all_clips/Song.stop_all_clips).
+//  Grid state (names, playing/triggered/recording) is pushed back the same
+//  way real Ableton clip slots behave -- see LiveRig.py's _scan_clip_grid
+//  and FB_CLIP_TRACK_NAME/FB_CLIP_INFO (fb 0x50/0x51) in onRemoteScriptFeedback.
+// ═══════════════════════════════════════════
+const CLIP_TRACKS=8, CLIP_SCENES=8;
+const CLIP_COLORS=['#6c5fd4','#1a9e6e','#d4551e','#c07818','#3ab8ff','#e040fb','#ff6b6b','#00d4aa'];
+let clipStates=Array(CLIP_SCENES).fill(null).map(()=>Array(CLIP_TRACKS).fill(0));
+let trackNames=Array(CLIP_TRACKS).fill(null).map((_,i)=>`Track ${i+1}`);
+
+function buildClipLauncher() {
+  const root=document.getElementById('clip-launcher-root'); if(!root)return;
+  root.innerHTML='';
+  const cols=`repeat(${CLIP_TRACKS},1fr) 96px`;
+
+  // Headers
+  const hRow=document.createElement('div'); hRow.className='clip-track-headers'; hRow.style.gridTemplateColumns=cols;
+  for(let t=0;t<CLIP_TRACKS;t++){
+    const h=document.createElement('div'); h.className='clip-track-header'; h.id=`clip-hdr-${t}`;
+    h.style.borderBottom=`2px solid ${CLIP_COLORS[t]}`; h.textContent=trackNames[t]; hRow.appendChild(h);
+  }
+  const corner=document.createElement('div'); corner.className='clip-track-header'; corner.style.opacity='0.3';
+  corner.style.display='flex'; corner.style.alignItems='center'; corner.style.justifyContent='center';
+  corner.innerHTML='<svg viewBox="0 0 20 20" width="14" height="14" fill="#6a6a80"><polygon points="4,3 16,10 4,17"/></svg>';
+  hRow.appendChild(corner);
+  root.appendChild(hRow);
+
+  // Clip rows
+  const rowsDiv=document.createElement('div'); rowsDiv.className='clip-rows'; root.appendChild(rowsDiv);
+  for(let s=0;s<CLIP_SCENES;s++){
+    const row=document.createElement('div'); row.className='clip-row'; row.style.gridTemplateColumns=cols;
+    for(let t=0;t<CLIP_TRACKS;t++){
+      const cell=document.createElement('div'); cell.className='clip-cell empty'; cell.id=`clip-${s}-${t}`;
+      const icon=document.createElement('div'); icon.className='clip-icon';
+      icon.innerHTML=`<svg viewBox="0 0 20 20" width="18" height="18" fill="${CLIP_COLORS[t]}"><polygon points="4,3 16,10 4,17"/></svg>`;
+      cell.appendChild(icon);
+      const _s=s,_t=t;
+      cell.addEventListener('touchstart',e=>{e.preventDefault();clipLaunch(_s,_t);},{passive:false});
+      row.appendChild(cell);
+    }
+    const sceneBtn=document.createElement('div'); sceneBtn.className='clip-scene-btn';
+    sceneBtn.id=`scene-btn-${s}`;
+    sceneBtn.innerHTML=`<div class="scene-icon"><svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="#6a6a80" stroke-width="2.5" stroke-linecap="round"><polygon points="3,3 17,10 3,17"/><line x1="17" y1="3" x2="17" y2="17"/></svg></div><div class="scene-name" id="scene-name-${s}"></div>`;
+    const _s=s; sceneBtn.addEventListener('pointerdown',e=>{e.preventDefault();clipScene(_s);sceneBtn.style.background='#ffffff20';setTimeout(()=>sceneBtn.style.background='',150);});
+    row.appendChild(sceneBtn); rowsDiv.appendChild(row);
+  }
+
+  // Stop row
+  const stopRow=document.createElement('div'); stopRow.className='clip-track-stops'; stopRow.style.gridTemplateColumns=cols;
+  for(let t=0;t<CLIP_TRACKS;t++){
+    const btn=document.createElement('div'); btn.className='clip-track-stop';
+    btn.innerHTML=`<svg viewBox="0 0 20 20" width="20" height="20" fill="${CLIP_COLORS[t]}" opacity="0.85"><rect x="4" y="4" width="12" height="12" rx="1"/></svg>`;
+    const _t=t;
+    btn.addEventListener('pointerdown',e=>{e.preventDefault();clipStopTrack(_t);btn.style.background='#ffffff25';setTimeout(()=>btn.style.background='',150);});
+    stopRow.appendChild(btn);
+  }
+  const stopAllBtn=document.createElement('div'); stopAllBtn.className='clip-track-stop';
+  stopAllBtn.style.cssText='background:#1a0808;border-color:#6a2020;color:#ff8888;font-family:Share Tech Mono,monospace;font-size:10px;letter-spacing:1.5px;';
+  stopAllBtn.innerHTML=`<svg viewBox="0 0 20 20" width="20" height="20" fill="#ff6666"><rect x="3" y="3" width="14" height="14" rx="1"/></svg>`;
+  stopAllBtn.addEventListener('pointerdown',e=>{e.preventDefault();clipStopAll();stopAllBtn.style.background='#3a1010';setTimeout(()=>stopAllBtn.style.background='#1a0808',150);});
+  stopRow.appendChild(stopAllBtn); root.appendChild(stopRow);
+}
+
+function clipLaunch(scene,track){
+  // Native: fire the actual ClipSlot via the Live Object Model (LiveRig.py
+  // SX_CLIP_FIRE), same effect as clicking the slot in Ableton -- launches
+  // a clip, or starts recording into an empty slot on an armed track.
+  // Replaces the old fake-note approach, which required manually Cmd+M
+  // mapping every one of the 64 slots in Ableton and had no way to reflect
+  // real state back.
+  if (typeof wsConnected!=='undefined' && wsConnected && ws && ws.readyState===WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:'clip_fire', scene, track}));
+  }
+  // Optimistic "triggered" (blinking) state immediately on tap -- the next
+  // poll tick (~300ms) confirms the real playing/recording state from Live
+  // (this also covers firing an empty slot on an armed track, which starts
+  // recording rather than playback).
+  updateClipCell(scene,track,4);
+}
+function clipScene(scene){
+  // Native: fire scene via Live API (preferred)
+  if (typeof wsConnected!=='undefined' && wsConnected && ws && ws.readyState===WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:'scene_fire', index: scene}));
+  }
+  // Fallback CC for setups without M4L
+  sendCC(16, 60+scene, 127);
+  for(let t=0;t<CLIP_TRACKS;t++){if(clipStates[scene][t]!==0)updateClipCell(scene,t,2);}
+}
+
+function renderClipScenes() {
+  if (!m4l.scenes) return;
+  for (let s = 0; s < CLIP_SCENES; s++) {
+    const lbl = document.getElementById(`scene-name-${s}`);
+    if (!lbl) continue;
+    const sc = m4l.scenes[s];
+    lbl.textContent = (sc && sc.name) ? sc.name : '';
+  }
+}
+function clipStopTrack(track){
+  // Native: Track.stop_all_clips() via LiveRig.py SX_CLIP_STOP_TRACK.
+  if (typeof wsConnected!=='undefined' && wsConnected && ws && ws.readyState===WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:'clip_stop_track', track}));
+  }
+  for(let s=0;s<CLIP_SCENES;s++){if(clipStates[s][track]===2||clipStates[s][track]===3||clipStates[s][track]===4)updateClipCell(s,track,1);}
+}
+function clipStopAll(){
+  // Native: Song.stop_all_clips() via LiveRig.py SX_CLIP_STOP_ALL.
+  if (typeof wsConnected!=='undefined' && wsConnected && ws && ws.readyState===WebSocket.OPEN) {
+    ws.send(JSON.stringify({type:'clip_stop_all'}));
+  }
+  for(let s=0;s<CLIP_SCENES;s++)for(let t=0;t<CLIP_TRACKS;t++){if(clipStates[s][t]===2||clipStates[s][t]===3||clipStates[s][t]===4)updateClipCell(s,t,1);}
+}
+
+function updateClipCell(scene,track,state){
+  // states: 0=empty 1=stopped(has clip, idle) 2=playing 3=recording
+  //         4=triggered (queued/about to play or stop -- Ableton's blink)
+  if(scene<0||scene>=CLIP_SCENES||track<0||track>=CLIP_TRACKS)return;
+  clipStates[scene][track]=state;
+  const cell=document.getElementById(`clip-${scene}-${track}`); if(!cell)return;
+  cell.classList.remove('empty','stopped','playing','recording','triggered');
+  const icon=cell.querySelector('.clip-icon'), color=CLIP_COLORS[track];
+  cell.style.background=''; cell.style.borderColor='';
+  if(state===0){cell.classList.add('empty');if(icon)icon.innerHTML=`<svg viewBox="0 0 20 20" width="18" height="18" fill="${color}"><polygon points="4,3 16,10 4,17"/></svg>`;}
+  else if(state===1){cell.classList.add('stopped');cell.style.borderColor=color+'55';if(icon)icon.innerHTML=`<svg viewBox="0 0 20 20" width="10" height="10" fill="${color}"><rect x="4" y="4" width="12" height="12" rx="1"/></svg>`;}
+  else if(state===2){cell.classList.add('playing');cell.style.borderColor=color;cell.style.background=color+'22';if(icon)icon.innerHTML=`<svg viewBox="0 0 20 20" width="10" height="10" fill="${color}"><polygon points="4,3 16,10 4,17"/></svg>`;}
+  else if(state===3){cell.classList.add('recording');if(icon)icon.innerHTML=`<svg viewBox="0 0 20 20" width="10" height="10" fill="#ff4444"><circle cx="10" cy="10" r="6"/></svg>`;}
+  else if(state===4){cell.classList.add('triggered');cell.style.borderColor=color;if(icon)icon.innerHTML=`<svg viewBox="0 0 20 20" width="10" height="10" fill="${color}"><polygon points="4,3 16,10 4,17"/></svg>`;}
+}
+
+function updateClipTrackHeaders() {
+  if (!m4l.liveTracks) return;
+  for (let t = 0; t < CLIP_TRACKS; t++) {
+    const h = document.getElementById(`clip-hdr-${t}`);
+    if (!h) continue;
+    const trk = m4l.liveTracks[t];
+    if (trk && trk.name) h.textContent = trk.name.length > 10 ? trk.name.substring(0, 10) : trk.name;
+    else h.textContent = `Track ${t+1}`;
+  }
+}
+
+function updateClipNamesFromLive() {
+  // Authoritative state from Live's own Session View (LiveRig.py
+  // Track.playing_slot_index/fired_slot_index/Clip.is_recording) --
+  // precedence matches exactly what Ableton itself shows on a clip slot:
+  // recording > playing > triggered(blinking) > stopped(loaded) > empty.
+  if (!m4l.liveClips) return;
+  for (let s = 0; s < CLIP_SCENES; s++) {
+    for (let t = 0; t < CLIP_TRACKS; t++) {
+      const cell = document.getElementById(`clip-${s}-${t}`);
+      if (!cell) continue;
+      const clipData = (m4l.liveClips[s] && m4l.liveClips[s][t]) || null;
+      // Remove old name label if present
+      const oldLbl = cell.querySelector('.clip-name-lbl');
+      if (oldLbl) oldLbl.remove();
+
+      if (clipData && clipData.has) {
+        // Add name label
+        const lbl = document.createElement('div');
+        lbl.className = 'clip-name-lbl';
+        lbl.textContent = clipData.name || '';
+        cell.appendChild(lbl);
+        let state;
+        if (clipData.recording) state = 3;
+        else if (clipData.playing) state = 2;
+        else if (clipData.triggered) state = 4;
+        else state = 1; // stopped but loaded
+        updateClipCell(s, t, state);
+      } else {
+        // No clip loaded → empty state (still may be "triggered" if the
+        // Stop Button was fired for this track and this is where playback
+        // is queued to stop -- but an empty slot has nothing to preview,
+        // so just show empty).
+        updateClipCell(s, t, 0);
+      }
+    }
+  }
+}
+
+// Apply Ableton Macro values to KBD page faders. Skips faders being actively touched.
+// Lightweight header update for KBD pages — displays current device name and bank
+// when the Remote Script announces a device change. The on-screen target is
+// optional; if no header element exists for the page, this silently no-ops.
+function updateKbdDeviceHeader(kbdIdx) {
+  const info = (m4l.kbdDeviceInfo && m4l.kbdDeviceInfo[kbdIdx]) || null;
+  if (!info) return;
+  const headerEl = document.getElementById(`kbd-device-header-${kbdIdx}`);
+  if (!headerEl) return;
+  const bankLabel = info.banks > 1 ? ` · BANK ${info.bank+1}/${info.banks}` : '';
+  const bluePrefix = (blueHandActive && blueHandBoundKbdIdx === kbdIdx) ? 'BLUE HAND → ' : '';
+  headerEl.style.color = bluePrefix ? '#8fb8ff' : '';
+  headerEl.textContent = bluePrefix + (info.name || '<no device>') + bankLabel;
+}
+
+function applyKbdMacros() {
+  if (!m4l.kbdMacros) return;
+  for (let k = 0; k < KBD_COUNT; k++) {
+    const macros = m4l.kbdMacros[k] || [];
+    for (let f = 0; f < 8; f++) {
+      const macro = macros[f];
+      const fillEl = document.getElementById(`kfdr-fill-${k}-${f}`);
+      const valEl  = document.getElementById(`kfdr-val-${k}-${f}`);
+      const lblEl  = document.getElementById(`kfdr-lbl-${k}-${f}`);
+      const trackEl = document.getElementById(`kfdr-track-${k}-${f}`);
+      if (!fillEl || !valEl) continue;
+      // Don't override if user is currently dragging this fader
+      if (trackEl && trackEl.dataset.touching === '1') continue;
+
+      if (macro) {
+        const range = (macro.max - macro.min) || 1;
+        const pct = Math.max(0, Math.min(1, (macro.value - macro.min) / range));
+        fillEl.style.height = (pct * 100).toFixed(1) + '%';
+        // Display normalized 0-127 like a CC value
+        const cc = Math.round(pct * 127);
+        valEl.textContent = String(cc);
+        if (lblEl && macro.name) lblEl.textContent = macro.name;
+      }
+    }
+  }
+}
+
+function updateTrackName(trackIdx,name){
+  if(trackIdx<0||trackIdx>=CLIP_TRACKS)return;
+  trackNames[trackIdx]=name||`Track ${trackIdx+1}`;
+  const h=document.getElementById(`clip-hdr-${trackIdx}`); if(h) h.textContent=trackNames[trackIdx];
+  updateKbdTabs();
+}
+
+// ═══════════════════════════════════════════
+//  SETLIST PAGE (page 10)
+// ═══════════════════════════════════════════
+let setlist = [];       // [{id, name, pc}]
+let setlistIdx = 0;     // which song card is visible
+const DEFAULT_SETLIST = [
+  {id:1, name:'Song 1', pc:0},
+  {id:2, name:'Song 2', pc:1},
+  {id:3, name:'Song 3', pc:2},
+  {id:4, name:'Song 4', pc:3},
+  {id:5, name:'Song 5', pc:4},
+  {id:6, name:'Song 6', pc:5},
+  {id:7, name:'Song 7', pc:6},
+  {id:8, name:'Song 8', pc:7}
+];
+try {
+  const s = localStorage.getItem('setlist');
+  setlist = s ? JSON.parse(s) : DEFAULT_SETLIST.slice();
+  if (!Array.isArray(setlist) || !setlist.length) setlist = DEFAULT_SETLIST.slice();
+} catch(e) { setlist = DEFAULT_SETLIST.slice(); }
+function saveSetlist(){ localStorage.setItem('setlist', JSON.stringify(setlist)); }
+
+function renderSetlistPage() {
+  const root = document.getElementById('page-10');
+  root.innerHTML = `
+    <div id="sl-root" style="display:flex;flex-direction:column;height:100%;gap:8px;">
+
+      <!-- SECTION PROGRESS BAR (small, top) -->
+      <div id="sec-bar-wrap" style="height:32px;position:relative;background:#101014;border:1px solid #222;border-radius:6px;overflow:hidden;flex:0 0 auto;">
+        <div id="sec-bar-fill" style="position:absolute;left:0;top:0;bottom:0;width:0%;background:linear-gradient(90deg,#3ab8ff,#2a88cc);transition:width .15s linear;"></div>
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-family:'Share Tech Mono',monospace;font-size:12px;letter-spacing:1px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);">
+          <span id="sec-name">—</span>
+          <span id="sec-time">—</span>
+        </div>
+      </div>
+
+      <!-- SONG PROGRESS BAR (large) -->
+      <div id="song-bar-wrap" style="height:58px;position:relative;background:#0a0a0e;border:2px solid #333;border-radius:8px;overflow:hidden;flex:0 0 auto;">
+        <div id="song-bar-fill" style="position:absolute;left:0;top:0;bottom:0;width:0%;background:linear-gradient(90deg,#ffaa33,#ff7722);transition:width .15s linear;"></div>
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:600;letter-spacing:1.5px;color:#fff;text-shadow:0 2px 4px rgba(0,0,0,.7);">
+          <span id="song-title-overlay" style="flex:1;text-align:center;">—</span>
+          <span id="song-time" style="font-family:'Share Tech Mono',monospace;font-size:16px;font-weight:400;opacity:.9;">—</span>
+        </div>
+      </div>
+
+      <!-- TWO-COLUMN: LIBRARY (left) ↔ ACTIVE SETLIST (right) -->
+      <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:8px;min-height:0;">
+        <!-- LIBRARY -->
+        <div style="display:flex;flex-direction:column;background:#07070a;border:1px solid #222;border-radius:8px;overflow:hidden;">
+          <div style="padding:8px 10px;font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:2px;color:#888;border-bottom:1px solid #222;flex:0 0 auto;display:flex;justify-content:space-between;align-items:center;">
+            <span>LIBRARY</span>
+            <span id="lib-count" style="color:#555;"></span>
+          </div>
+          <div id="sl-library" style="flex:1;overflow-y:auto;padding:6px;display:flex;flex-direction:column;gap:4px;"></div>
+        </div>
+
+        <!-- ACTIVE SETLIST -->
+        <div style="display:flex;flex-direction:column;background:#07070a;border:1px solid #333;border-radius:8px;overflow:hidden;">
+          <div style="padding:8px 10px;font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:2px;color:#ccc;border-bottom:1px solid #333;flex:0 0 auto;display:flex;justify-content:space-between;align-items:center;">
+            <span>ACTIVE SETLIST</span>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <span id="sl-active-count" style="color:#555;"></span>
+              <div id="sl-autoplay-toggle" style="padding:3px 8px;font-size:10px;letter-spacing:1.5px;background:#181820;border:1px solid #333;border-radius:4px;color:#888;cursor:pointer;user-select:none;">AUTOPLAY</div>
+              <div id="sl-clear" style="padding:3px 8px;font-size:10px;letter-spacing:1.5px;background:#181820;border:1px solid #333;border-radius:4px;color:#888;cursor:pointer;user-select:none;">CLEAR</div>
+            </div>
+          </div>
+          <div id="sl-active" style="flex:1;overflow-y:auto;padding:6px;display:flex;flex-direction:column;gap:4px;"></div>
+        </div>
+      </div>
+
+      <!-- TRANSPORT STRIP (mirrors Transport page with same SVG icons) -->
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;height:78px;flex:0 0 auto;">
+        <div id="sl-t-play"  class="sl-tbtn" ontouchstart="transportPlay(event)" title="Play">
+          <svg viewBox="0 0 32 32" width="34" height="34"><polygon points="8,4 28,16 8,28" fill="var(--green)"/></svg>
+        </div>
+        <div id="sl-t-stop"  class="sl-tbtn" ontouchstart="transportStop(event)" title="Stop">
+          <svg viewBox="0 0 32 32" width="34" height="34"><rect x="6" y="6" width="20" height="20" rx="2" fill="#aaa"/></svg>
+        </div>
+        <div id="sl-t-metro" class="sl-tbtn" ontouchstart="transportMetronome(event)" title="Metronome">
+          <svg viewBox="0 0 32 32" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="10,28 22,28 20,4 12,4"/><line x1="13" y1="20" x2="20" y2="14"/></svg>
+        </div>
+        <div id="sl-t-loop"  class="sl-tbtn" ontouchstart="transportLoop(event)" title="Loop">
+          <svg viewBox="0 0 32 32" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16 A10 10 0 0 1 26 16"/><polyline points="22,10 26,16 20,16"/><path d="M26 16 A10 10 0 0 1 6 16"/><polyline points="10,22 6,16 12,16"/></svg>
+        </div>
+        <div id="sl-t-undo"  class="sl-tbtn" ontouchstart="transportUndo(event)" title="Undo">
+          <svg viewBox="0 0 32 32" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16 A10 10 0 1 1 16 26"/><polyline points="6,8 6,16 14,16"/></svg>
+        </div>
+        <div id="sl-t-redo"  class="sl-tbtn" ontouchstart="transportRedo(event)" title="Redo">
+          <svg viewBox="0 0 32 32" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M26 16 A10 10 0 1 0 16 26"/><polyline points="26,8 26,16 18,16"/></svg>
+        </div>
+      </div>
+
+      <!-- MARKER + SONG NAV — same height as transport row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;height:78px;flex:0 0 auto;">
+        <div id="sl-prev-marker" class="sl-navbtn">
+          <svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="8" y1="6" x2="8" y2="26"/>
+            <polygon points="24,6 12,16 24,26" fill="var(--accent)"/>
+          </svg>
+          <span>PREV MARKER</span>
+        </div>
+        <div id="sl-next-marker" class="sl-navbtn">
+          <span>NEXT MARKER</span>
+          <svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="8,6 20,16 8,26" fill="var(--accent)"/>
+            <line x1="24" y1="6" x2="24" y2="26"/>
+          </svg>
+        </div>
+        <div id="sl-prev-song" class="sl-navbtn">
+          <svg viewBox="0 0 32 16" width="32" height="16" fill="currentColor"><polygon points="14,2 2,8 14,14"/><polygon points="28,2 16,8 28,14"/></svg>
+          <span>PREV SONG</span>
+        </div>
+        <div id="sl-next-song" class="sl-navbtn">
+          <span>NEXT SONG</span>
+          <svg viewBox="0 0 32 16" width="32" height="16" fill="currentColor"><polygon points="4,2 16,8 4,14"/><polygon points="18,2 30,8 18,14"/></svg>
+        </div>
+      </div>
+    </div>
+  `;
+
+  renderLibrary();
+  renderActiveList();
+  wireSetlistControls();
+  updateSongOverlay();
+}
+
+// The "cued" song index in the active setlist (what will play next / is active now)
+let activeCueIdx = 0;
+let autoplayEnabled = false;
+
+// Active setlist (stored in localStorage as ordered array of source keys)
+let activeSetlist = [];  // [{name, time?, pc?, sourceKey}]
+try {
+  const s = localStorage.getItem('activeSetlist');
+  if (s) activeSetlist = JSON.parse(s);
+} catch(e) { activeSetlist = []; }
+function saveActiveSetlist(){ localStorage.setItem('activeSetlist', JSON.stringify(activeSetlist)); }
+
+// Autoplay persistence
+try {
+  autoplayEnabled = localStorage.getItem('autoplayEnabled') === '1';
+} catch(e) {}
+
+function librarySongs() {
+  // Prefer Ableton-driven songs if available; fall back to manual default
+  return (m4l.songs && m4l.songs.length) ? m4l.songs : setlist;
+}
+
+function libSourceKey(song, i) {
+  // Stable-ish key: prefer name, fall back to index
+  return song.name ? ('name:' + song.name) : ('idx:' + i);
+}
+
+function cardFontSizeForCount(n) {
+  // Scale down as list grows, but never below readable
+  if (n <= 3) return 32;
+  if (n <= 5) return 26;
+  if (n <= 8) return 22;
+  if (n <= 12) return 18;
+  return 16;
+}
+
+function renderLibrary() {
+  cleanupSetlistGhosts();
+  const host = document.getElementById('sl-library'); if (!host) return;
+  const songs = librarySongs();
+  const libCount = document.getElementById('lib-count');
+  if (libCount) libCount.textContent = songs.length + (m4l.songs && m4l.songs.length ? ' · ABLETON' : ' · LOCAL');
+  host.innerHTML = '';
+  const fontSize = cardFontSizeForCount(songs.length);
+
+  songs.forEach((song, i) => {
+    const card = document.createElement('div');
+    card.className = 'sl-lib-card';
+    card.draggable = true;
+    card.dataset.idx = i;
+    card.dataset.key = libSourceKey(song, i);
+    const sourceTag = (m4l.songs && m4l.songs.length) ? 'LOC' : ('PC' + (song.pc !== undefined ? song.pc : i));
+    card.innerHTML = `
+      <div class="sl-lib-tag">${i+1}</div>
+      <div class="sl-lib-name" style="font-size:${fontSize}px;">${escapeHtml(song.name || 'Song '+(i+1))}</div>
+      <div class="sl-lib-meta">${sourceTag}</div>
+    `;
+
+    // HTML5 drag (desktop)
+    card.addEventListener('dragstart', ev => {
+      ev.dataTransfer.setData('text/plain', JSON.stringify({src:'lib', idx:i}));
+      ev.dataTransfer.effectAllowed = 'copy';
+    });
+    // Touch drag: long-press to pick up, then drag. On release over the active column, add.
+    attachTouchDrag(card, () => ({src:'lib', idx:i}));
+
+    // Double-tap to add to setlist
+    let lastTap = 0;
+    card.addEventListener('pointerdown', e => {
+      const now = Date.now();
+      if (now - lastTap < 300) {
+        addToSetlist(songs[i]);
+      }
+      lastTap = now;
+    });
+
+    host.appendChild(card);
+  });
+}
+
+function addToSetlist(song) {
+  // Copy the song into the active setlist
+  const copy = { name: song.name, time: song.time, pc: song.pc, sourceKey: song.name || '' };
+  activeSetlist.push(copy);
+  saveActiveSetlist();
+  renderActiveList();
+}
+
+function renderActiveList() {
+  cleanupSetlistGhosts();
+  const host = document.getElementById('sl-active'); if (!host) return;
+  const countEl = document.getElementById('sl-active-count');
+  if (countEl) countEl.textContent = activeSetlist.length ? activeSetlist.length + ' songs' : 'empty';
+  host.innerHTML = '';
+  const fontSize = cardFontSizeForCount(activeSetlist.length || 1);
+
+  if (activeSetlist.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'flex:1;display:flex;align-items:center;justify-content:center;color:#555;font-family:Share Tech Mono,monospace;font-size:11px;letter-spacing:2px;padding:20px;text-align:center;';
+    empty.innerHTML = 'DRAG SONGS FROM LIBRARY<br>OR DOUBLE-TAP TO ADD';
+    host.appendChild(empty);
+  } else {
+    activeSetlist.forEach((song, i) => {
+      const card = document.createElement('div');
+      card.className = 'sl-active-card' + (i === activeCueIdx ? ' sl-cued' : '');
+      card.dataset.idx = i;
+      const isPlaying = (i === activeCueIdx && transportState === 'PLAYING');
+      const statusSvg = isPlaying
+        ? '<svg viewBox="0 0 20 20" width="12" height="12" fill="#5ed06f"><polygon points="4,3 16,10 4,17"/></svg>'
+        : (i === activeCueIdx
+           ? '<svg viewBox="0 0 20 20" width="10" height="10" fill="#5ed06f"><circle cx="10" cy="10" r="6"/></svg>'
+           : '');
+      card.innerHTML = `
+        <div class="sl-active-grip">⋮⋮</div>
+        <div class="sl-active-num">${i+1}</div>
+        <div class="sl-active-name" style="font-size:${fontSize}px;">${escapeHtml(song.name || 'Song '+(i+1))}</div>
+        <div class="sl-active-status">${statusSvg}</div>
+        <div class="sl-active-del" data-del="${i}">✕</div>
+      `;
+
+      // Tap to cue (only when stopped)
+      card.addEventListener('pointerdown', e => {
+        if (e.target.dataset && e.target.dataset.del !== undefined) return;
+        if (transportState !== 'PLAYING') {
+          activeCueIdx = i;
+          renderActiveList();
+          updateSongOverlay();
+          activateCuedSong();
+        }
+      });
+
+      // Delete button
+      const del = card.querySelector('[data-del]');
+      del.addEventListener('pointerdown', e => {
+        e.stopPropagation(); e.preventDefault();
+        activeSetlist.splice(i, 1);
+        if (activeCueIdx >= activeSetlist.length) activeCueIdx = Math.max(0, activeSetlist.length - 1);
+        saveActiveSetlist();
+        renderActiveList();
+      });
+
+      // Drag to reorder within active list
+      card.draggable = true;
+      card.addEventListener('dragstart', ev => {
+        ev.dataTransfer.setData('text/plain', JSON.stringify({src:'active', idx:i}));
+        ev.dataTransfer.effectAllowed = 'move';
+      });
+
+      // Touch drag for reorder
+      attachTouchDrag(card, () => ({src:'active', idx:i}));
+
+      host.appendChild(card);
+    });
+  }
+
+  // Accept drops on the active list
+  host.ondragover = ev => { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; };
+  host.ondrop = ev => handleDrop(ev, host);
+}
+
+function handleDrop(ev, host) {
+  ev.preventDefault();
+  try {
+    const data = JSON.parse(ev.dataTransfer.getData('text/plain') || '{}');
+    // Find drop position based on Y
+    const rect = host.getBoundingClientRect();
+    const y = (ev.clientY !== undefined ? ev.clientY : 0) - rect.top;
+    const children = Array.from(host.children).filter(c => c.classList.contains('sl-active-card'));
+    let insertAt = children.length;
+    for (let i = 0; i < children.length; i++) {
+      const cRect = children[i].getBoundingClientRect();
+      if (y < cRect.top - rect.top + cRect.height/2) { insertAt = i; break; }
+    }
+    if (data.src === 'lib') {
+      const song = librarySongs()[data.idx]; if (!song) return;
+      const copy = { name: song.name, time: song.time, pc: song.pc, sourceKey: song.name || '' };
+      activeSetlist.splice(insertAt, 0, copy);
+    } else if (data.src === 'active') {
+      const moved = activeSetlist.splice(data.idx, 1)[0];
+      const adj = data.idx < insertAt ? insertAt - 1 : insertAt;
+      activeSetlist.splice(adj, 0, moved);
+    }
+    saveActiveSetlist();
+    renderActiveList();
+  } catch(e) { console.warn('drop parse fail', e); }
+}
+
+// Touch-based drag (iPad): long press to arm, then move overlay, drop over sl-active
+function attachTouchDrag(el, getPayload) {
+  let pressTimer = null, ghost = null, armed = false, startX = 0, startY = 0, pId = null;
+
+  function cleanup() {
+    if (ghost) { try { ghost.remove(); } catch(e) {} ghost = null; }
+    armed = false;
+    pId = null;
+    document.body.style.userSelect = '';
+    document.body.style.webkitUserSelect = '';
+  }
+
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'touch') return;
+    startX = e.clientX; startY = e.clientY;
+    pId = e.pointerId;
+    pressTimer = setTimeout(() => {
+      if (pId === null) return; // pointer released before arm
+      armed = true;
+      // Block text selection globally while dragging
+      document.body.style.userSelect = 'none';
+      document.body.style.webkitUserSelect = 'none';
+      try { el.setPointerCapture(pId); } catch(err) {}
+      // Build ghost element
+      ghost = el.cloneNode(true);
+      ghost.classList.add('sl-drag-ghost');
+      ghost.style.cssText = 'position:fixed;pointer-events:none;opacity:.75;z-index:99999;transform:translate(-50%,-50%);width:' + el.offsetWidth + 'px;left:' + e.clientX + 'px;top:' + e.clientY + 'px;box-shadow:0 4px 20px rgba(0,0,0,.6);border-radius:6px;';
+      document.body.appendChild(ghost);
+    }, 350);
+  });
+
+  el.addEventListener('pointermove', e => {
+    if (!armed) {
+      if (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10) {
+        clearTimeout(pressTimer);
+      }
+      return;
+    }
+    e.preventDefault();
+    if (ghost) {
+      ghost.style.left = e.clientX + 'px';
+      ghost.style.top  = e.clientY + 'px';
+    }
+  }, { passive:false });
+
+  function handleRelease(e) {
+    clearTimeout(pressTimer);
+    if (!armed) { cleanup(); return; }
+    const tgt = document.elementFromPoint(e.clientX, e.clientY);
+    const activeCol = document.getElementById('sl-active');
+    if (activeCol && activeCol.contains(tgt)) {
+      const payload = getPayload();
+      const fakeEvt = {
+        preventDefault: () => {},
+        clientY: e.clientY,
+        dataTransfer: { getData: () => JSON.stringify(payload) }
+      };
+      handleDrop(fakeEvt, activeCol);
+    }
+    cleanup();
+  }
+
+  el.addEventListener('pointerup', handleRelease);
+  el.addEventListener('pointercancel', e => { clearTimeout(pressTimer); cleanup(); });
+  // Also catch release anywhere on document (pointer may leave element fast)
+  const onDocUp = e => { if (armed) handleRelease(e); };
+  el.addEventListener('pointerdown', () => { document.addEventListener('pointerup', onDocUp, { once: true }); });
+}
+
+function updateSongOverlay() {
+  const song = activeSetlist[activeCueIdx];
+  const t = document.getElementById('song-title-overlay');
+  if (t) t.textContent = song ? (song.name || 'Song '+(activeCueIdx+1)) : '—';
+}
+
+function activateCuedSong() {
+  const song = activeSetlist[activeCueIdx];
+  if (!song) return;
+  if (m4l.songs && m4l.songs.length && typeof song.time === 'number') {
+    // Ableton-driven — jump to this song's locator time using locator_jump by name
+    const locIdx = (m4l.locators || []).findIndex(l => l.name === 'Song: ' + (song.name || '') || l.name === song.name);
+    if (locIdx >= 0 && wsConnected && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({type:'locator_jump', index: locIdx}));
+    }
+  } else if (typeof song.pc === 'number') {
+    for (let k = 0; k < KBD_COUNT; k++) sendPC(kbdChannel(k), song.pc & 0x7F);
+    if (wsConnected && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({type:'song_activate', pc: song.pc}));
+    }
+  }
+  updateSongOverlay();
+}
+
+// End-of-song detection: hybrid (option C)
+let lastSongTimeSeen = 0, lastTransportSeen = 'STOPPED';
+function checkSongEnd() {
+  if (!activeSetlist.length) return;
+  const song = activeSetlist[activeCueIdx]; if (!song) return;
+
+  let ended = false;
+
+  // Rule A: if Ableton-driven and we've crossed into the next Song: locator's time
+  if (m4l.songs && m4l.songs.length && typeof song.time === 'number') {
+    // Find this song in m4l.songs by name
+    const here = m4l.songs.findIndex(s => s.name === song.name);
+    if (here >= 0 && here + 1 < m4l.songs.length) {
+      const nextTime = m4l.songs[here+1].time;
+      if (m4l.song_time >= nextTime && lastSongTimeSeen < nextTime) ended = true;
+    } else if (here >= 0 && m4l.song_len && m4l.song_time >= m4l.song_len - 0.5) {
+      ended = true;
+    }
+  }
+
+  // Rule B: transport went PLAYING → STOPPED
+  if (lastTransportSeen === 'PLAYING' && transportState === 'STOPPED') ended = true;
+
+  if (ended) {
+    // Advance cue to next song
+    if (activeCueIdx + 1 < activeSetlist.length) {
+      activeCueIdx++;
+      renderActiveList();
+      updateSongOverlay();
+      activateCuedSong();
+      if (autoplayEnabled) {
+        setTimeout(() => {
+          if (typeof transportPlay === 'function') transportPlay(new Event('click'));
+        }, 200);
+      }
+    }
+  }
+
+  lastSongTimeSeen  = m4l.song_time || 0;
+  lastTransportSeen = transportState;
+}
+
+function updateSetlistProgress() {
+  const sections = m4l.sections || [];
+  const song = activeSetlist[activeCueIdx];
+  const t = m4l.song_time || 0;
+
+  // SONG progress: only meaningful when Ableton-driven and song has a time span
+  let songFill = 0, songTimeText = '—';
+  if (song && m4l.songs && m4l.songs.length && typeof song.time === 'number') {
+    const here = m4l.songs.findIndex(s => s.name === song.name);
+    if (here >= 0) {
+      const start = m4l.songs[here].time;
+      const end = (here + 1 < m4l.songs.length) ? m4l.songs[here+1].time : (m4l.song_len || start + 64);
+      const span = Math.max(1, end - start);
+      songFill = Math.max(0, Math.min(100, ((t - start) / span) * 100));
+      const beatsLeft = Math.max(0, end - t);
+      const secLeft = Math.round(beatsLeft * (60 / (m4l.bpm || 120)));
+      const mm = Math.floor(secLeft / 60), ss = secLeft % 60;
+      songTimeText = `-${mm}:${ss<10?'0':''}${ss}`;
+    }
+  }
+  const songFillEl = document.getElementById('song-bar-fill');
+  const songTimeEl = document.getElementById('song-time');
+  if (songFillEl) songFillEl.style.width = songFill + '%';
+  if (songTimeEl) songTimeEl.textContent = songTimeText;
+
+  // SECTION progress
+  let secFill = 0, secName = m4l.current_section || '—', secTimeText = '—';
+  if (sections.length && song && typeof song.time === 'number') {
+    const here = (m4l.songs || []).findIndex(s => s.name === song.name);
+    const songStart = (here >= 0) ? m4l.songs[here].time : 0;
+    const songEnd   = (here >= 0 && here + 1 < m4l.songs.length) ? m4l.songs[here+1].time : (m4l.song_len || songStart + 64);
+    const inSong = sections.filter(s => s.time >= songStart && s.time < songEnd);
+    let curSecIdx = -1;
+    for (let i = 0; i < inSong.length; i++) if (inSong[i].time <= t) curSecIdx = i;
+    if (curSecIdx >= 0) {
+      const secStart = inSong[curSecIdx].time;
+      const secEnd = (curSecIdx + 1 < inSong.length) ? inSong[curSecIdx+1].time : songEnd;
+      const span = Math.max(1, secEnd - secStart);
+      secFill = Math.max(0, Math.min(100, ((t - secStart) / span) * 100));
+      secName = inSong[curSecIdx].name;
+      const beatsLeft = Math.max(0, secEnd - t);
+      const secLeft = Math.round(beatsLeft * (60 / (m4l.bpm || 120)));
+      const mm = Math.floor(secLeft / 60), ss = secLeft % 60;
+      secTimeText = `-${mm}:${ss<10?'0':''}${ss}`;
+    }
+  }
+  const secFillEl = document.getElementById('sec-bar-fill');
+  const secNameEl = document.getElementById('sec-name');
+  const secTimeEl = document.getElementById('sec-time');
+  if (secFillEl) secFillEl.style.width = secFill + '%';
+  if (secNameEl) secNameEl.textContent = secName;
+  if (secTimeEl) secTimeEl.textContent = secTimeText;
+
+  // Song-end detection / auto-advance
+  checkSongEnd();
+}
+
+function wireSetlistControls() {
+  const $ = id => document.getElementById(id);
+
+  $('sl-prev-marker') ?.addEventListener('pointerdown', e => { e.preventDefault(); if (wsConnected && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'locator_prev'})); });
+  $('sl-next-marker') ?.addEventListener('pointerdown', e => { e.preventDefault(); if (wsConnected && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'locator_next'})); });
+
+  $('sl-prev-song')?.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (transportState === 'PLAYING') return;
+    if (activeCueIdx > 0) { activeCueIdx--; renderActiveList(); updateSongOverlay(); activateCuedSong(); }
+  });
+  $('sl-next-song')?.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (transportState === 'PLAYING') return;
+    if (activeCueIdx + 1 < activeSetlist.length) { activeCueIdx++; renderActiveList(); updateSongOverlay(); activateCuedSong(); }
+  });
+
+  $('sl-autoplay-toggle')?.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    autoplayEnabled = !autoplayEnabled;
+    localStorage.setItem('autoplayEnabled', autoplayEnabled ? '1' : '0');
+    const el = e.currentTarget;
+    el.style.background = autoplayEnabled ? '#0e4a14' : '#181820';
+    el.style.borderColor = autoplayEnabled ? '#2a6030' : '#333';
+    el.style.color = autoplayEnabled ? '#5ed06f' : '#888';
+  });
+
+  $('sl-clear')?.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (activeSetlist.length === 0) return;
+    if (confirm('Clear active setlist?')) {
+      activeSetlist = []; activeCueIdx = 0;
+      saveActiveSetlist(); renderActiveList(); updateSongOverlay();
+    }
+  });
+
+  // Initialize autoplay button visual
+  const ap = $('sl-autoplay-toggle');
+  if (ap) {
+    ap.style.background = autoplayEnabled ? '#0e4a14' : '#181820';
+    ap.style.borderColor = autoplayEnabled ? '#2a6030' : '#333';
+    ap.style.color = autoplayEnabled ? '#5ed06f' : '#888';
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Hard cleanup: remove every drag ghost on body and reset selection state.
+function cleanupSetlistGhosts() {
+  document.querySelectorAll('body > .sl-lib-card, body > .sl-active-card, body > .sl-drag-ghost').forEach(g => {
+    try { g.remove(); } catch(e) {}
+  });
+  document.body.style.userSelect = '';
+  document.body.style.webkitUserSelect = '';
+}
+// Safety net: if any pointer release happens anywhere, clean up dangling ghosts on the next tick
+document.addEventListener('pointerup',     () => setTimeout(cleanupSetlistGhosts, 50));
+document.addEventListener('pointercancel', () => setTimeout(cleanupSetlistGhosts, 50));
+
+renderSetlistPage();
+
+// ═══════════════════════════════════════════
+//  TABS — with long-press reorder
+// ═══════════════════════════════════════════
+let tabEditMode = false;
+
+// Apply a saved tab order from localStorage if present
+function applyTabOrder() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem('tabOrder') || 'null'); } catch(e) {}
+  if (!Array.isArray(saved)) return;
+  const bar = document.getElementById('tabbar'); if (!bar) return;
+  const byPage = {};
+  document.querySelectorAll('.tab').forEach(t => { byPage[t.dataset.page] = t; });
+  saved.forEach(pageId => { const t = byPage[String(pageId)]; if (t) bar.appendChild(t); });
+}
+function saveTabOrder() {
+  const order = Array.from(document.querySelectorAll('.tab')).map(t => t.dataset.page);
+  localStorage.setItem('tabOrder', JSON.stringify(order));
+}
+function setTabEditMode(on) {
+  tabEditMode = on;
+  document.body.classList.toggle('tab-edit-mode', on);
+  if (on) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.add('wiggle'));
+  } else {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('wiggle'));
+    saveTabOrder();
+  }
+}
+
+function switchToPage(p) {
+  const tab = document.querySelector(`.tab[data-page="${p}"]`);
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
+  if (tab) tab.classList.add('active');
+  const pg = document.getElementById(`page-${p}`); if (pg) pg.classList.add('active');
+  if (typeof cleanupSetlistGhosts === 'function') cleanupSetlistGhosts();
+  if (typeof syncBlueHandToActivePage === 'function') syncBlueHandToActivePage();
+}
+
+function attachTabHandlers() {
+  document.querySelectorAll('.tab').forEach(tab => {
+    let pressTimer = null;
+    let dragMode = false;
+    let startX = 0;
+
+    tab.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      startX = e.clientX;
+
+      if (tabEditMode) {
+        // In edit mode: pointerdown starts a drag immediately
+        dragMode = true;
+        try { tab.setPointerCapture(e.pointerId); } catch(_){}
+        tab.classList.add('dragging');
+        return;
+      }
+
+      // Not in edit mode: schedule long-press to ENTER edit mode
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        setTabEditMode(true);
+        // Optionally let this same press start dragging that tab right away
+        dragMode = true;
+        try { tab.setPointerCapture(e.pointerId); } catch(_){}
+        tab.classList.add('dragging');
+      }, 600);
+    });
+
+    tab.addEventListener('pointermove', e => {
+      if (!dragMode) {
+        // Cancel pending long-press if user moves significantly
+        if (pressTimer && Math.abs(e.clientX - startX) > 10) {
+          clearTimeout(pressTimer); pressTimer = null;
+        }
+        return;
+      }
+      // Drag: find the tab under the pointer and swap if different
+      const overTab = document.elementFromPoint(e.clientX, e.clientY);
+      if (!overTab || !overTab.classList || !overTab.classList.contains('tab')) return;
+      if (overTab === tab) return;
+      const bar = document.getElementById('tabbar');
+      const overRect = overTab.getBoundingClientRect();
+      const tabIdx = Array.from(bar.children).indexOf(tab);
+      const overIdx = Array.from(bar.children).indexOf(overTab);
+      if (tabIdx < overIdx) bar.insertBefore(tab, overTab.nextSibling);
+      else bar.insertBefore(tab, overTab);
+    });
+
+    const release = e => {
+      if (pressTimer !== null) {
+        // Released before long-press fired = tap action
+        clearTimeout(pressTimer); pressTimer = null;
+        if (tabEditMode) {
+          // Tap during edit mode exits edit mode
+          setTabEditMode(false);
+          return;
+        }
+        // Normal tap: switch to that page
+        switchToPage(tab.dataset.page);
+        return;
+      }
+      if (dragMode) {
+        dragMode = false;
+        tab.classList.remove('dragging');
+        saveTabOrder();
+      }
+    };
+    tab.addEventListener('pointerup', release);
+    tab.addEventListener('pointercancel', release);
+  });
+}
+
+ensureDynamicKbdTabsAndPages();
+applyTabOrder();
+attachTabHandlers();
+
+// ═══════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════
+const BRIDGE_HOST = '{{BRIDGE_HOST}}';
+const BRIDGE_HOST_INJECTED = BRIDGE_HOST !== '{{BRIDGE_HOST_PLACEHOLDER}}';
+
+function initMIDI() {
+  if(BRIDGE_HOST_INJECTED&&!BRIDGE_HOST.includes('NOT_DETECTED')){
+    localStorage.setItem('bridgeIP',BRIDGE_HOST); connectWS(BRIDGE_HOST); return;
+  }
+  const saved=localStorage.getItem('bridgeIP');
+  if(saved) connectWS(saved);
+  else setLabel('Tap here to set Mac IP address →');
+}
+
+buildMaster();
+buildStems();
+buildLooper();
+buildPads();
+buildPatches();
+for(let k=0;k<KBD_COUNT;k++) buildKbdPage(k);
+// Hide tabs/pages for any KBD slots beyond what rig_config.json defines.
+for(let k=KBD_COUNT;k<4;k++){
+  const tab = document.querySelector(`.tab[data-page="${4+k}"]`);
+  if (tab) tab.style.display = 'none';
+}
+buildClipLauncher();
+initMIDI();
+</script>
+</body>
+</html>

@@ -39,6 +39,7 @@ import time
 from pathlib import Path
 
 import rumps
+from PyObjCTools import AppHelper
 
 # ── Locate bundled resources -- works both frozen (inside the .app) and
 # when run directly as a plain script during development. ───────────────────
@@ -164,11 +165,36 @@ def _sync_rig_config():
               "controller will fall back to built-in defaults.")
 
 
+def _bridge_venv_is_healthy():
+    """Sanity-check that the venv's own Python can actually boot. A venv's
+    interpreter is a symlink/shim pointing at the Homebrew Python that
+    created it; if that Homebrew Python gets upgraded or removed later
+    (e.g. `brew upgrade python`), the venv is left pointing at a dead
+    interpreter that fails before running any of our code, with an error
+    like 'Failed to import encodings module'. Path.exists() alone can't
+    catch this -- the directory is still there, just non-functional."""
+    python = BRIDGE_VENV / "bin/python"
+    if not python.exists():
+        return False
+    try:
+        result = subprocess.run([str(python), "-c", "import sys"],
+                                 capture_output=True, timeout=10)
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def _ensure_bridge_venv():
     """One-time setup of the separate venv used only by the MIDI bridge
     subprocess. Returns False if the user cancelled a required install."""
     if BRIDGE_VENV.exists():
-        return True
+        if _bridge_venv_is_healthy():
+            return True
+        # Broken venv (e.g. left over from an upgraded/removed Homebrew
+        # Python) -- wipe it so the fresh-install path below recreates it.
+        print(f"WARNING: bridge venv at {BRIDGE_VENV} is broken, rebuilding it.")
+        import shutil
+        shutil.rmtree(BRIDGE_VENV, ignore_errors=True)
 
     rumps.notification("LiveRig", "Setting up for first time…",
                         "This takes a few minutes (once only).")
@@ -254,8 +280,15 @@ class LiveRigMenu(rumps.App):
         time.sleep(2)
 
         if self.bridge.poll() is not None:
-            rumps.alert("LiveRig Error",
-                        f"Bridge failed to start.\nSee log: {BRIDGE_LOG}")
+            # rumps.alert() creates an NSAlert, and AppKit requires all
+            # NSWindow/NSAlert creation to happen on the main thread.
+            # _boot() runs in a background thread, so calling it directly
+            # here crashes with NSInternalInconsistencyException -- which
+            # was masking the actual "bridge failed to start" error.
+            # AppHelper.callAfter hands the call to the main run loop.
+            AppHelper.callAfter(
+                rumps.alert, "LiveRig Error",
+                f"Bridge failed to start.\nSee log: {BRIDGE_LOG}")
             rumps.quit_application()
             return
 
