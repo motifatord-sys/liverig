@@ -571,8 +571,13 @@ function connectWS(ip) {
 }
 
 function showIPPrompt() {
+  // Manual fallback if auto-connect (via the {{BRIDGE_HOST}} hostname
+  // LiveRig.app injects into this page at serve time) doesn't reach the
+  // bridge -- e.g. mDNS/.local resolution failing on this network. Launch
+  // LiveRig from Applications on your Mac; its menu bar "Copy iPad URL"
+  // item copies the working address, or just type your Mac's WiFi IP here.
   const saved = localStorage.getItem('bridgeIP')||'';
-  const ip = prompt('Enter your Mac\'s USB IP address\n\nRun LiveRig_Wired_Start.sh on Mac — it copies the IP to clipboard.\nUSB addresses look like: 169.254.x.x\n\nMake sure iPad is plugged in and you tapped "Trust This Computer".', saved);
+  const ip = prompt('Enter your Mac\'s IP address (same WiFi network as this iPad)\n\nOpen LiveRig\'s menu bar icon on your Mac and click "Copy iPad URL" for the working address, or find the IP under System Settings > WiFi > Details.', saved);
   if(ip&&ip.trim()) connectWS(ip.trim());
 }
 
@@ -1195,9 +1200,10 @@ function buildMaster() {
 
 // ═══════════════════════════════════════════
 //  RIG CONFIG — loaded from rig_config.json, served by the same
-//  http.server that serves this page (LiveRig_Wired_Start.sh, port 8080).
-//  Falls back to the original hardcoded 4-keyboard/8-patch layout if the
-//  file is missing or malformed, so absence of the file changes nothing.
+//  http.server that serves this page (started by liverig-app/liverig_app.py,
+//  port 8080). Falls back to the original hardcoded 4-keyboard/8-patch
+//  layout if the file is missing or malformed, so absence of the file
+//  changes nothing.
 //
 //  NOTE: the markup below still has exactly 4 fixed KBD page slots
 //  (page-4..page-7) and a 4-tab bar. KBD_COUNT here drives per-keyboard
