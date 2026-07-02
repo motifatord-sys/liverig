@@ -290,7 +290,7 @@
 		</data>
 		<key>Resources/lib/python39.zip</key>
 		<data>
-		dSCoK4HKcD2owuY57whWPPWxOVM=
+		MZLaGUtSCyVIj9XUyR8pGnKpybs=
 		</data>
 		<key>Resources/live_rig_3_controller.html</key>
 		<data>
@@ -298,7 +298,7 @@
 		</data>
 		<key>Resources/liverig_app.py</key>
 		<data>
-		MVpfox8RH60Hy+t3dN+dHnctMZ0=
+		Gp//t8OWec/S+6waBm/9NZiplvI=
 		</data>
 		<key>Resources/liverig_bridge_wired.py</key>
 		<data>
@@ -310,7 +310,7 @@
 		</data>
 		<key>Resources/site.pyc</key>
 		<data>
-		a+smZ75/KT9LKgjFuAz8v8Hkn4c=
+		RpKHBSDpMtWlgTFlmyLHKgRQ5jI=
 		</data>
 		<key>Resources/zlib.cpython-39-darwin.so</key>
 		<data>
@@ -1127,11 +1127,11 @@
 		<dict>
 			<key>hash</key>
 			<data>
-			dSCoK4HKcD2owuY57whWPPWxOVM=
+			MZLaGUtSCyVIj9XUyR8pGnKpybs=
 			</data>
 			<key>hash2</key>
 			<data>
-			1YZ1EZng2d8jvxtrkillGkRBtXhFj0ovptZp44R2IJE=
+			NmOzxZCNeeTSphAXcLKoT1Hk5xKlJ20ovM6Bb0MYbtQ=
 			</data>
 		</dict>
 		<key>Resources/live_rig_3_controller.html</key>
@@ -1149,11 +1149,11 @@
 		<dict>
 			<key>hash</key>
 			<data>
-			MVpfox8RH60Hy+t3dN+dHnctMZ0=
+			Gp//t8OWec/S+6waBm/9NZiplvI=
 			</data>
 			<key>hash2</key>
 			<data>
-			kbL27H4+jhPyLz9xNskRwqe4iLWFK3aqffbEFm2/flM=
+			RJO8LpOVsrP0xfYS8PpAcmvbwOfbthFflJXPrfvoCQU=
 			</data>
 		</dict>
 		<key>Resources/liverig_bridge_wired.py</key>
@@ -1182,11 +1182,11 @@
 		<dict>
 			<key>hash</key>
 			<data>
-			a+smZ75/KT9LKgjFuAz8v8Hkn4c=
+			RpKHBSDpMtWlgTFlmyLHKgRQ5jI=
 			</data>
 			<key>hash2</key>
 			<data>
-			02X9WdCw29xfqzOcg8rOzS4tV+jHS0hT5jewR56bFJA=
+			12GfQWuimaHODezZOdg7H8EMcu9IHo2gj0FGkVsFL+g=
 			</data>
 		</dict>
 		<key>Resources/zlib.cpython-39-darwin.so</key>

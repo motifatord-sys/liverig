@@ -68,6 +68,15 @@ SERVED_RIG_CONFIG  = Path("/private/tmp/rig_config.json")
 
 
 def _run(cmd, **kw):
+    # Default to a PYTHONHOME/PYTHONPATH-stripped environment (see
+    # _clean_subprocess_env) for every subprocess this app spawns. This
+    # matters most for the venv-creation and pip-install calls in
+    # _ensure_bridge_venv(): those run a *different* Python (Homebrew's,
+    # not this frozen app's), and without this, they silently inherited
+    # this app's PYTHONHOME and built a venv that could never work --
+    # explaining why even a from-scratch venv rebuild kept failing with
+    # the same 'Failed to import encodings module' error.
+    kw.setdefault("env", _clean_subprocess_env())
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 

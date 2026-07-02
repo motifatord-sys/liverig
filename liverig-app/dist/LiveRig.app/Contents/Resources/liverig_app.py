@@ -165,6 +165,26 @@ def _sync_rig_config():
               "controller will fall back to built-in defaults.")
 
 
+def _clean_subprocess_env():
+    """Environment for spawning the *separate* bridge-venv Python.
+
+    This app itself is a frozen py2app bundle, and py2app's own bootstrap
+    sets PYTHONHOME/PYTHONPATH (among others) in os.environ so its bundled
+    interpreter can find its bundled stdlib inside the .app. subprocess.Popen
+    inherits the parent's environment by default, so without this, the
+    completely separate bridge venv's python inherits those same variables
+    -- pointing it at the *frozen app's* Python resources instead of its own
+    venv's stdlib. It then fails immediately with 'Failed to import
+    encodings module', before running a single line of our code. This bit
+    both the health check and the real subprocess launch identically, which
+    is why simply rebuilding the venv didn't fix the previous crash: the
+    venv itself was fine, the inherited environment was not."""
+    env = os.environ.copy()
+    for var in ("PYTHONHOME", "PYTHONPATH"):
+        env.pop(var, None)
+    return env
+
+
 def _bridge_venv_is_healthy():
     """Sanity-check that the venv's own Python can actually boot. A venv's
     interpreter is a symlink/shim pointing at the Homebrew Python that
@@ -178,7 +198,8 @@ def _bridge_venv_is_healthy():
         return False
     try:
         result = subprocess.run([str(python), "-c", "import sys"],
-                                 capture_output=True, timeout=10)
+                                 capture_output=True, timeout=10,
+                                 env=_clean_subprocess_env())
         return result.returncode == 0
     except Exception:
         return False
@@ -274,7 +295,7 @@ class LiveRigMenu(rumps.App):
         with open(BRIDGE_LOG, "w") as log:
             self.bridge = subprocess.Popen(
                 [bridge_python, str(RESOURCES / "liverig_bridge_wired.py")],
-                stdout=log, stderr=log,
+                stdout=log, stderr=log, env=_clean_subprocess_env(),
             )
         PID_FILE.write_text(str(self.bridge.pid))
         time.sleep(2)
@@ -296,6 +317,7 @@ class LiveRigMenu(rumps.App):
             self.http = subprocess.Popen(
                 [bridge_python, "-m", "http.server", str(HTTP_PORT)],
                 cwd="/private/tmp", stdout=log, stderr=log,
+                env=_clean_subprocess_env(),
             )
         HTTP_PID.write_text(str(self.http.pid))
 
