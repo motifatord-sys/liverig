@@ -24,6 +24,16 @@ David: CLICK and GUIDE should no longer be on the Master page — move them to t
 2. Relaunch LiveRig.app (or use the "Resync Config from Setup Tool" menu item) so `/private/tmp/rig_config.json` updates, then hard-reload the iPad Safari page.
 3. Confirm CLICK/GUIDE appear as stems 9/10 on the Stems tab and actually control Ableton; if their track names don't match, they'll show the amber/red ⚠ bind-warn badge (stems already render one per slot).
 
+### Follow-up: removed the now-orphaned `aux` scaffolding from `LiveRig.py` — 2026-07-02
+
+David confirmed CLICK/GUIDE should be "treated exactly the same as all other stems, same behavior." Since the stems move already delivered that, the old **`aux` mechanism** (the "Click/Guide automatic control" scaffolding from commit `1674e86`, dormant because no `"aux"` key ever existed in rig_config) was now a redundant *second* control path for the same two tracks — activating it (e.g. if the Setup Tool ever wrote an `"aux"` list) would have double-bound them (ch5 listeners **and** ch6 stem listeners on one track). Removed it entirely so there's exactly one mechanism.
+
+**Excised from `LiveRig.py`** (2199 → 2092 lines): `FB_AUX_VOLUME` (0x55, now a reserved/retired code, not reused); the `__init__` `"aux"` config read (`_aux_count`/`_aux_track_bindings`/`_aux_labels`); `_resolve_aux_track_index`; the four aux volume methods (`_rebind`/`_unbind`/`_emit`/`_emit_all_aux_volumes`) and their `_aux_volume_listeners` list; the aux calls in `_connect_listeners`/`disconnect`/`_on_tracks_changed`/`_emit_full_state`/`_emit_all_binding_statuses`; the `build_midi_map` ch5 CC20/21/24/25/28/29 registration; and the `_dispatch_cc` `channel == 4` branch. Stale comments updated to match.
+
+**Deliberately KEPT** (protocol alignment, not runtime): `BIND_CAT_AUX = 3` and the `(0=kbd,1=stem,2=looper,3=aux)` enum doc — the HTML mirrors this enum (`BIND_CAT_NAMES = ['kbd','stem','looper','aux']`), so removing the value would risk renumbering; it's just reserved/unused now. Also kept **ch5 reserved** in `_RESERVED_KBD_CHANNELS_0IDX = (4,5,6,9,14,15)` — freeing it would require a matching change to the HTML's `kbdDefaultChannel()`, so left as legacy-reserved (comment updated) for zero behavior change to KBD auto-assign. The HTML's dormant `aux-*` CSS + `0x55` feedback branch were also left (harmless, already commented unused).
+
+**Verified:** `ast.parse` + `py_compile` clean, grep-confirmed zero dangling references to any removed identifier, deployed to all three locations (repo + `~/Music/Ableton/User Library/Remote Scripts/LiveRig/` + app bundle `Resources/LiveRig/`), all three byte-identical (md5 match). Same live-activation steps as the section above (restart the Live Beta so the Remote Script reloads). No `rig_config.json` change in this follow-up — the stems binding from the parent section is what drives Click/Guide now.
+
 ## Crash-restart mid-show: LiveRig now auto-resyncs full Ableton state on reconnect — 2026-07-03 (commit `6e8752d`)
 
 David's scenario: playing a live show, LiveRig.app crashes, he restarts it — but the Remote Script inside Ableton never went stale, it kept tracking the session the whole time. The problem was purely on the bridge/UI side: the iPad had nothing to show until Ableton's Control Surface was reloaded, which isn't possible mid-set without closing the session.

@@ -62,7 +62,7 @@ Direct CC handling (via build_midi_map — no CMD+M needed for these):
          via defaultTrackBinding). Each keyboard's MIDI channel comes from
          rig_config.json's "midiChannel" (1-indexed) or, if absent,
          auto-assigned to the next channel not already claimed by ch5
-         (aux)/ch6 (stems)/ch7 (FX returns)/ch10 (pads)/ch16 (transport) —
+         (legacy/reserved)/ch6 (stems)/ch7 (FX returns)/ch10 (pads)/ch16 (transport) —
          KBD1-4 default to ch1-4, same as before. (CC7 volume added
          2026-07-01 — previously Cmd+M-dependent, same gap as stems below.)
   ch6    CC1..N=vol, N+1..2N=mute, 2N+1..3N=solo → Stem tracks (N = stem
@@ -135,8 +135,10 @@ def _load_rig_config(log=None):
 
 # ── KBD MIDI channel assignment (2026-06-30, >4 keyboard support) ───────────
 # KBD1-4 originally assumed MIDI ch1-4 (index 0-3) with no other option.
-# Channels already claimed elsewhere (0-indexed): 4=CH5 aux (Click/Guide/
-# Loops), 5=CH6 stems, 6=CH7 FX returns, 9=CH10 pads, 14=CH15 Blue Hand
+# Channels already claimed elsewhere (0-indexed): 4=CH5 (legacy -- was the
+# Click/Guide/Loops "aux" row, now unused since Click/Guide became ch6 stems
+# 2026-07-02; kept reserved so KBD auto-assign stays stable and in sync with
+# the HTML), 5=CH6 stems, 6=CH7 FX returns, 9=CH10 pads, 14=CH15 Blue Hand
 # (see below), 15=CH16 transport.
 # Keyboards beyond the first 4 get the next free channel in that order
 # unless rig_config.json specifies an explicit 1-indexed "midiChannel".
@@ -233,7 +235,9 @@ FB_CLIP_INFO       = 0x51   # data: scene_idx, track_idx, flags, name length, na
 FB_KBD_VOLUME      = 0x52   # data: kbd_idx, v14_hi, v14_lo
 FB_STEM_VOLUME     = 0x53   # data: stem_idx, v14_hi, v14_lo
 FB_RETURN_VOLUME   = 0x54   # data: return_idx (0-3 = REV1/REV2/DLY1/DLY2), v14_hi, v14_lo
-FB_AUX_VOLUME      = 0x55   # data: aux_idx (0=Click,1=Guide per rig_config "aux"), v14_hi, v14_lo
+# 0x55 retired 2026-07-02: was FB_AUX_VOLUME for a separate Click/Guide "aux"
+# path. Click/Guide are now ordinary stems (stem9/stem10) and use
+# FB_STEM_VOLUME (0x53) like every other stem. 0x55 left reserved, not reused.
 FB_BINDING_STATUS  = 0x56   # data: category, idx, status (see BIND_CAT_*/BIND_STATUS_* below)
 
 # ── Track-binding status (2026-07-01) ───────────────────────────────────────
@@ -320,21 +324,11 @@ class LiveRig(ControlSurface):
         self._looper_track_bindings = [l.get("trackName") for l in loopers]
         self._looper_labels = [l.get("label") for l in loopers]
 
-        # Aux tracks (Click/Guide on the Master page, CH5/index 4): named
-        # tracks like stems, but historically had NO rig_config entry at
-        # all, so both mute/solo and volume were 100% Cmd+M-dependent (the
-        # gap David hit 2026-07-01 alongside the KBD/stem volume bug).
-        # Deliberately opt-in: if rig_config.json has no "aux" list (or it's
-        # empty), self._aux_count stays 0 and build_midi_map() never
-        # registers ch5's CCs, so today's Cmd+M mapping keeps working
-        # unchanged until real track names are added. Fixed CC scheme
-        # (not dynamic like stems) matching the two hardcoded Master-page
-        # columns in live_rig_3_controller.html: aux index 0 (Click) =
-        # vol CC20/mute CC24/solo CC28, index 1 (Guide) = CC21/25/29.
-        aux = rig_config.get("aux") or []
-        self._aux_count = len(aux)
-        self._aux_track_bindings = [a.get("trackName") for a in aux]
-        self._aux_labels = [a.get("label") for a in aux]
+        # Click/Guide are ordinary stems now (stem9/stem10 in rig_config.json,
+        # 2026-07-02) -- controlled on ch6 through the normal stem path like
+        # every other stem. The old separate "aux" mechanism (ch5 CC20/21,
+        # a dedicated rig_config "aux" list) was fully removed so these two
+        # tracks have exactly one control path and can't be double-bound.
 
         with self.component_guard():
             self.log_message("LiveRig Remote Script loaded.")
@@ -430,13 +424,12 @@ class LiveRig(ControlSurface):
         try: self._emit_all_stem_names()
         except Exception as e: self.log_message("emit_all_stem_names init: " + str(e))
 
-        # Volume feedback listeners (2026-07-01): KBD, stems, FX returns,
-        # and (if configured) aux/Click-Guide -- so moving a fader by mouse
-        # or automation in Ableton updates the corresponding iPad fader.
+        # Volume feedback listeners (2026-07-01): KBD, stems, FX returns --
+        # so moving a fader by mouse or automation in Ableton updates the
+        # corresponding iPad fader. (Click/Guide ride the stem path now.)
         self._kbd_volume_listeners = []
         self._stem_volume_listeners = []
         self._return_volume_listeners = []
-        self._aux_volume_listeners = []
         try: self._rebind_kbd_volume_listeners()
         except Exception as e: self.log_message("rebind_kbd_volume init: " + str(e))
         try: self._emit_all_kbd_volumes()
@@ -449,10 +442,6 @@ class LiveRig(ControlSurface):
         except Exception as e: self.log_message("rebind_return_volume init: " + str(e))
         try: self._emit_all_return_volumes()
         except Exception as e: self.log_message("emit_all_return_volumes init: " + str(e))
-        try: self._rebind_aux_volume_listeners()
-        except Exception as e: self.log_message("rebind_aux_volume init: " + str(e))
-        try: self._emit_all_aux_volumes()
-        except Exception as e: self.log_message("emit_all_aux_volumes init: " + str(e))
 
         # Looper device "State" param listeners for loop1-4 (separate
         # dedicated loop tracks, bound via rig_config.json loopers[].trackName)
@@ -528,8 +517,6 @@ class LiveRig(ControlSurface):
         try: self._unbind_stem_volume_listeners()
         except Exception: pass
         try: self._unbind_return_volume_listeners()
-        except Exception: pass
-        try: self._unbind_aux_volume_listeners()
         except Exception: pass
         try: self._unbind_looper_state_listeners()
         except Exception: pass
@@ -734,8 +721,6 @@ class LiveRig(ControlSurface):
         self._emit_all_stem_volumes()
         self._rebind_return_volume_listeners()
         self._emit_all_return_volumes()
-        self._rebind_aux_volume_listeners()
-        self._emit_all_aux_volumes()
         self._rebind_looper_state_listeners()
         self._emit_all_looper_states()
         self._rebind_looper_quant_listeners()
@@ -879,15 +864,6 @@ class LiveRig(ControlSurface):
         self._note_binding_status(BIND_CAT_STEM, si, status)
         return idx
 
-    def _resolve_aux_track_index(self, ai):
-        """Resolve aux slot `ai` (0=Click, 1=Guide by rig_config.json order)
-        to an actual track index, via rig_config's aux[ai].trackName. No
-        positional fallback -- same reasoning as stems/loopers."""
-        binding = self._aux_track_bindings[ai] if ai < len(self._aux_track_bindings) else None
-        idx, status = self._resolve_track_binding(binding, "aux%d" % ai, fallback_idx=None)
-        self._note_binding_status(BIND_CAT_AUX, ai, status)
-        return idx
-
     def _resolve_looper_track_index(self, li):
         """Resolve loop slot `li` to an actual track index, using
         rig_config's loopers[li].trackName. No positional fallback -- loop
@@ -901,8 +877,8 @@ class LiveRig(ControlSurface):
         return idx
 
     def _emit_all_binding_statuses(self, force=False):
-        """Re-resolve every configured binding across all 4 categories,
-        which as a side effect (via _note_binding_status inside each
+        """Re-resolve every configured binding across all categories, which
+        as a side effect (via _note_binding_status inside each
         _resolve_*_track_index above) emits any status that's changed.
         force=True clears the diff cache first so a freshly (re)connected
         iPad gets a full dump instead of nothing (mirrors _scan_clip_grid's
@@ -915,8 +891,6 @@ class LiveRig(ControlSurface):
             self._resolve_stem_track_index(si)
         for li in range(self._looper_count):
             self._resolve_looper_track_index(li)
-        for ai in range(self._aux_count):
-            self._resolve_aux_track_index(ai)
 
     # ── Macro listeners for KBD1-4 ──────────────────────────────────────────
     def _select_macro_params(self, device, bank_size):
@@ -1186,7 +1160,7 @@ class LiveRig(ControlSurface):
     # Mirrors color/name listeners above, but for mixer_device.volume, so
     # moving a fader with the mouse in Live (or via automation) keeps the
     # Master/Stems fader on the iPad in sync -- these are the same tracks
-    # CC7/stem-CC1..N/aux-CC20-21/FX-return-CC1-4 already control directly
+    # CC7/stem-CC1..N/FX-return-CC1-4 already control directly
     # (see build_midi_map/_dispatch_cc), just the missing feedback half.
     def _rebind_kbd_volume_listeners(self):
         self._unbind_kbd_volume_listeners()
@@ -1302,47 +1276,6 @@ class LiveRig(ControlSurface):
     def _emit_all_return_volumes(self):
         for ri in range(4):
             self._emit_return_volume(ri)
-
-    def _rebind_aux_volume_listeners(self):
-        """No-op if self._aux_count == 0 (no rig_config 'aux' section yet
-        -- see __init__ comment); becomes active as soon as real Click/Guide
-        track names are added, no other code changes needed."""
-        self._unbind_aux_volume_listeners()
-        try:
-            for ai in range(self._aux_count):
-                track_idx = self._resolve_aux_track_index(ai)
-                if track_idx is None:
-                    continue
-                vol_param = self.song().tracks[track_idx].mixer_device.volume
-                aux_idx = ai
-                listener = lambda t=aux_idx: self._emit_aux_volume(t)
-                vol_param.add_value_listener(listener)
-                self._aux_volume_listeners.append((vol_param, listener))
-        except Exception as e:
-            self.log_message("rebind aux volume error: " + str(e))
-
-    def _unbind_aux_volume_listeners(self):
-        for param, listener in self._aux_volume_listeners:
-            try:
-                param.remove_value_listener(listener)
-            except Exception:
-                pass
-        self._aux_volume_listeners = []
-
-    def _emit_aux_volume(self, ai):
-        try:
-            track_idx = self._resolve_aux_track_index(ai)
-            if track_idx is None:
-                return
-            vol = self.song().tracks[track_idx].mixer_device.volume.value
-            v14 = int(round(max(0.0, min(1.0, vol)) * 0x3FFF))
-            self._send_sx([FB_AUX_VOLUME, ai & 0x7F] + self._encode_uint14(v14))
-        except Exception as e:
-            self.log_message("aux volume emit error: " + str(e))
-
-    def _emit_all_aux_volumes(self):
-        for ai in range(self._aux_count):
-            self._emit_aux_volume(ai)
 
     # ── Looper device control (loop1-4, native Live Object Model control) ───
     def _find_looper_device(self, track):
@@ -1602,13 +1535,9 @@ class LiveRig(ControlSurface):
                            MIDI ch6 (dynamic per STEM_COUNT). Volume (1..N)
                            added 2026-07-01 for the same reason as KBD above.
           FX returns     — CC1-12 on MIDI ch7      (vol + mute + solo)
-          Aux (Click/Guide) — CC20/21=vol, CC24/25=mute, CC28/29=solo on
-                           MIDI ch5 (index 4) -- ONLY if rig_config.json
-                           defines an "aux" list (self._aux_count > 0).
-                           Opt-in on purpose: with no aux config, these CCs
-                           are left alone so any existing Cmd+M mapping in
-                           Ableton keeps working exactly as before. Added
-                           2026-07-01 alongside the KBD/stem volume fix.
+          (Click/Guide are ordinary stems now -- stem9/stem10 on ch6 -- so
+           they need no separate CC scheme here; the old ch5 "aux" path was
+           removed 2026-07-02.)
           Blue Hand      — CC10-17 on MIDI ch15    (selected track's first
                            device's first 8 params; only acts when a KBD
                            slot has Blue Hand toggled on -- see _dispatch_cc)
@@ -1632,19 +1561,6 @@ class LiveRig(ControlSurface):
         for cc in range(1, 13):
             Live.MidiMap.forward_midi_cc(
                 self._c_instance.handle(), midi_map_handle, 6, cc)
-        # Aux (Click/Guide) vol/mute/solo on MIDI ch5 (index 4) -- opt-in,
-        # only registered if rig_config.json actually defines aux tracks
-        # (see __init__/self._aux_count comment). Fixed CC scheme matching
-        # the two hardcoded Master-page columns: CC20/24/28 = Click
-        # vol/mute/solo, CC21/25/29 = Guide vol/mute/solo.
-        if self._aux_count > 0:
-            for ai in range(self._aux_count):
-                Live.MidiMap.forward_midi_cc(
-                    self._c_instance.handle(), midi_map_handle, 4, 20 + ai)
-                Live.MidiMap.forward_midi_cc(
-                    self._c_instance.handle(), midi_map_handle, 4, 24 + ai)
-                Live.MidiMap.forward_midi_cc(
-                    self._c_instance.handle(), midi_map_handle, 4, 28 + ai)
         # Blue Hand param control on its dedicated channel: CC10-17
         for cc in range(10, 18):
             Live.MidiMap.forward_midi_cc(
@@ -1711,31 +1627,9 @@ class LiveRig(ControlSurface):
                 self.log_message("kbd%d vol/mute/solo error: %s" % (ti, str(e)))
             return
 
-        # ── Aux (Click/Guide): MIDI ch5 (index 4), volume/mute/solo ──────────
-        # Only ever reaches here if self._aux_count > 0 (see build_midi_map --
-        # otherwise these CCs are never registered/forwarded at all, so
-        # Ableton's own Cmd+M mapping keeps handling them untouched).
-        if channel == 4 and self._aux_count > 0:
-            for ai in range(self._aux_count):
-                track_idx = self._resolve_aux_track_index(ai)
-                if track_idx is None:
-                    continue
-                if cc == 20 + ai:
-                    try:
-                        song.tracks[track_idx].mixer_device.volume.value = val / 127.0
-                    except Exception:
-                        pass
-                elif cc == 24 + ai:
-                    try:
-                        song.tracks[track_idx].mute = bool(val)
-                    except Exception:
-                        pass
-                elif cc == 28 + ai:
-                    try:
-                        song.tracks[track_idx].solo = bool(val)
-                    except Exception:
-                        pass
-            return
+        # (Click/Guide used to live here on MIDI ch5/index 4 as "aux"; they're
+        # ordinary stems now -- stem9/stem10 -- and route through the ch6 stem
+        # handler below. The old aux branch was removed 2026-07-02.)
 
         # ── Stems: MIDI ch6 (index 5), volume/mute/solo ──────────────────────
         if channel == 5:
@@ -2186,7 +2080,6 @@ class LiveRig(ControlSurface):
         self._emit_all_kbd_volumes()
         self._emit_all_stem_volumes()
         self._emit_all_return_volumes()
-        self._emit_all_aux_volumes()
         self._emit_all_looper_states()
         self._emit_all_looper_quants()
         try:
