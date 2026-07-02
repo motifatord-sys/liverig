@@ -239,8 +239,11 @@ class LiveRigMenu(rumps.App):
         bridge_python = str(BRIDGE_VENV / "bin/python")
 
         html_src = RESOURCES / "live_rig_3_controller.html"
-        html = html_src.read_text().replace("{{BRIDGE_HOST}}", self.host)
-        SERVED_HTML.write_text(html)
+        # Explicit UTF-8: when launched via Finder/LaunchServices (no inherited
+        # terminal locale), Python's default text encoding falls back to ASCII,
+        # which crashes on this file's UTF-8 characters (e.g. dashes, icons).
+        html = html_src.read_text(encoding="utf-8").replace("{{BRIDGE_HOST}}", self.host)
+        SERVED_HTML.write_text(html, encoding="utf-8")
 
         with open(BRIDGE_LOG, "w") as log:
             self.bridge = subprocess.Popen(
