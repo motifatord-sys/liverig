@@ -58,6 +58,13 @@ HTTP_PORT           = 8080
 WS_PORT             = 8765
 REMOTE_SCRIPTS_DIR  = Path.home() / "Music/Ableton/User Library/Remote Scripts/LiveRig"
 
+# rig_config.json handoff (ported 2026-07-02 from the retired
+# LiveRig_Wired_Start.sh -- see _sync_rig_config() below for why).
+REPO_RIG_CONFIG    = Path.home() / "Desktop/liverig/rig_config.json"
+EXT_STORAGE_CONFIG = (Path.home() / "Library/Application Support/Ableton/Extensions"
+                      / "LiveRig Setup Tool/storage/rig_config.json")
+SERVED_RIG_CONFIG  = Path("/private/tmp/rig_config.json")
+
 
 def _run(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
@@ -115,6 +122,48 @@ def _deploy_remote_script():
         )
 
 
+def _sync_rig_config():
+    """Config handoff between the Setup Tool extension and the repo, plus
+    keeping the iPad's served copy fresh. Two jobs, both ported 2026-07-02
+    from LiveRig_Wired_Start.sh (a retired predecessor launcher) -- that
+    script had this logic working correctly, but it was never carried
+    forward into the bash launcher this app itself replaced, so it quietly
+    stopped happening at some point. ONBOARDING.md kept describing this step
+    as if it existed; it didn't, until now.
+
+    1. Ableton Extensions can't write directly to the Desktop folder
+       themselves (confirmed by the comment in the retired script -- an
+       earlier attempt at a direct extension write caused repeated macOS
+       Desktop-folder permission prompts). So the Setup Tool modal writes
+       rig_config.json into its own sandboxed storage directory only, and
+       THIS process -- which already holds the user's trust/permissions --
+       does the copy into ~/Desktop/liverig/rig_config.json, but only when
+       the extension's copy is actually newer (mtime compare).
+    2. The controller page fetches "rig_config.json" as a plain relative GET
+       against the http.server's document root (/private/tmp) -- so the
+       repo's rig_config.json has to be copied there on every launch, or
+       the iPad silently falls back to the hardcoded 4-keyboard/8-stem
+       default with no error, regardless of what's actually configured.
+    """
+    if EXT_STORAGE_CONFIG.is_file():
+        ext_mtime = EXT_STORAGE_CONFIG.stat().st_mtime
+        repo_mtime = REPO_RIG_CONFIG.stat().st_mtime if REPO_RIG_CONFIG.is_file() else 0
+        if ext_mtime > repo_mtime:
+            REPO_RIG_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+            REPO_RIG_CONFIG.write_bytes(EXT_STORAGE_CONFIG.read_bytes())
+            rumps.notification(
+                "LiveRig", "Config updated",
+                "Synced a newer rig_config.json from the Setup Tool.",
+                sound=False,
+            )
+
+    if REPO_RIG_CONFIG.is_file():
+        SERVED_RIG_CONFIG.write_bytes(REPO_RIG_CONFIG.read_bytes())
+    else:
+        print(f"WARNING: rig_config.json not found at {REPO_RIG_CONFIG} -- "
+              "controller will fall back to built-in defaults.")
+
+
 def _ensure_bridge_venv():
     """One-time setup of the separate venv used only by the MIDI bridge
     subprocess. Returns False if the user cancelled a required install."""
@@ -160,6 +209,7 @@ class LiveRigMenu(rumps.App):
             None,
             rumps.MenuItem("Open on iPad (Safari)", callback=self.open_url),
             rumps.MenuItem("Copy iPad URL", callback=self.copy_url),
+            rumps.MenuItem("Resync Config from Setup Tool", callback=self.resync_config),
             None,
             rumps.MenuItem("Stop LiveRig", callback=self.stop),
         ]
@@ -169,6 +219,7 @@ class LiveRigMenu(rumps.App):
     # ── Boot sequence (runs in a background thread) ─────────────────────────
     def _boot(self):
         _deploy_remote_script()
+        _sync_rig_config()
         if not _ensure_bridge_venv():
             rumps.quit_application()
             return
@@ -226,6 +277,16 @@ class LiveRigMenu(rumps.App):
     def copy_url(self, _):
         subprocess.run(["pbcopy"], input=self.url.encode(), check=False)
         rumps.notification("LiveRig", "Copied!", self.url, sound=False)
+
+    def resync_config(self, _):
+        # Manual trigger for _sync_rig_config() -- the only automatic trigger
+        # is app launch, matching the retired LiveRig_Wired_Start.sh's
+        # behavior. This lets a config saved via the Setup Tool modal take
+        # effect with a page reload instead of a full LiveRig restart.
+        _sync_rig_config()
+        rumps.notification("LiveRig", "Config resynced",
+                            "Reload the page on the iPad to pick it up.",
+                            sound=False)
 
     def stop(self, _):
         for proc in (self.bridge, self.http):
