@@ -2000,6 +2000,23 @@ function buildPatches() {
 // ═══════════════════════════════════════════
 //  KBD PAGES
 // ═══════════════════════════════════════════
+// Per-fader manual name override (2026-07-02). Ableton's API can't read a
+// plugin's internal patch/preset names (confirmed via a live diagnostic
+// dump for Omnisphere -- see LIVERIG_MEMORY.md) and macro-name feedback
+// only ever arrives for Rack-macro devices, never bare plugins like a
+// direct Omnisphere instance -- so for those tracks a KBD fader's label
+// would otherwise just sit at the generic "CC10".."CC17" forever. This
+// lets you long-press any KBD fader's label and type in whatever's
+// actually loaded there (e.g. an Omnisphere Live Mode patch name),
+// persisted per keyboard+fader-slot in localStorage so it survives a
+// page reload. Manual names always win over live macro-name feedback --
+// intentional, since this is meant to say "what's loaded here", not "what
+// the device calls this parameter".
+const KBD_FADER_NAMES = {};
+try{const s=localStorage.getItem('kbdFaderNames');if(s)Object.assign(KBD_FADER_NAMES,JSON.parse(s));}catch(e){}
+function kbdFaderNameKey(k,f){ return `${k}_${f}`; }
+function saveKbdFaderNames(){ try{ localStorage.setItem('kbdFaderNames', JSON.stringify(KBD_FADER_NAMES)); }catch(e){} }
+
 function buildKbdPage(k) {
   const color = kbdColor(k);
   const colorDim = hexAlpha(color, 0.13);
@@ -2058,11 +2075,35 @@ function buildKbdPage(k) {
     fill.style.setProperty('--kbd-c', color);
     fill.id = `kfdr-fill-${k}-${f}`;
     track.appendChild(fill);
-    const lbl = document.createElement('div'); lbl.className = 'fader-label'; lbl.textContent = `CC${cc}`;
+    const nameKey = kbdFaderNameKey(k, f);
+    const lbl = document.createElement('div'); lbl.className = 'fader-label';
+    lbl.textContent = KBD_FADER_NAMES[nameKey] || `CC${cc}`;
     lbl.id = `kfdr-lbl-${k}-${f}`;
     const val = document.createElement('div'); val.className = 'fader-val'; val.textContent = '96';
     val.id = `kfdr-val-${k}-${f}`;
     fdrTouch(track, fill, val, pct => sendCC(ch, cc, Math.round(pct*127)));
+    // Long-press the label to rename this fader -- e.g. type the actual
+    // Omnisphere patch name loaded into this slot. See KBD_FADER_NAMES
+    // comment above for why this exists.
+    let kfdrPressTimer = null;
+    lbl.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      kfdrPressTimer = setTimeout(() => {
+        kfdrPressTimer = null;
+        const current = KBD_FADER_NAMES[nameKey] || '';
+        const name = prompt(`Rename ${label} fader ${f+1}:`, current);
+        if (name !== null) {
+          if (name.trim() === '') delete KBD_FADER_NAMES[nameKey];
+          else KBD_FADER_NAMES[nameKey] = name.trim();
+          lbl.textContent = KBD_FADER_NAMES[nameKey] || `CC${cc}`;
+          saveKbdFaderNames();
+        }
+      }, 650);
+    });
+    const cancelKfdrPress = () => { if (kfdrPressTimer !== null) { clearTimeout(kfdrPressTimer); kfdrPressTimer = null; } };
+    lbl.addEventListener('pointerup', cancelKfdrPress);
+    lbl.addEventListener('pointerleave', cancelKfdrPress);
+    lbl.addEventListener('pointercancel', cancelKfdrPress);
     wrap.append(track, lbl, val);
     fdrs.appendChild(wrap);
   }
@@ -2372,7 +2413,10 @@ function applyKbdMacros() {
         // Display normalized 0-127 like a CC value
         const cc = Math.round(pct * 127);
         valEl.textContent = String(cc);
-        if (lblEl && macro.name) lblEl.textContent = macro.name;
+        // A manual per-fader name (long-press rename) always wins over live
+        // macro-name feedback -- it's saying "what's loaded here", not
+        // "what the device calls this parameter".
+        if (lblEl && macro.name && !KBD_FADER_NAMES[kbdFaderNameKey(k, f)]) lblEl.textContent = macro.name;
       }
     }
   }
