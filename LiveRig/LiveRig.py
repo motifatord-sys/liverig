@@ -336,6 +336,14 @@ class LiveRig(ControlSurface):
         self._aux_track_bindings = [a.get("trackName") for a in aux]
         self._aux_labels = [a.get("label") for a in aux]
 
+        # One-shot diagnostic (2026-07-02): dumps every device/parameter on
+        # the KBD1 track to Log.txt the first time _rebind_macro_listeners
+        # runs, to answer "can LiveRig read Omnisphere's Live Mode patch
+        # names?" empirically instead of guessing. Safe to leave in --fires
+        # once per Remote Script load, not per every rebind. See
+        # _dump_device_params_diag / its call site in _rebind_macro_listeners.
+        self._kbd1_diag_dumped = False
+
         with self.component_guard():
             self.log_message("LiveRig Remote Script loaded.")
             self.show_message("LiveRig connected")
@@ -947,6 +955,36 @@ class LiveRig(ControlSurface):
             return []
         return list(enumerate(params[1:bank_size + 1]))
 
+    def _dump_device_params_diag(self, device, depth=0):
+        """One-shot diagnostic: log a device's name/class, every parameter's
+        name+value+(if quantized) value_items, then recurse into rack chains
+        if it has any. See _kbd1_diag_dumped for why/when this fires."""
+        if device is None or depth > 4:
+            return
+        indent = "  " * depth
+        try:
+            self.log_message("%sDIAG device: name='%s' class_name='%s'" % (
+                indent, getattr(device, "name", "?"), getattr(device, "class_name", "?")))
+        except Exception as e:
+            self.log_message("%sDIAG device name/class error: %s" % (indent, e))
+        try:
+            for p in device.parameters:
+                try:
+                    items = list(p.value_items) if getattr(p, "is_quantized", False) else None
+                    self.log_message("%s  DIAG param: name='%s' value=%s min=%s max=%s quantized=%s items=%s" % (
+                        indent, p.name, p.value, p.min, p.max, getattr(p, "is_quantized", False), items))
+                except Exception as e:
+                    self.log_message("%s  DIAG param error: %s" % (indent, e))
+        except Exception as e:
+            self.log_message("%sDIAG parameters access error: %s" % (indent, e))
+        try:
+            for ci, chain in enumerate(device.chains):
+                self.log_message("%sDIAG chain %d: name='%s'" % (indent, ci, getattr(chain, "name", "?")))
+                for d in chain.devices:
+                    self._dump_device_params_diag(d, depth + 1)
+        except Exception:
+            pass  # not a rack / no .chains -- expected for plain plugin devices
+
     def _rebind_macro_listeners(self):
         """Rebind macro-value listeners for each KBD slot's bound track.
         Only tracks with an Instrument/Audio/MIDI Rack get live fader
@@ -965,6 +1003,15 @@ class LiveRig(ControlSurface):
                     self._emit_kbd_device(ti, None)
                     continue
                 track = self.song().tracks[track_idx]
+                if ti == 0 and not self._kbd1_diag_dumped:
+                    self._kbd1_diag_dumped = True
+                    try:
+                        self.log_message("=== DIAG: dumping all devices/parameters on KBD1 track '%s' ===" % getattr(track, "name", "?"))
+                        for d in track.devices:
+                            self._dump_device_params_diag(d)
+                        self.log_message("=== DIAG: dump complete ===")
+                    except Exception as e:
+                        self.log_message("DIAG dump error: %s" % e)
                 device = self._find_first_device(track)
                 self._emit_kbd_device(ti, device)  # header shows device name (or clears) either way
                 if device is None:
