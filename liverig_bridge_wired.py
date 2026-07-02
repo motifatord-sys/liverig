@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-LiveRig MIDI Bridge — Wired USB Edition  (v3 — bidirectional + OSC/UDP)
-Runs on your Mac. iPad connects via USB cable only.
+LiveRig MIDI Bridge  (v3 — bidirectional + OSC/UDP)
+Runs on your Mac. The iPad connects wirelessly over the local network
+(Safari -> this bridge's WebSocket server) -- the "Wired USB Edition" name
+and "USB cable only" comment are stale as of 2026-07-02: LiveRig has run
+over WiFi for a while now, USB is only ever used for ad-hoc debugging
+(e.g. Safari's remote Web Inspector), never required for normal operation.
 Requirements: pip install python-rtmidi websockets
 """
 

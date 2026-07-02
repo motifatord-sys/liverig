@@ -19,15 +19,17 @@ VOL_NAME="Install LiveRig"
 STAGING="$(mktemp -d)"
 
 if [ ! -d "$APP_PATH" ]; then
-  echo "ERROR: $APP_PATH not found. Install/build LiveRig.app first." >&2
+  echo "ERROR: $APP_PATH not found. Run scripts/build_app.sh first to build/install it." >&2
   exit 1
 fi
 
 echo "== Re-signing LiveRig.app (ad-hoc) =="
-# Bundle contents (launcher script, Resources/LiveRig/) get edited directly
-# during development -- that invalidates the existing code signature, which
-# has previously caused stale-TCC-grant issues (see LIVERIG_MEMORY.md).
-# Ad-hoc re-sign after every content change, including right before packaging.
+# LiveRig.app is now a py2app-frozen bundle (built by scripts/build_app.sh,
+# 2026-07-02 -- previously a hand-maintained bundle with a bash-script
+# launcher). Rebuilding it, or editing Resources/LiveRig/ contents directly,
+# invalidates any existing code signature, which has caused stale-TCC-grant
+# issues before (see LIVERIG_MEMORY.md). Ad-hoc re-sign after every rebuild,
+# including right before packaging.
 xattr -cr "$APP_PATH"
 codesign --force --deep -s - "$APP_PATH"
 codesign --verify --deep --strict "$APP_PATH" && echo "Signature OK"
