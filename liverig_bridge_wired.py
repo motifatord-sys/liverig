@@ -194,6 +194,22 @@ async def handle_client(websocket, path=None):
         clients.add(websocket)
     # Send current state immediately on connect
     await websocket.send(json.dumps(live_state))
+    # Ask the Remote Script to re-emit everything it knows over MIDI SysEx --
+    # KBD/stem/aux device names+colors+volumes, binding statuses, cues,
+    # scenes, looper states, etc (see SX_REQUEST_FULL_STATE / _emit_full_state
+    # in LiveRig.py). Before this fix, that data was only ever pushed ONCE,
+    # ~2 seconds after Ableton first loads the Remote Script -- nothing ever
+    # re-requested it. So if this bridge (or the whole LiveRig.app) crashed
+    # and restarted mid-show, or the iPad's Safari tab reloaded, or a second
+    # iPad connected, the client had nothing until Ableton itself was
+    # reloaded -- not an option mid-performance. The Remote Script itself
+    # never went stale; it kept tracking Ableton correctly the entire time.
+    # This was purely a missing "please resend" handshake. 2026-07-03.
+    try:
+        midi_out.send_message([0xF0, 0x7D, 0x4A, 0x00, 0xF7])
+        print(f"[LiveRig] requested full-state resync from Ableton for {ip}", flush=True)
+    except Exception as e:
+        print(f"[LiveRig] full-state resync request failed: {e}", flush=True)
     try:
         async for message in websocket:
             try:
