@@ -2031,7 +2031,7 @@ function buildKbdPage(k) {
     <div style="display:flex;flex-direction:column;gap:8px;height:100%">
       <div>
         <div class="sec" style="color:${color}">${label.toUpperCase()} — MIDI CH ${ch}</div>
-        <div class="sec" id="kbd-device-header-${k}" style="font-size:11px;opacity:.8"></div>
+        <div class="sec" id="kbd-device-header-${k}" style="font-size:16px;color:#fff"></div>
         <div class="sec">Toggle buttons — CC 20–35</div>
         <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:7px" id="kbtns${k}"></div>
       </div>
@@ -2388,7 +2388,11 @@ function updateKbdDeviceHeader(kbdIdx) {
   if (!headerEl) return;
   const bankLabel = info.banks > 1 ? ` · BANK ${info.bank+1}/${info.banks}` : '';
   const bluePrefix = (blueHandActive && blueHandBoundKbdIdx === kbdIdx) ? 'BLUE HAND → ' : '';
-  headerEl.style.color = bluePrefix ? '#8fb8ff' : '';
+  // White by default (bumped up from the original dim/tiny styling per
+  // David's request 2026-07-02 -- the loaded plugin's name should be
+  // obvious at a glance, not just for Omnisphere users). Blue Hand mode
+  // still overrides to its own blue accent to stay visually distinct.
+  headerEl.style.color = bluePrefix ? '#8fb8ff' : '#fff';
   headerEl.textContent = bluePrefix + (info.name || '<no device>') + bankLabel;
 }
 
