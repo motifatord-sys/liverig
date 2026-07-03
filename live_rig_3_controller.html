@@ -237,6 +237,21 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
 .kbd-faders-col{display:flex;flex-direction:column;gap:6px;}
 
 /* TRANSPORT PAGE */
+/* Section / Setlist strip -- marker-track section display at top of Transport.
+   Fed by FB_MARKER_ITEM (0x57) + FB_MARKER_NOW (0x58) from the Remote Script;
+   shows prev / NOW (large, with progress bar) / next section names. */
+.section-strip{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px;display:flex;flex-direction:column;gap:7px;}
+.sect-row{display:flex;align-items:baseline;gap:12px;min-width:0;}
+.sect-tag{font-family:var(--mono);font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);width:46px;flex:none;}
+.sect-name{font-family:var(--mono);font-weight:bold;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.sect-prev .sect-name,.sect-next .sect-name{font-size:17px;color:var(--muted);}
+.sect-now{align-items:center;flex-wrap:wrap;margin:1px 0;}
+.sect-now .sect-tag{color:var(--accent);align-self:center;}
+.sect-now .sect-name{font-size:30px;color:var(--accent);letter-spacing:-.5px;line-height:1.05;flex:1;}
+.sect-now-time{font-family:var(--mono);font-size:14px;color:var(--muted);flex:none;}
+.sect-progress{flex-basis:100%;height:8px;border-radius:4px;background:var(--surface);border:1px solid var(--border2);overflow:hidden;margin-top:2px;}
+.sect-progress-fill{height:100%;width:0%;background:var(--accent);box-shadow:0 0 6px var(--accent);transition:width .12s linear;}
+.section-strip.empty .sect-now .sect-name{color:var(--muted);font-size:19px;letter-spacing:0;}
 .transport-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
 .transport-grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px;}
 .transport-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;}
@@ -351,6 +366,25 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
 
   <!-- TRANSPORT -->
   <div id="page-8" class="page">
+    <!-- SECTION / SETLIST STRIP (marker-track sections; fed by FB_MARKER_ITEM/NOW).
+         At the top so the current song section reads first; the transport
+         controls below it. -->
+    <div class="section-strip empty" id="section-strip">
+      <div class="sect-row sect-prev">
+        <div class="sect-tag">Prev</div>
+        <div class="sect-name" id="sect-prev-name">—</div>
+      </div>
+      <div class="sect-row sect-now">
+        <div class="sect-tag">Now</div>
+        <div class="sect-name" id="sect-now-name">— no marker track —</div>
+        <div class="sect-now-time" id="sect-now-time"></div>
+        <div class="sect-progress"><div class="sect-progress-fill" id="sect-progress-fill"></div></div>
+      </div>
+      <div class="sect-row sect-next">
+        <div class="sect-tag">Next</div>
+        <div class="sect-name" id="sect-next-name">—</div>
+      </div>
+    </div>
     <div class="transport-bpm-row">
       <div class="bpm-display">
         <div class="bpm-number" id="t-bpm-display">--</div>
@@ -943,6 +977,23 @@ function onRemoteScriptFeedback(bytes){
     // Covers the 4 name-bound categories only (kbd/stem/looper/aux) --
     // FX returns are fixed tracks, never name-bound, so they never get this.
     updateBindingIndicator(data[0], data[1], data[2]);
+  } else if (fb === 0x57) {
+    // Marker section list item (Transport section strip): total, idx, name.
+    // Sent one section at a time (like clip cells) so the list assembles
+    // regardless of how many sections the marker track has. Names come from
+    // the named MIDI clips on David's Arrangement "marker track".
+    const total = data[0];
+    const idx = data[1];
+    const {text} = rsDecodeStr(data, 2);
+    setMarkerItem(total, idx, text);
+  } else if (fb === 0x58) {
+    // Marker "now": current section idx (0x7F = none / before first section),
+    // then progress through it as a uint14 (0..0x3FFF). Sent ~10Hz while the
+    // Arrangement plays, diff-cached in the Remote Script.
+    const rawIdx = data[0];
+    const idx = rawIdx === 0x7F ? -1 : rawIdx;
+    const prog = rsUint14(data[1], data[2]) / 0x3FFF;
+    setMarkerNow(idx, prog);
   }
 }
 
@@ -2115,6 +2166,57 @@ function buildKbdPage(k) {
 // ═══════════════════════════════════════════
 let transportOverdubState=false, transportMetroState=false, transportLoopState=false, transportPunchState=false;
 let tempoBendTimer=null, tapTimesTransport=[];
+
+// ── Section / Setlist strip (marker-track sections) ─────────────────────
+// The Remote Script reads David's Arrangement "marker track" (named MIDI
+// clips, each spanning one song section) and feeds this strip:
+//   FB_MARKER_ITEM (0x57): total, idx, name  -- the ordered section list,
+//        one entry per message (see setMarkerItem).
+//   FB_MARKER_NOW  (0x58): current idx (-1 = before first), progress 0..1
+//        -- pushed ~10Hz while the Arrangement plays (see setMarkerNow).
+// The strip just renders prev / NOW+progress / next from that data, so it's
+// agnostic to how the Script derives the sections.
+let markerSections = [];   // ordered section names, length = total
+let markerNowIdx = -1;     // current section index, -1 = before first / none
+let markerNowProgress = 0; // 0..1 through the current section
+
+function setMarkerItem(total, idx, name) {
+  if (markerSections.length !== total) markerSections = new Array(Math.max(0, total)).fill('');
+  if (idx >= 0 && idx < markerSections.length) markerSections[idx] = name;
+  renderMarker();
+}
+function setMarkerNow(idx, progress) {
+  markerNowIdx = idx;
+  markerNowProgress = Math.max(0, Math.min(1, progress));
+  renderMarker();
+}
+function renderMarker() {
+  const strip = document.getElementById('section-strip');
+  if (!strip) return;
+  const prevEl = document.getElementById('sect-prev-name');
+  const nowEl  = document.getElementById('sect-now-name');
+  const nextEl = document.getElementById('sect-next-name');
+  const fill   = document.getElementById('sect-progress-fill');
+  const timeEl = document.getElementById('sect-now-time');
+  const n = markerSections.length;
+  if (n === 0) {
+    strip.classList.add('empty');
+    if (prevEl) prevEl.textContent = '—';
+    if (nowEl)  nowEl.textContent  = '— no marker track —';
+    if (nextEl) nextEl.textContent = '—';
+    if (fill)   fill.style.width = '0%';
+    if (timeEl) timeEl.textContent = '';
+    return;
+  }
+  strip.classList.remove('empty');
+  const i = markerNowIdx;
+  if (prevEl) prevEl.textContent = (i > 0 && markerSections[i-1]) ? markerSections[i-1] : '—';
+  if (nowEl)  nowEl.textContent  = (i >= 0 && i < n && markerSections[i]) ? markerSections[i] : '— before first —';
+  if (nextEl) nextEl.textContent = (i+1 >= 0 && i+1 < n && markerSections[i+1]) ? markerSections[i+1] : '—';
+  const pct = Math.round(markerNowProgress * 100);
+  if (fill)   fill.style.width = pct + '%';
+  if (timeEl) timeEl.textContent = (i >= 0 && i < n) ? pct + '%' : '';
+}
 
 // Send a transport message to the bridge → M4L → native Live API call.
 // Works without the user setting up Cmd+M mappings. We also send the CC as fallback

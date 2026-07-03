@@ -50,6 +50,9 @@ where <type>:
                                      status: 0=ok 1=ok_positional 2=unbound
                                      3=ambiguous(duplicate track name) 4=empty(unconfigured)
                                      5=fallback_mismatch(named binding didn't match, using position)
+  0x57 = marker section     | data: total, idx, name(len+bytes) -- one section of the
+                                     marker track's list (Transport section strip)
+  0x58 = marker now         | data: cur_idx (0x7F=none), prog_hi, prog_lo (uint14 progress)
 
 Direct clip control (Session View, native Live Object Model — not fake
 MIDI notes/CCs):
@@ -239,6 +242,10 @@ FB_RETURN_VOLUME   = 0x54   # data: return_idx (0-3 = REV1/REV2/DLY1/DLY2), v14_
 # path. Click/Guide are now ordinary stems (stem9/stem10) and use
 # FB_STEM_VOLUME (0x53) like every other stem. 0x55 left reserved, not reused.
 FB_BINDING_STATUS  = 0x56   # data: category, idx, status (see BIND_CAT_*/BIND_STATUS_* below)
+FB_MARKER_ITEM     = 0x57   # data: total, idx, name(len+bytes) -- one section of the
+                             # marker track's ordered section list (Transport section strip)
+FB_MARKER_NOW      = 0x58   # data: cur_idx (0x7F = none/before first), prog_hi, prog_lo
+                             # -- current section + uint14 progress (0..0x3FFF) through it
 
 # ── Track-binding status (2026-07-01) ───────────────────────────────────────
 # rig_config.json binds KBD/stem/looper/aux slots to Ableton tracks by NAME
@@ -329,6 +336,15 @@ class LiveRig(ControlSurface):
         # every other stem. The old separate "aux" mechanism (ch5 CC20/21,
         # a dedicated rig_config "aux" list) was fully removed so these two
         # tracks have exactly one control path and can't be double-bound.
+
+        # Marker track (2026-07-02): a named track (rig_config "markerTrack",
+        # e.g. "MARKERS") whose Arrangement clips each span one song section
+        # (clip name = section name). Read once + on tracks-changed/reconnect;
+        # the current section + progress is polled from current_song_time in
+        # _poll_song_time_tick and pushed to the Transport page's section strip.
+        self._marker_track_binding = rig_config.get("markerTrack")
+        self._marker_sections = []      # ordered list of (name, start_beats, end_beats)
+        self._marker_now_cache = None   # (cur_idx, coarse_progress) diff-cache
 
         with self.component_guard():
             self.log_message("LiveRig Remote Script loaded.")
@@ -458,6 +474,11 @@ class LiveRig(ControlSurface):
         except Exception as e: self.log_message("rebind_looper_quant init: " + str(e))
         try: self._emit_all_looper_quants()
         except Exception as e: self.log_message("emit_all_looper_quants init: " + str(e))
+        try:
+            self._read_marker_sections()
+            self._emit_marker_list()
+            self._emit_marker_now(force=True)
+        except Exception as e: self.log_message("marker init: " + str(e))
 
         # Re-bind macros/colors/names/stems if track devices change
         safe_add("tracks", lambda: song.add_tracks_listener(self._on_tracks_changed))
@@ -535,6 +556,7 @@ class LiveRig(ControlSurface):
             song = self.song()
             if song.is_playing:
                 self._emit_song_time()
+                self._emit_marker_now()   # advance the Transport section strip
         except Exception as e:
             self.log_message("song_time poll error: " + str(e))
         # Re-schedule. Live's schedule_message uses ticks; 1 tick = 100ms.
@@ -725,6 +747,10 @@ class LiveRig(ControlSurface):
         self._emit_all_looper_states()
         self._rebind_looper_quant_listeners()
         self._emit_all_looper_quants()
+        # Marker track may have moved/renamed with the track set -- re-read.
+        self._read_marker_sections()
+        self._emit_marker_list()
+        self._emit_marker_now(force=True)
 
     # ── Cue-point name listeners (rebind on add/remove) ─────────────────────
     def _rebind_cue_listeners(self):
@@ -1861,6 +1887,86 @@ class LiveRig(ControlSurface):
         t_ms = int(self.song().last_event_time * 1000)
         self._send_sx([FB_SONG_LEN] + self._encode_uint28(t_ms))
 
+    # ── Marker track -> Transport section strip ─────────────────────────────
+    # David's "marker track" is a MIDI track (rig_config "markerTrack") whose
+    # Arrangement clips each span one song section, named after that section.
+    # We read those clips (name + arrangement start/end, in beats) once up
+    # front, then poll current_song_time to know which section is playing and
+    # how far through it. Feeds FB_MARKER_ITEM (the list) + FB_MARKER_NOW (the
+    # live cursor). Arrangement clips are only re-read on connect / tracks-
+    # changed / full-state resync -- not on live clip edits -- which is fine
+    # since the marker track is laid out before a show, not during it.
+    def _read_marker_sections(self):
+        """(Re)read the marker track's Arrangement clips into
+        self._marker_sections, sorted by start time. Logs what the Live API
+        returns so the first live run confirms the LOM exposes clips as
+        expected (diagnostic-first -- clip start_time/end_time are in beats)."""
+        self._marker_sections = []
+        binding = self._marker_track_binding
+        if not binding:
+            return
+        idx, _status = self._resolve_track_binding(binding, "marker", fallback_idx=None)
+        if idx is None:
+            self.log_message("marker: track '%s' not found -- section strip stays empty" % binding)
+            return
+        try:
+            track = self.song().tracks[idx]
+            clips = list(track.arrangement_clips)
+        except Exception as e:
+            self.log_message("marker: arrangement_clips unavailable on '%s': %s" % (binding, e))
+            return
+        sections = []
+        for clip in clips:
+            try:
+                sections.append((clip.name, float(clip.start_time), float(clip.end_time)))
+            except Exception as e:
+                self.log_message("marker: clip read error (%s) -- skipping" % e)
+                continue
+        sections.sort(key=lambda s: s[1])
+        self._marker_sections = sections
+        self.log_message("marker: read %d section(s) from '%s'" % (len(sections), binding))
+        for i, (nm, st, en) in enumerate(sections):
+            self.log_message("marker:   [%d] '%s' %.3f..%.3f beats" % (i, nm, st, en))
+
+    def _emit_marker_list(self):
+        """Send the ordered section list, one FB_MARKER_ITEM per section
+        (total, idx, name). If empty, send a single total=0 sentinel so the
+        iPad clears any previously-shown list."""
+        total = len(self._marker_sections)
+        if total == 0:
+            self._send_sx([FB_MARKER_ITEM, 0, 0] + self._encode_str(""))
+            return
+        for i, (nm, _st, _en) in enumerate(self._marker_sections):
+            self._send_sx([FB_MARKER_ITEM, total & 0x7F, i & 0x7F] + self._encode_str(nm or ""))
+
+    def _emit_marker_now(self, force=False):
+        """Compute the current section + progress from current_song_time and
+        emit FB_MARKER_NOW. Diff-cached (coarse progress buckets) so it only
+        sends on real change; force=True bypasses the cache (reconnect/full
+        state). cur_idx 0x7F = playhead is not inside any section."""
+        sections = self._marker_sections
+        if not sections:
+            return
+        try:
+            t = float(self.song().current_song_time)
+        except Exception:
+            return
+        cur_idx = 0x7F
+        prog = 0
+        for i, (_nm, st, en) in enumerate(sections):
+            if st <= t < en:
+                cur_idx = i
+                span = en - st
+                if span > 0:
+                    frac = max(0.0, min(1.0, (t - st) / span))
+                    prog = int(round(frac * 0x3FFF))
+                break
+        bucket = (cur_idx, prog >> 5)  # ~512 progress steps; caps redundant sends
+        if not force and bucket == self._marker_now_cache:
+            return
+        self._marker_now_cache = bucket
+        self._send_sx([FB_MARKER_NOW, cur_idx & 0x7F, (prog >> 7) & 0x7F, prog & 0x7F])
+
     def _emit_cue_list(self):
         cps = list(self.song().cue_points)
         self._send_sx([FB_CUE_LIST_BEGIN, len(cps) & 0x7F])
@@ -2082,6 +2188,12 @@ class LiveRig(ControlSurface):
         self._emit_all_return_volumes()
         self._emit_all_looper_states()
         self._emit_all_looper_quants()
+        try:
+            self._read_marker_sections()
+            self._emit_marker_list()
+            self._emit_marker_now(force=True)
+        except Exception as e:
+            self.log_message("marker full-state emit error: " + str(e))
         try:
             self._emit_all_binding_statuses(force=True)
         except Exception as e:

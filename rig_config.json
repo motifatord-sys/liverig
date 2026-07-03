@@ -154,6 +154,7 @@
       "trackName": "Loop 4"
     }
   ],
+  "markerTrack": "MARKERS",
   "listeners": {
     "useSchedulePollForSongTime": true,
     "songTimePollHz": 10,
