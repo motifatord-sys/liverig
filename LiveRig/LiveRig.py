@@ -1749,6 +1749,50 @@ class LiveRig(ControlSurface):
                 self.log_message("blue hand cc error: %s" % str(e))
             return
 
+    def _jump_relative_cue(self, direction):
+        """Jump the playhead to the next (+1) or previous (-1) Ableton locator
+        (cue point) relative to current_song_time, using CuePoint.jump() --
+        the same reliable mechanism the setlist's indexed jump uses. Replaces
+        song.jump_to_next_cue()/jump_to_prev_cue(), which were not relocating
+        the playhead in practice (2026-07-02, David: Transport prev/next marker
+        buttons did nothing). 'prev' from mid-region lands on the current
+        locator's start (standard DAW rewind-to-marker), so pressing it again
+        steps back one more. Logs the outcome so a live run confirms it."""
+        try:
+            cps = sorted(self.song().cue_points, key=lambda c: c.time)
+        except Exception as e:
+            self.log_message("cue nav: cue_points unavailable: %s" % e)
+            return
+        if not cps:
+            self.log_message("cue nav: no locators/cue points in this Set -- nothing to jump to")
+            return
+        t = self.song().current_song_time
+        eps = 1e-4
+        target = None
+        if direction > 0:
+            for c in cps:
+                if c.time > t + eps:
+                    target = c
+                    break
+        else:
+            for c in cps:
+                if c.time < t - eps:
+                    target = c   # keep the last (largest) one strictly before t
+                else:
+                    break
+        if target is None:
+            self.log_message("cue nav: no %s locator from t=%.3f" % ("next" if direction > 0 else "prev", t))
+            return
+        try:
+            target.jump()
+            # Snap the section strip + bar/beat display to the new position
+            # immediately, even when stopped (the 10Hz poll only runs while playing).
+            self._emit_marker_now(force=True)
+            self._emit_song_time()
+            self.log_message("cue nav: jumped to locator '%s' @ %.3f beats" % (target.name, target.time))
+        except Exception as e:
+            self.log_message("cue nav: jump failed: %s" % e)
+
     def _dispatch_sysex(self, code, value):
         song = self.song()
         if code == SX_LOCATOR_JUMP:
@@ -1756,9 +1800,9 @@ class LiveRig(ControlSurface):
             if 0 <= value < len(cps):
                 cps[value].jump()
         elif code == SX_LOCATOR_NEXT:
-            song.jump_to_next_cue()
+            self._jump_relative_cue(+1)
         elif code == SX_LOCATOR_PREV:
-            song.jump_to_prev_cue()
+            self._jump_relative_cue(-1)
         elif code == SX_SCENE_FIRE:
             scenes = list(song.scenes)
             if 0 <= value < len(scenes):
