@@ -575,7 +575,7 @@ function connectWS(ip) {
   setLabel(`Connecting to ${url}…`); setDot(false);
   const sock = new WebSocket(url);
   sock.binaryType = 'arraybuffer'; ws = sock;
-  sock.onopen = () => { if(sock!==ws)return; wsConnected=true; setDot(true); setLabel('BRIDGE'); };
+  sock.onopen = () => { if(sock!==ws)return; wsConnected=true; setDot(true); setLabel('BRIDGE'); kbdFaderNamesMigrated=false; };
   sock.onclose = () => {
     if(sock!==ws)return; wsConnected=false; setDot(false); setLabel('OFFLINE');
     const delay = Math.min(5000, 1000+(sock._retries||0)*500);
@@ -591,6 +591,9 @@ function connectWS(ip) {
         // New format: live_state object from Python bridge (via M4L file watcher)
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
           if (parsed.type === 'live_state') { onLiveState(parsed); return; }
+          // Portable KBD fader names, pushed by the bridge on connect and
+          // whenever any iPad renames a fader.
+          if (parsed.type === 'kbd_fader_names') { applyKbdFaderNames(parsed.names); return; }
           // Could also be a wrapped {type:"midi",data:[...]}
           if (parsed.type === 'midi' && Array.isArray(parsed.data)) { onMIDIIn(parsed.data); return; }
           return;
@@ -2071,6 +2074,48 @@ try{const s=localStorage.getItem('kbdFaderNames');if(s)Object.assign(KBD_FADER_N
 function kbdFaderNameKey(k,f){ return `${k}_${f}`; }
 function saveKbdFaderNames(){ try{ localStorage.setItem('kbdFaderNames', JSON.stringify(KBD_FADER_NAMES)); }catch(e){} }
 
+// Portability (2026-07-02): fader names are synced through the bridge so they
+// travel to every iPad and survive an app restart. localStorage stays as an
+// offline cache. Flow: rename -> sendKbdFaderName() -> bridge persists +
+// broadcasts {type:'kbd_fader_names'} -> every iPad runs applyKbdFaderNames().
+function sendKbdFaderName(key, name){
+  try{
+    if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN){
+      ws.send(JSON.stringify({type:'set_kbd_fader_name', key, name: name || ''}));
+    }
+  }catch(e){}
+}
+let kbdFaderNamesMigrated = false;  // reset on each ws (re)connect
+function applyKbdFaderNames(names){
+  if (!names || typeof names !== 'object') return;
+  if (!kbdFaderNamesMigrated){
+    // First names message after (re)connect: migrate any local-only name UP to
+    // the bridge so pre-existing per-device names travel too, and merge the
+    // bridge's names in (bridge wins). Local-only names are NOT deleted here --
+    // they're mid-migration; the bridge echoes them back on its next broadcast.
+    kbdFaderNamesMigrated = true;
+    for (const key in KBD_FADER_NAMES){
+      if (KBD_FADER_NAMES[key] && !(key in names)) sendKbdFaderName(key, KBD_FADER_NAMES[key]);
+    }
+    for (const key in names) KBD_FADER_NAMES[key] = names[key];
+  } else {
+    // Steady state: the bridge is authoritative -- mirror it exactly, so a
+    // name cleared on another iPad clears here too.
+    for (const key in {...KBD_FADER_NAMES}) delete KBD_FADER_NAMES[key];
+    for (const key in names) KBD_FADER_NAMES[key] = names[key];
+  }
+  saveKbdFaderNames();
+  refreshKbdFaderLabels();
+}
+function refreshKbdFaderLabels(){
+  document.querySelectorAll('[id^="kfdr-lbl-"]').forEach(lbl => {
+    const m = lbl.id.match(/^kfdr-lbl-(\d+)-(\d+)$/);
+    if (!m) return;
+    const f = +m[2], cc = 10 + f, key = m[1] + '_' + m[2];
+    lbl.textContent = KBD_FADER_NAMES[key] || `CC${cc}`;
+  });
+}
+
 // Fader rename is triggered by a RENAME button per KBD page (mirrors the
 // Patches page's RENAME flow) instead of a long-press: press RENAME to arm,
 // tap a fader's label to rename it, mode exits after one rename. kbdRenameMode
@@ -2169,10 +2214,12 @@ function buildKbdPage(k) {
       const current = KBD_FADER_NAMES[nameKey] || '';
       const name = prompt(`Rename ${label} fader ${f+1}:`, current);
       if (name !== null) {
-        if (name.trim() === '') delete KBD_FADER_NAMES[nameKey];
-        else KBD_FADER_NAMES[nameKey] = name.trim();
+        const trimmed = name.trim();
+        if (trimmed === '') delete KBD_FADER_NAMES[nameKey];
+        else KBD_FADER_NAMES[nameKey] = trimmed;
         lbl.textContent = KBD_FADER_NAMES[nameKey] || `CC${cc}`;
         saveKbdFaderNames();
+        sendKbdFaderName(nameKey, trimmed);   // sync to the bridge -> all iPads
       }
       setKbdRenameMode(null);
     });

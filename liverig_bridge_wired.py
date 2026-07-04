@@ -9,7 +9,7 @@ over WiFi for a while now, USB is only ever used for ad-hoc debugging
 Requirements: pip install python-rtmidi websockets
 """
 
-import asyncio, json, sys, socket, subprocess, threading, time
+import asyncio, json, os, sys, socket, subprocess, threading, time
 
 WS_PORT  = 8765
 UDP_PORT = 9000          # M4L sends JSON state to this port
@@ -60,6 +60,39 @@ live_state = {
     "locators":     [],
     "current_locator": ""
 }
+
+# ── KBD fader names (portable across iPads) ───────────────────────────────────
+# iPad-authored names for KBD faders (e.g. Omnisphere patch names). Persisted
+# here on the Mac and pushed to every client on connect, so a name typed on one
+# iPad shows on all of them and survives an app restart -- unlike the old
+# per-device localStorage. Keys are "<kbd>_<fader>" (matches the controller's
+# kbdFaderNameKey). Stored in the app's own Application Support dir (no macOS
+# Desktop-permission prompt, not clobbered by the launcher's per-file copies).
+FADER_NAMES_FILE = os.path.expanduser(
+    "~/Library/Application Support/LiveRig/kbd_fader_names.json")
+kbd_fader_names = {}
+
+def load_fader_names():
+    global kbd_fader_names
+    try:
+        with open(FADER_NAMES_FILE, "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+        if isinstance(d, dict):
+            kbd_fader_names = {str(k): str(v) for k, v in d.items() if v}
+            print(f"[LiveRig] loaded {len(kbd_fader_names)} KBD fader name(s)", flush=True)
+    except FileNotFoundError:
+        kbd_fader_names = {}
+    except Exception as e:
+        print(f"[LiveRig] fader-names load failed: {e}", flush=True)
+        kbd_fader_names = {}
+
+def save_fader_names():
+    try:
+        os.makedirs(os.path.dirname(FADER_NAMES_FILE), exist_ok=True)
+        with open(FADER_NAMES_FILE, "w", encoding="utf-8") as fh:
+            json.dump(kbd_fader_names, fh)
+    except Exception as e:
+        print(f"[LiveRig] fader-names save failed: {e}", flush=True)
 
 # ── MIDI IN callback (Ableton → iPad) ────────────────────────────────────────
 def midi_in_callback(message, data=None):
@@ -194,6 +227,11 @@ async def handle_client(websocket, path=None):
         clients.add(websocket)
     # Send current state immediately on connect
     await websocket.send(json.dumps(live_state))
+    # Push the portable KBD fader names so this client matches every other one.
+    try:
+        await websocket.send(json.dumps({"type": "kbd_fader_names", "names": kbd_fader_names}))
+    except Exception as e:
+        print(f"[LiveRig] fader-names send failed: {e}", flush=True)
     # Ask the Remote Script to re-emit everything it knows over MIDI SysEx --
     # KBD/stem/aux device names+colors+volumes, binding statuses, cues,
     # scenes, looper states, etc (see SX_REQUEST_FULL_STATE / _emit_full_state
@@ -238,6 +276,20 @@ async def handle_client(websocket, path=None):
 
                 elif msg_type == "setlist_reorder":
                     await broadcast(json.dumps(data))
+
+                elif msg_type == "set_kbd_fader_name":
+                    # An iPad renamed a KBD fader. Persist it and rebroadcast the
+                    # full name set so every connected iPad updates in sync.
+                    key = str(data.get("key", "")).strip()
+                    name = data.get("name", "")
+                    if key:
+                        if name is None or str(name).strip() == "":
+                            kbd_fader_names.pop(key, None)
+                        else:
+                            kbd_fader_names[key] = str(name)
+                        save_fader_names()
+                        await broadcast(json.dumps(
+                            {"type": "kbd_fader_names", "names": kbd_fader_names}))
 
                 elif msg_type == "locator_jump":
                     idx = int(data.get("index", 0)) & 0x7F
@@ -414,6 +466,7 @@ async def main():
     global main_loop
     main_loop = asyncio.get_running_loop()
 
+    load_fader_names()
     ips = get_all_ips()
     print(f"\n{'='*58}")
     print(f"  LiveRig MIDI Bridge — Wired USB Mode  (v3 OSC+MIDI)")
