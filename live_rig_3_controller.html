@@ -127,7 +127,12 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
 .patches-action-btn.armed-cap{background:#3a0c0c;border-color:#a02020;color:#ffaaaa;}
 .patches-action-btn.armed-rnm{background:#3a2a08;border-color:#a07020;color:#ffd060;}
 /* While a KBD page is armed for fader rename, its fader labels look tappable */
-.kbd-rename-active .fader-label{outline:1px dashed #ffd060;outline-offset:2px;border-radius:3px;color:#ffd060;cursor:pointer;}
+/* KBD fader name overlaid vertically ON the fader body, like Master/Stems */
+.fader-wrap .fader-label-vert{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;padding:6px 0;}
+.fader-wrap .fader-label-vert span{writing-mode:vertical-rl;transform:rotate(180deg);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:21px;letter-spacing:2px;color:#ffffffee;text-shadow:0 2px 4px rgba(0,0,0,.75);max-height:92%;overflow:hidden;white-space:nowrap;}
+/* In rename mode the label overlay becomes tappable (tap a fader to rename) */
+.kbd-rename-active .fader-wrap .fader-label-vert{pointer-events:auto;cursor:pointer;}
+.kbd-rename-active .fader-wrap .fader-label-vert span{color:#ffd060;text-shadow:none;}
 #patches-capture-dialog{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:200;}
 #patches-capture-dialog.show{display:flex;}
 #patches-capture-dialog .dlg{background:#1a1a25;border:1px solid var(--border2);border-radius:8px;padding:24px 28px;min-width:340px;max-width:480px;}
@@ -2195,20 +2200,24 @@ function buildKbdPage(k) {
     const fill = document.createElement('div'); fill.className = `fader-fill fill-kbd-dyn`; fill.style.height = '75%';
     fill.style.setProperty('--kbd-c', color);
     fill.id = `kfdr-fill-${k}-${f}`;
-    track.appendChild(fill);
     const nameKey = kbdFaderNameKey(k, f);
-    const lbl = document.createElement('div'); lbl.className = 'fader-label';
+    // Name overlaid vertically ON the fader body, like the Master/Stems faders
+    // (was a small label below). pointer-events:none normally so it never
+    // blocks a drag; the .kbd-rename-active CSS makes it tappable in rename mode.
+    const lblWrap = document.createElement('div'); lblWrap.className = 'fader-label-vert';
+    const lbl = document.createElement('span');
     lbl.textContent = KBD_FADER_NAMES[nameKey] || `CC${cc}`;
     lbl.id = `kfdr-lbl-${k}-${f}`;
+    lblWrap.appendChild(lbl);
+    track.append(fill, lblWrap);
     const val = document.createElement('div'); val.className = 'fader-val'; val.textContent = '96';
     val.id = `kfdr-val-${k}-${f}`;
     fdrTouch(track, fill, val, pct => sendCC(ch, cc, Math.round(pct*127)));
     // Rename via the page's RENAME button (see setKbdRenameMode): the label
-    // only responds while this KBD page is armed for rename -- tap it to type
-    // the actual name loaded into this slot (e.g. an Omnisphere patch), then
-    // rename mode exits. Outside rename mode the label is inert, so it never
-    // interferes with normal fader use.
-    lbl.addEventListener('pointerdown', e => {
+    // overlay is only tappable while this KBD page is armed for rename (CSS
+    // toggles its pointer-events) -- tap it to type the actual name loaded
+    // into this slot (e.g. an Omnisphere patch), then rename mode exits.
+    lblWrap.addEventListener('pointerdown', e => {
       if (kbdRenameMode !== k) return;
       e.preventDefault(); e.stopPropagation();
       const current = KBD_FADER_NAMES[nameKey] || '';
@@ -2223,7 +2232,7 @@ function buildKbdPage(k) {
       }
       setKbdRenameMode(null);
     });
-    wrap.append(track, lbl, val);
+    wrap.append(track, val);
     fdrs.appendChild(wrap);
   }
   // Wire this page's RENAME button (arms/disarms fader-rename mode for page k)
