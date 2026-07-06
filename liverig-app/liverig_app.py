@@ -32,7 +32,6 @@ read/edited anywhere, but the actual `python3 setup.py py2app` build step
 this project already hit with codesign/hdiutil for the DMG.
 """
 import os
-import secrets
 import subprocess
 import sys
 import threading
@@ -87,7 +86,11 @@ def _ensure_token():
             if tok:
                 return tok
         SUPPORT.mkdir(parents=True, exist_ok=True)
-        tok = secrets.token_urlsafe(16)
+        # os.urandom instead of the `secrets` module on purpose: this file is
+        # frozen by py2app, which only bundles modules detected at build time.
+        # A new stdlib import added after the last build would ImportError at
+        # runtime; os is guaranteed present. 16 random bytes, hex-encoded.
+        tok = "".join("%02x" % b for b in os.urandom(16))
         TOKEN_FILE.write_text(tok, encoding="utf-8")
         return tok
     except Exception as e:
@@ -297,6 +300,7 @@ class LiveRigMenu(rumps.App):
             rumps.MenuItem("Open on iPad (Safari)", callback=self.open_url),
             rumps.MenuItem("Copy iPad URL", callback=self.copy_url),
             rumps.MenuItem("Resync Config from Setup Tool", callback=self.resync_config),
+            rumps.MenuItem("Pre-Gig Check", callback=self.pre_gig_check),
             None,
             rumps.MenuItem("Stop LiveRig", callback=self.stop),
         ]
@@ -445,6 +449,125 @@ class LiveRigMenu(rumps.App):
         rumps.notification("LiveRig", "Config resynced",
                             "Reload the page on the iPad to pick it up.",
                             sound=False)
+
+    def pre_gig_check(self, _):
+        # Runs in a background thread (some checks take seconds); result is
+        # shown via AppHelper.callAfter because NSAlert must be created on
+        # the main thread (same constraint hit 2026-07-02, bug 2).
+        threading.Thread(target=self._run_pre_gig_check, daemon=True).start()
+
+    def _run_pre_gig_check(self):
+        """One-click show-readiness check (2026-07-06). Every check that
+        needs network or JSON goes through the bridge venv's python -- NOT
+        this frozen process -- because py2app only bundles stdlib modules
+        detected at build time (importing urllib/json here could
+        ImportError at runtime until the next build_app.sh run)."""
+        py = str(BRIDGE_VENV / "bin/python")
+        token = _ensure_token()
+        results = []
+
+        class _Fail:
+            returncode = 1
+            stdout = stderr = ""
+
+        def run_check(cmd, timeout):
+            # A hung subprocess (e.g. dead HTTP server not refusing the
+            # connection) must fail the check, not crash this thread.
+            try:
+                return _run(cmd, timeout=timeout)
+            except Exception:
+                return _Fail()
+
+        def check(name, ok, hint=""):
+            results.append(("✓" if ok else "✕") + " " + name +
+                           ("" if ok or not hint else f" — {hint}"))
+            return ok
+
+        check("Bridge venv healthy", _bridge_venv_is_healthy(),
+              "will self-rebuild on next launch (needs internet)")
+        check("Bridge process running",
+              self.bridge is not None and self.bridge.poll() is None,
+              f"see {BRIDGE_LOG}")
+        check("HTTP server running",
+              self.http is not None and self.http.poll() is None,
+              f"see {HTTP_LOG}")
+        check("Auth token provisioned",
+              TOKEN_FILE.is_file() and bool(TOKEN_FILE.read_text().strip()),
+              "relaunch LiveRig to generate it")
+
+        # Controller page served, with both placeholders actually injected.
+        r = run_check([py, "-c", (
+            "import urllib.request,sys;"
+            f"b=urllib.request.urlopen('http://127.0.0.1:{HTTP_PORT}"
+            "/liverig_controller_served.html',timeout=5).read().decode('utf-8');"
+            "sys.exit(1 if ('{{BRIDGE_HOST}}' in b or '{{BRIDGE_TOKEN}}' in b)"
+            " else 0)")], timeout=15)
+        check("Controller page served + injected", r.returncode == 0,
+              "relaunch LiveRig.app")
+
+        # rig_config.json served and valid JSON.
+        r = run_check([py, "-c", (
+            "import urllib.request,json;"
+            f"d=json.load(urllib.request.urlopen('http://127.0.0.1:{HTTP_PORT}"
+            "/rig_config.json',timeout=5));"
+            "print(len(d.get('keyboards',[])),len(d.get('stems',[])))")],
+            timeout=15)
+        check("rig_config.json served + valid"
+              + (f" ({r.stdout.strip().replace(' ', ' KBD / ')} stems)"
+                 if r.returncode == 0 else ""),
+              r.returncode == 0, "use 'Resync Config from Setup Tool'")
+
+        # WebSocket round-trip WITH auth: connect and receive the first
+        # state push the bridge sends every new client.
+        r = run_check([py, "-c", (
+            "import asyncio,websockets\n"
+            "async def m():\n"
+            f"    async with websockets.connect('ws://127.0.0.1:{WS_PORT}"
+            f"/?token={token}',open_timeout=5,close_timeout=2) as ws:\n"
+            "        await asyncio.wait_for(ws.recv(), timeout=5)\n"
+            "asyncio.run(m())")], timeout=20)
+        check("WebSocket round-trip (with auth)", r.returncode == 0,
+              f"see {BRIDGE_LOG}")
+
+        # Remote Script deployed copy matches the bundle's copy.
+        try:
+            src = (RESOURCES / "LiveRig/LiveRig.py").read_bytes()
+            dst = (REMOTE_SCRIPTS_DIR / "LiveRig.py").read_bytes()
+            rs_ok = src == dst
+        except Exception:
+            rs_ok = False
+        check("Remote Script synced to Ableton", rs_ok,
+              "relaunch LiveRig.app, then restart Live")
+
+        # Version strings consistent across the three bundled source files.
+        def _ver(path, marker):
+            try:
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    # startswith, not `in`: comment lines and the
+                    # FB_SCRIPT_VERSION definition also mention the marker.
+                    if line.strip().startswith(marker) and "=" in line:
+                        return line.split("=", 1)[1].strip().strip(";").strip("'\" ")
+            except Exception:
+                pass
+            return "?"
+        v_script = _ver(RESOURCES / "LiveRig/LiveRig.py", "LIVERIG_VERSION")
+        v_bridge = _ver(RESOURCES / "liverig_bridge_wired.py", "LIVERIG_VERSION")
+        v_html = _ver(RESOURCES / "live_rig_3_controller.html",
+                      "const LIVERIG_VERSION")
+        check(f"Versions match ({v_script})",
+              v_script == v_bridge == v_html and v_script != "?",
+              f"script={v_script} bridge={v_bridge} ui={v_html} — run scripts/deploy.sh")
+
+        passed = sum(1 for r_ in results if r_.startswith("✓"))
+        title = ("Pre-Gig Check — ALL CLEAR ✓" if passed == len(results)
+                 else f"Pre-Gig Check — {len(results)-passed} PROBLEM(S)")
+        body = "\n".join(results)
+        if passed == len(results):
+            body += ("\n\nReminders (can't be auto-checked): Ableton running "
+                     "with the LiveRig Control Surface active, iPad on the "
+                     "same WiFi, iPad page reloaded after any update (watch "
+                     "the VER badge).")
+        AppHelper.callAfter(rumps.alert, title, body)
 
     def stop(self, _):
         self._stopping = True   # keep the watchdog from resurrecting these
