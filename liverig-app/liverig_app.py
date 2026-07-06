@@ -32,6 +32,7 @@ read/edited anywhere, but the actual `python3 setup.py py2app` build step
 this project already hit with codesign/hdiutil for the DMG.
 """
 import os
+import secrets
 import subprocess
 import sys
 import threading
@@ -54,7 +55,11 @@ BRIDGE_LOG          = Path("/private/tmp/liverig_bridge.log")
 HTTP_LOG            = Path("/private/tmp/liverig_http.log")
 PID_FILE            = Path("/private/tmp/liverig_bridge.pid")
 HTTP_PID            = Path("/private/tmp/liverig_http.pid")
-SERVED_HTML         = Path("/private/tmp/liverig_controller_served.html")
+# Dedicated web root (2026-07-06): the http.server used to run with
+# cwd=/private/tmp, which served EVERYTHING in /private/tmp -- bridge logs,
+# other apps' temp files -- to the whole LAN. Now only this folder is exposed.
+WWW_DIR             = Path("/private/tmp/liverig_www")
+SERVED_HTML         = WWW_DIR / "liverig_controller_served.html"
 HTTP_PORT           = 8080
 WS_PORT             = 8765
 REMOTE_SCRIPTS_DIR  = Path.home() / "Music/Ableton/User Library/Remote Scripts/LiveRig"
@@ -64,7 +69,30 @@ REMOTE_SCRIPTS_DIR  = Path.home() / "Music/Ableton/User Library/Remote Scripts/L
 REPO_RIG_CONFIG    = Path.home() / "Desktop/liverig/rig_config.json"
 EXT_STORAGE_CONFIG = (Path.home() / "Library/Application Support/Ableton/Extensions"
                       / "LiveRig Setup Tool/storage/rig_config.json")
-SERVED_RIG_CONFIG  = Path("/private/tmp/rig_config.json")
+SERVED_RIG_CONFIG  = WWW_DIR / "rig_config.json"
+
+# Shared secret for the bridge's WebSocket (2026-07-06). The WebSocket used
+# to accept ANY client on the local network with zero auth -- fine at home,
+# an open mixing desk on a venue's shared WiFi. The token is generated once,
+# persisted here, read by the bridge at startup, and injected into the served
+# HTML ({{BRIDGE_TOKEN}}) so only pages served by THIS app can connect.
+TOKEN_FILE          = SUPPORT / "ws_token"
+
+
+def _ensure_token():
+    """Create (once) and return the shared WebSocket auth token."""
+    try:
+        if TOKEN_FILE.is_file():
+            tok = TOKEN_FILE.read_text(encoding="utf-8").strip()
+            if tok:
+                return tok
+        SUPPORT.mkdir(parents=True, exist_ok=True)
+        tok = secrets.token_urlsafe(16)
+        TOKEN_FILE.write_text(tok, encoding="utf-8")
+        return tok
+    except Exception as e:
+        print(f"WARNING: ws token setup failed ({e}); bridge will run open.")
+        return ""
 
 
 def _run(cmd, **kw):
@@ -168,6 +196,7 @@ def _sync_rig_config():
             )
 
     if REPO_RIG_CONFIG.is_file():
+        WWW_DIR.mkdir(parents=True, exist_ok=True)
         SERVED_RIG_CONFIG.write_bytes(REPO_RIG_CONFIG.read_bytes())
     else:
         print(f"WARNING: rig_config.json not found at {REPO_RIG_CONFIG} -- "
@@ -258,6 +287,8 @@ class LiveRigMenu(rumps.App):
         self.url = f"http://{self.host}:{HTTP_PORT}/liverig_controller_served.html"
         self.bridge = None
         self.http = None
+        self._stopping = False
+        self._restart_times = []   # watchdog: timestamps of recent restarts
 
         self._status = rumps.MenuItem("⏳ Starting…", callback=None)
         self.menu = [
@@ -292,21 +323,19 @@ class LiveRigMenu(rumps.App):
         _kill_port(HTTP_PORT)
         time.sleep(0.3)
 
-        bridge_python = str(BRIDGE_VENV / "bin/python")
+        token = _ensure_token()
 
         html_src = RESOURCES / "live_rig_3_controller.html"
         # Explicit UTF-8: when launched via Finder/LaunchServices (no inherited
         # terminal locale), Python's default text encoding falls back to ASCII,
         # which crashes on this file's UTF-8 characters (e.g. dashes, icons).
-        html = html_src.read_text(encoding="utf-8").replace("{{BRIDGE_HOST}}", self.host)
+        html = (html_src.read_text(encoding="utf-8")
+                .replace("{{BRIDGE_HOST}}", self.host)
+                .replace("{{BRIDGE_TOKEN}}", token))
+        WWW_DIR.mkdir(parents=True, exist_ok=True)
         SERVED_HTML.write_text(html, encoding="utf-8")
 
-        with open(BRIDGE_LOG, "w") as log:
-            self.bridge = subprocess.Popen(
-                [bridge_python, str(RESOURCES / "liverig_bridge_wired.py")],
-                stdout=log, stderr=log, env=_clean_subprocess_env(),
-            )
-        PID_FILE.write_text(str(self.bridge.pid))
+        self._start_bridge()
         time.sleep(2)
 
         if self.bridge.poll() is not None:
@@ -322,13 +351,7 @@ class LiveRigMenu(rumps.App):
             rumps.quit_application()
             return
 
-        with open(HTTP_LOG, "w") as log:
-            self.http = subprocess.Popen(
-                [bridge_python, "-m", "http.server", str(HTTP_PORT)],
-                cwd="/private/tmp", stdout=log, stderr=log,
-                env=_clean_subprocess_env(),
-            )
-        HTTP_PID.write_text(str(self.http.pid))
+        self._start_http()
 
         self._status.title = "● LiveRig Running"
         subprocess.run(["pbcopy"], input=self.url.encode(), check=False)
@@ -336,6 +359,74 @@ class LiveRigMenu(rumps.App):
             "LiveRig", f"Running · {self.host}",
             "iPad URL copied to clipboard", sound=False,
         )
+
+        threading.Thread(target=self._watchdog, daemon=True).start()
+
+    # ── Subprocess launchers (shared by boot + watchdog restarts) ────────────
+    def _start_bridge(self):
+        bridge_python = str(BRIDGE_VENV / "bin/python")
+        with open(BRIDGE_LOG, "a") as log:
+            self.bridge = subprocess.Popen(
+                [bridge_python, str(RESOURCES / "liverig_bridge_wired.py")],
+                stdout=log, stderr=log, env=_clean_subprocess_env(),
+            )
+        PID_FILE.write_text(str(self.bridge.pid))
+
+    def _start_http(self):
+        bridge_python = str(BRIDGE_VENV / "bin/python")
+        with open(HTTP_LOG, "a") as log:
+            self.http = subprocess.Popen(
+                [bridge_python, "-m", "http.server", str(HTTP_PORT)],
+                cwd=str(WWW_DIR), stdout=log, stderr=log,
+                env=_clean_subprocess_env(),
+            )
+        HTTP_PID.write_text(str(self.http.pid))
+
+    # ── Watchdog (2026-07-06) ────────────────────────────────────────────────
+    # Before this, the bridge/http subprocesses were checked exactly once,
+    # 2s after launch, then never again -- a mid-show crash left the menu bar
+    # saying "Running" while the iPad went dead. Now: poll every 5s, restart
+    # whatever died, and rely on the iPad's existing auto-reconnect + the
+    # bridge's connect-time full-state resync (0x4A) to bring everything back
+    # without touching Ableton. Crash-loop guard: more than 4 restarts inside
+    # 60s flips the menu to a visible failure state and pauses for a minute
+    # instead of thrashing.
+    def _watchdog(self):
+        while not self._stopping:
+            time.sleep(5)
+            if self._stopping:
+                return
+            for name, proc, restart in (
+                ("bridge", self.bridge, self._start_bridge),
+                ("http server", self.http, self._start_http),
+            ):
+                if proc is None or proc.poll() is None:
+                    continue
+                now = time.time()
+                self._restart_times = [t for t in self._restart_times
+                                       if now - t < 60]
+                if len(self._restart_times) >= 4:
+                    self._status.title = "✕ LiveRig failing — see log"
+                    rumps.notification(
+                        "LiveRig", f"The {name} keeps crashing",
+                        f"Pausing restarts for 60s. See {BRIDGE_LOG}",
+                    )
+                    time.sleep(60)
+                    self._restart_times = []
+                    continue
+                self._restart_times.append(now)
+                try:
+                    restart()
+                    self._status.title = "● LiveRig Running"
+                    rumps.notification(
+                        "LiveRig", f"Recovered: {name} restarted",
+                        "The iPad will reconnect and resync automatically.",
+                        sound=False,
+                    )
+                except Exception as e:
+                    self._status.title = "✕ LiveRig error — see log"
+                    rumps.notification("LiveRig",
+                                       f"Failed to restart {name}", str(e))
 
     # ── Menu callbacks ───────────────────────────────────────────────────────
     def open_url(self, _):
@@ -356,6 +447,7 @@ class LiveRigMenu(rumps.App):
                             sound=False)
 
     def stop(self, _):
+        self._stopping = True   # keep the watchdog from resurrecting these
         for proc in (self.bridge, self.http):
             if proc:
                 try:

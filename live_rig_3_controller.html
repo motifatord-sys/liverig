@@ -576,7 +576,13 @@ function connectWS(ip) {
   if (ws) { ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null; try{ws.close();}catch(e){} ws=null; }
   wsConnected = false; wsReconnectIP = ip;
   localStorage.setItem('bridgeIP', ip);
-  const url = `ws://${ip}:8765`;
+  // Auth token injected by LiveRig.app at serve time (2026-07-06) -- the
+  // bridge rejects connections without it. window property (not const) so
+  // there's no TDZ risk from connectWS being defined above the INIT block.
+  const tok = (typeof window.BRIDGE_TOKEN === 'string' &&
+               window.BRIDGE_TOKEN && !window.BRIDGE_TOKEN.startsWith('{{'))
+              ? `/?token=${encodeURIComponent(window.BRIDGE_TOKEN)}` : '';
+  const url = `ws://${ip}:8765${tok}`;
   setLabel(`Connecting to ${url}…`); setDot(false);
   const sock = new WebSocket(url);
   sock.binaryType = 'arraybuffer'; ws = sock;
@@ -3305,6 +3311,7 @@ attachTabHandlers();
 // ═══════════════════════════════════════════
 const BRIDGE_HOST = '{{BRIDGE_HOST}}';
 const BRIDGE_HOST_INJECTED = BRIDGE_HOST !== '{{BRIDGE_HOST_PLACEHOLDER}}';
+window.BRIDGE_TOKEN = '{{BRIDGE_TOKEN}}';   // WS auth, injected by LiveRig.app
 
 function initMIDI() {
   if(BRIDGE_HOST_INJECTED&&!BRIDGE_HOST.includes('NOT_DETECTED')){

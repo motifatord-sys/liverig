@@ -10,6 +10,7 @@ Requirements: pip install python-rtmidi websockets
 """
 
 import asyncio, json, os, sys, socket, subprocess, threading, time
+from urllib.parse import urlparse, parse_qs
 
 WS_PORT  = 8765
 UDP_PORT = 9000          # M4L sends JSON state to this port
@@ -60,6 +61,37 @@ live_state = {
     "locators":     [],
     "current_locator": ""
 }
+
+# ── WebSocket auth token (2026-07-06) ─────────────────────────────────────────
+# The WebSocket used to accept ANY client on the LAN with zero auth. LiveRig.app
+# generates a token once (see _ensure_token in liverig_app.py), injects it into
+# the served controller page, and this bridge requires it as ?token=... on the
+# WS URL. If the token file is missing/empty (dev runs outside the app), the
+# bridge runs open, exactly as before -- auth is only enforced when the app has
+# provisioned a token.
+TOKEN_FILE = os.path.expanduser("~/Library/Application Support/LiveRig/ws_token")
+
+def load_auth_token():
+    try:
+        with open(TOKEN_FILE, "r", encoding="utf-8") as fh:
+            return fh.read().strip()
+    except Exception:
+        return ""
+
+AUTH_TOKEN = load_auth_token()
+
+def _client_token(websocket, path):
+    """Extract ?token=... from the WS request across websockets API versions."""
+    raw = path
+    if not raw:
+        raw = getattr(getattr(websocket, "request", None), "path", None)
+    if not raw:
+        raw = getattr(websocket, "path", "") or ""
+    try:
+        qs = parse_qs(urlparse(raw).query)
+        return (qs.get("token") or [""])[0]
+    except Exception:
+        return ""
 
 # ── KBD fader names (portable across iPads) ───────────────────────────────────
 # iPad-authored names for KBD faders (e.g. Omnisphere patch names). Persisted
@@ -222,6 +254,13 @@ async def handle_client(websocket, path=None):
     global tx_count
     try:    ip = websocket.remote_address[0]
     except: ip = "unknown"
+    if AUTH_TOKEN and _client_token(websocket, path) != AUTH_TOKEN:
+        print(f"[LiveRig] REJECTED unauthenticated client from {ip}", flush=True)
+        try:
+            await websocket.close(code=4401, reason="auth required")
+        except Exception:
+            pass
+        return
     print(f"[LiveRig] iPad connected from {ip}", flush=True)
     async with clients_lock:
         clients.add(websocket)
