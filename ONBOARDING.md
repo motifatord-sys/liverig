@@ -59,6 +59,21 @@ Only needed once per template, or whenever track structure changes.
 
 Once connected, everything is live and bidirectional: transport, scene launching and stopping (native Live API, not fake MIDI notes), Clips page with real clip names and playing/triggered/recording state, Blue Hand mode (KBD page follows whatever track is selected in Live), KBD/Stem/Return volume faders (now bidirectional as of today), mute/solo, and Looper record/play/stop/undo/quantization. A full state resync happens automatically whenever the iPad reconnects or the Remote Script restarts.
 
+## Setlist page — how songs get their names from Ableton
+
+The Setlist page can build your song list straight from your Live Set instead of you typing it in. It reads Ableton's **Arrangement locators**, and the naming is what decides what shows up:
+
+- **Prefix a locator with `Song:` to make it a song on the Setlist page.** Example: a locator named `Song: Purple Rain` shows up as the song **Purple Rain** — LiveRig strips the `Song:` prefix and the leading space, and uses the rest as the song name. This is the character/convention you need: the `Song:` prefix (the colon is the delimiter).
+- **Matching is case-insensitive** — `Song:`, `song:`, `SONG:` all work.
+- **Locators without the `Song:` prefix are treated as *sections* (verse, chorus, etc.), not songs**, so they will NOT appear in the Setlist's song list. They still exist as locators you can jump to.
+- To place these in Ableton: in Arrangement View, set a locator (the little flag markers on the top ruler) at each song's start and name it `Song: <name>`.
+
+Two related but separate things, so they don't get confused:
+
+- **Setlist songs** come from `Song:`-prefixed **locators** (above).
+- The **Transport page's section strip** (prev / NOW+progress / next) comes from a dedicated **marker track** (the `markerTrack` in `rig_config.json`, e.g. `MARKERS`) whose named Arrangement clips each span one section — a different mechanism from locators.
+- The **Prev / Next Marker** buttons (Transport and Setlist) jump the playhead between **all** locators, whether they're `Song:` locators or section locators.
+
 ## What is NOT yet fully foolproof — honest gap list
 
 1. ~~Remote Script deployment is entirely manual~~ — **closed 2026-07-01.** LiveRig.app now auto-deploys `LiveRig.py`/`__init__.py` into the Remote Scripts folder on every launch (only notifying when content actually changed).
