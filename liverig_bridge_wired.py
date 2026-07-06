@@ -21,7 +21,7 @@ MIDI_PORT_NAME = "LiveRig Bridge"
 # component reports its copy at connect time and the iPad shows a red VER
 # badge if they disagree. Bump ALL THREE together on every deploy;
 # scripts/deploy.sh verifies they match.
-LIVERIG_VERSION = "2026.07.06.1"
+LIVERIG_VERSION = "2026.07.06.2"
 
 try:
     import rtmidi
@@ -132,6 +132,42 @@ def save_fader_names():
             json.dump(kbd_fader_names, fh)
     except Exception as e:
         print(f"[LiveRig] fader-names save failed: {e}", flush=True)
+
+# ── Patch snapshots + song names (portable across iPads, 2026-07-06) ─────────
+# Same pattern as kbd_fader_names above: the Patches page's captured snapshots
+# (fader/button states per song) and custom song names used to live only in
+# each iPad's localStorage -- a swapped/reset iPad mid-tour lost the whole
+# patch library. Now persisted on the Mac, pushed to every client on connect,
+# rebroadcast to all clients on change.
+SNAPSHOTS_FILE = os.path.expanduser(
+    "~/Library/Application Support/LiveRig/patch_snapshots.json")
+patch_snapshots = {"snapshots": [], "songNames": []}
+
+def load_patch_snapshots():
+    global patch_snapshots
+    try:
+        with open(SNAPSHOTS_FILE, "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+        if isinstance(d, dict):
+            patch_snapshots = {
+                "snapshots": d.get("snapshots") if isinstance(d.get("snapshots"), list) else [],
+                "songNames": d.get("songNames") if isinstance(d.get("songNames"), list) else [],
+            }
+            n = sum(1 for s in patch_snapshots["snapshots"]
+                    if isinstance(s, dict) and s)
+            print(f"[LiveRig] loaded {n} patch snapshot(s)", flush=True)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"[LiveRig] snapshots load failed: {e}", flush=True)
+
+def save_patch_snapshots():
+    try:
+        os.makedirs(os.path.dirname(SNAPSHOTS_FILE), exist_ok=True)
+        with open(SNAPSHOTS_FILE, "w", encoding="utf-8") as fh:
+            json.dump(patch_snapshots, fh)
+    except Exception as e:
+        print(f"[LiveRig] snapshots save failed: {e}", flush=True)
 
 # ── MIDI IN callback (Ableton → iPad) ────────────────────────────────────────
 def midi_in_callback(message, data=None):
@@ -285,6 +321,14 @@ async def handle_client(websocket, path=None):
         await websocket.send(json.dumps({"type": "kbd_fader_names", "names": kbd_fader_names}))
     except Exception as e:
         print(f"[LiveRig] fader-names send failed: {e}", flush=True)
+    # Push the portable patch snapshots + song names (same portability
+    # pattern as fader names -- see SNAPSHOTS_FILE comment above).
+    try:
+        await websocket.send(json.dumps({"type": "patch_snapshots",
+                                         "snapshots": patch_snapshots["snapshots"],
+                                         "songNames": patch_snapshots["songNames"]}))
+    except Exception as e:
+        print(f"[LiveRig] snapshots send failed: {e}", flush=True)
     # Ask the Remote Script to re-emit everything it knows over MIDI SysEx --
     # KBD/stem/aux device names+colors+volumes, binding statuses, cues,
     # scenes, looper states, etc (see SX_REQUEST_FULL_STATE / _emit_full_state
@@ -343,6 +387,21 @@ async def handle_client(websocket, path=None):
                         save_fader_names()
                         await broadcast(json.dumps(
                             {"type": "kbd_fader_names", "names": kbd_fader_names}))
+
+                elif msg_type == "set_patch_snapshots":
+                    # An iPad captured/renamed a patch. Persist and rebroadcast
+                    # the full set so every connected iPad stays in sync.
+                    snaps = data.get("snapshots")
+                    names = data.get("songNames")
+                    if isinstance(snaps, list):
+                        patch_snapshots["snapshots"] = snaps
+                        if isinstance(names, list):
+                            patch_snapshots["songNames"] = names
+                        save_patch_snapshots()
+                        await broadcast(json.dumps(
+                            {"type": "patch_snapshots",
+                             "snapshots": patch_snapshots["snapshots"],
+                             "songNames": patch_snapshots["songNames"]}))
 
                 elif msg_type == "locator_jump":
                     idx = int(data.get("index", 0)) & 0x7F
@@ -520,6 +579,7 @@ async def main():
     main_loop = asyncio.get_running_loop()
 
     load_fader_names()
+    load_patch_snapshots()
     ips = get_all_ips()
     print(f"\n{'='*58}")
     print(f"  LiveRig MIDI Bridge — Wired USB Mode  (v3 OSC+MIDI)")

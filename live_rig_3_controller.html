@@ -587,7 +587,7 @@ function connectWS(ip) {
   setLabel(`Connecting to ${url}…`); setDot(false);
   const sock = new WebSocket(url);
   sock.binaryType = 'arraybuffer'; ws = sock;
-  sock.onopen = () => { if(sock!==ws)return; wsConnected=true; setDot(true); setLabel('BRIDGE'); kbdFaderNamesMigrated=false; };
+  sock.onopen = () => { if(sock!==ws)return; wsConnected=true; setDot(true); setLabel('BRIDGE'); kbdFaderNamesMigrated=false; patchSnapshotsMigrated=false; };
   sock.onclose = () => {
     if(sock!==ws)return; wsConnected=false; setDot(false); setLabel('OFFLINE');
     const delay = Math.min(5000, 1000+(sock._retries||0)*500);
@@ -606,6 +606,8 @@ function connectWS(ip) {
           // Portable KBD fader names, pushed by the bridge on connect and
           // whenever any iPad renames a fader.
           if (parsed.type === 'kbd_fader_names') { applyKbdFaderNames(parsed.names); return; }
+          // Portable patch snapshots + song names (see applyPatchSnapshots).
+          if (parsed.type === 'patch_snapshots') { applyPatchSnapshots(parsed); return; }
           // Version handshake: bridge reports its LIVERIG_VERSION on connect.
           if (parsed.type === 'bridge_version') { COMPONENT_VERSIONS.bridge = parsed.version||''; updateVersionBadge(); return; }
           // Could also be a wrapped {type:"midi",data:[...]}
@@ -783,7 +785,7 @@ const RS = { cueAccum: [], sceneAccum: [] };
 // Any mismatch lights the red VER badge in the status bar -- a stale deploy
 // (this project's most-repeated bug class) becomes visible at a glance.
 // Bump ALL THREE together on every deploy; scripts/deploy.sh verifies.
-const LIVERIG_VERSION = '2026.07.06.1';
+const LIVERIG_VERSION = '2026.07.06.2';
 const COMPONENT_VERSIONS = { bridge: null, script: null };
 function updateVersionBadge(){
   const el = document.getElementById('ver-badge'); if(!el) return;
@@ -1849,6 +1851,48 @@ function savePatchSnapshots(){
   try{ localStorage.setItem('patchSnapshots', JSON.stringify(PATCH_SNAPSHOTS)); }catch(e){}
 }
 
+// ── Snapshot portability via the bridge (2026-07-06) ────────────────────────
+// Same pattern as KBD fader names: snapshots + song names persist on the Mac
+// (~/Library/Application Support/LiveRig/patch_snapshots.json) and sync to
+// every iPad, instead of living only in this device's localStorage. The
+// first bridge push after each (re)connect migrates a local-only library UP
+// if the bridge has nothing; otherwise the bridge copy wins. localStorage
+// stays as the offline cache.
+let patchSnapshotsMigrated = false;   // reset in sock.onopen
+function snapshotsHaveData(arr){
+  return Array.isArray(arr) && arr.some(s => s && typeof s === 'object' && Object.keys(s).length);
+}
+function sendPatchSnapshots(){
+  try{
+    if(wsConnected && ws && ws.readyState === WebSocket.OPEN)
+      ws.send(JSON.stringify({type:'set_patch_snapshots',
+                              snapshots: PATCH_SNAPSHOTS, songNames: SONG_NAMES}));
+  }catch(e){}
+}
+function applyPatchSnapshots(msg){
+  const remote = Array.isArray(msg.snapshots) ? msg.snapshots : [];
+  const firstSinceConnect = !patchSnapshotsMigrated;
+  patchSnapshotsMigrated = true;
+  // Migration: bridge is empty but this iPad has a library -> push it up.
+  if (firstSinceConnect && !snapshotsHaveData(remote) && snapshotsHaveData(PATCH_SNAPSHOTS)){
+    sendPatchSnapshots();
+    return;
+  }
+  // Steady state: mirror the bridge exactly (it just rebroadcast someone's
+  // change -- possibly ours, in which case this is a no-op).
+  PATCH_SNAPSHOTS = Array.from({length: MAX_PATCHES},
+    (_, i) => (remote[i] && typeof remote[i] === 'object') ? remote[i] : ({}));
+  if (Array.isArray(msg.songNames) && msg.songNames.length){
+    for (let i = 0; i < MAX_PATCHES; i++){
+      if (typeof msg.songNames[i] === 'string' && msg.songNames[i]) SONG_NAMES[i] = msg.songNames[i];
+      const el = document.getElementById(`song-name-${i}`);
+      if (el && SONG_NAMES[i]) el.textContent = SONG_NAMES[i];
+    }
+    try{ localStorage.setItem('songNames', JSON.stringify(SONG_NAMES)); }catch(e){}
+  }
+  savePatchSnapshots();
+}
+
 // Mode state for the patches page. Only one mode active at a time.
 let patchesMode = null;  // null | 'capture' | 'rename'
 let captureKbds = Array(KBD_COUNT).fill(true);  // which KBD pages to capture, from dialog
@@ -1953,6 +1997,7 @@ function captureSnapshotForSong(songIdx) {
   }
   PATCH_SNAPSHOTS[songIdx] = snap;
   savePatchSnapshots();
+  sendPatchSnapshots();   // sync to the bridge -> every other iPad
 }
 
 function restoreSnapshotForSong(songIdx) {
@@ -2033,6 +2078,7 @@ function buildPatches() {
           SONG_NAMES[i] = n.trim();
           sname.textContent = SONG_NAMES[i];
           localStorage.setItem('songNames', JSON.stringify(SONG_NAMES));
+          sendPatchSnapshots();   // song names travel with the snapshots
         }
         setPatchesMode(null);
         return;
