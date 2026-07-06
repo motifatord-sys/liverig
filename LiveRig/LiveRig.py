@@ -246,6 +246,10 @@ FB_MARKER_ITEM     = 0x57   # data: total, idx, name(len+bytes) -- one section o
                              # marker track's ordered section list (Transport section strip)
 FB_MARKER_NOW      = 0x58   # data: cur_idx (0x7F = none/before first), prog_hi, prog_lo
                              # -- current section + uint14 progress (0..0x3FFF) through it
+FB_SCRIPT_VERSION  = 0x59   # data: version string (len+bytes) -- this script's
+                             # LIVERIG_VERSION, sent on every full-state emit so the
+                             # iPad can flag a stale deploy (see version handshake note
+                             # above LIVERIG_VERSION)
 
 # ── Track-binding status (2026-07-01) ───────────────────────────────────────
 # rig_config.json binds KBD/stem/looper/aux slots to Ableton tracks by NAME
@@ -287,6 +291,14 @@ CLIP_TRACKS  = 8
 CLIP_SCENES  = 8
 
 LIVERIG_MFG_ID     = 0x7D
+
+# Version handshake (2026-07-06): the same LIVERIG_VERSION string lives in
+# LiveRig.py, liverig_bridge_wired.py, and live_rig_3_controller.html. Each
+# component reports its copy at connect time and the iPad shows a red VER
+# badge if they disagree -- turning the "stale deploy" class of bug (which
+# has bitten twice, see LIVERIG_MEMORY.md) from a debugging session into a
+# glance. Bump ALL THREE together on every deploy; scripts/deploy.sh verifies.
+LIVERIG_VERSION    = "2026.07.06.1"
 
 
 class LiveRig(ControlSurface):
@@ -2214,7 +2226,13 @@ class LiveRig(ControlSurface):
         for li in range(self._looper_count):
             self._emit_looper_state(li)
 
+    def _emit_script_version(self):
+        """Version handshake: report this script's LIVERIG_VERSION so the
+        iPad can compare it against the bridge's and its own (fb 0x59)."""
+        self._send_sx([FB_SCRIPT_VERSION] + self._encode_str(LIVERIG_VERSION))
+
     def _emit_full_state(self):
+        self._emit_script_version()
         self._emit_transport_state()
         self._emit_bpm()
         self._emit_song_time()

@@ -16,6 +16,13 @@ WS_PORT  = 8765
 UDP_PORT = 9000          # M4L sends JSON state to this port
 MIDI_PORT_NAME = "LiveRig Bridge"
 
+# Version handshake (2026-07-06): the same LIVERIG_VERSION string lives in
+# LiveRig.py, liverig_bridge_wired.py, and live_rig_3_controller.html. Each
+# component reports its copy at connect time and the iPad shows a red VER
+# badge if they disagree. Bump ALL THREE together on every deploy;
+# scripts/deploy.sh verifies they match.
+LIVERIG_VERSION = "2026.07.06.1"
+
 try:
     import rtmidi
 except ImportError:
@@ -266,6 +273,13 @@ async def handle_client(websocket, path=None):
         clients.add(websocket)
     # Send current state immediately on connect
     await websocket.send(json.dumps(live_state))
+    # Version handshake: tell this client which bridge version it's talking
+    # to, so the UI can flag a stale deploy (see LIVERIG_VERSION note above).
+    try:
+        await websocket.send(json.dumps(
+            {"type": "bridge_version", "version": LIVERIG_VERSION}))
+    except Exception as e:
+        print(f"[LiveRig] version send failed: {e}", flush=True)
     # Push the portable KBD fader names so this client matches every other one.
     try:
         await websocket.send(json.dumps({"type": "kbd_fader_names", "names": kbd_fader_names}))

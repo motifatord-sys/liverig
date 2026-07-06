@@ -329,6 +329,7 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
 <div id="statusbar">
   <div id="midi-dot"></div>
   <span id="midi-label" onclick="showIPPrompt()">BRIDGE OFFLINE</span>
+  <span id="ver-badge" style="display:none;background:#7a1010;border:1px solid #c02020;border-radius:4px;color:#ffaaaa;font-family:'Share Tech Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.08em;padding:3px 7px;flex-shrink:0;cursor:pointer;">VER ⚠</span>
   <div id="beat-pulse"></div>
   <span id="status-bpm">--</span><span id="status-bpm-lbl">BPM</span>
   <span id="meta-bar" style="font-family:var(--mono);font-size:12px;color:var(--muted);flex:1;text-align:center"></span>
@@ -605,6 +606,8 @@ function connectWS(ip) {
           // Portable KBD fader names, pushed by the bridge on connect and
           // whenever any iPad renames a fader.
           if (parsed.type === 'kbd_fader_names') { applyKbdFaderNames(parsed.names); return; }
+          // Version handshake: bridge reports its LIVERIG_VERSION on connect.
+          if (parsed.type === 'bridge_version') { COMPONENT_VERSIONS.bridge = parsed.version||''; updateVersionBadge(); return; }
           // Could also be a wrapped {type:"midi",data:[...]}
           if (parsed.type === 'midi' && Array.isArray(parsed.data)) { onMIDIIn(parsed.data); return; }
           return;
@@ -773,6 +776,32 @@ function onLiveState(s) {
 // ── Remote Script feedback parser ────────────────────────────────────────────
 // Wire format: F0 7D 60 <fb_type> <data...> F7
 const RS = { cueAccum: [], sceneAccum: [] };
+// ── Version handshake (2026-07-06) ─────────────────────────────────────────
+// The same LIVERIG_VERSION string lives in LiveRig.py, liverig_bridge_wired.py
+// and this file. The bridge reports its copy on connect ({type:'bridge_version'})
+// and the Remote Script reports its copy on every full-state emit (fb 0x59).
+// Any mismatch lights the red VER badge in the status bar -- a stale deploy
+// (this project's most-repeated bug class) becomes visible at a glance.
+// Bump ALL THREE together on every deploy; scripts/deploy.sh verifies.
+const LIVERIG_VERSION = '2026.07.06.1';
+const COMPONENT_VERSIONS = { bridge: null, script: null };
+function updateVersionBadge(){
+  const el = document.getElementById('ver-badge'); if(!el) return;
+  const bad = [];
+  if (COMPONENT_VERSIONS.bridge && COMPONENT_VERSIONS.bridge !== LIVERIG_VERSION)
+    bad.push(`bridge ${COMPONENT_VERSIONS.bridge}`);
+  if (COMPONENT_VERSIONS.script && COMPONENT_VERSIONS.script !== LIVERIG_VERSION)
+    bad.push(`remote script ${COMPONENT_VERSIONS.script}`);
+  if (bad.length){
+    const msg = `Version mismatch — UI is ${LIVERIG_VERSION} but ${bad.join(' and ')}. `+
+                `Stale deploy: relaunch LiveRig.app and/or restart Ableton, then hard-reload this page.`;
+    el.style.display = 'inline-block';
+    el.onclick = () => alert(msg);
+  } else {
+    el.style.display = 'none';
+  }
+}
+
 function rsDecodeStr(bytes, offset){
   if (offset >= bytes.length) return {text:'', next:offset};
   const n = bytes[offset];
@@ -1010,6 +1039,12 @@ function onRemoteScriptFeedback(bytes){
     const idx = rawIdx === 0x7F ? -1 : rawIdx;
     const prog = rsUint14(data[1], data[2]) / 0x3FFF;
     setMarkerNow(idx, prog);
+  } else if (fb === 0x59) {
+    // Version handshake: the Remote Script reports its LIVERIG_VERSION on
+    // every full-state emit. Mismatch vs this page lights the VER badge.
+    const {text} = rsDecodeStr(data, 0);
+    COMPONENT_VERSIONS.script = text;
+    updateVersionBadge();
   }
 }
 
