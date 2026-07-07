@@ -9,7 +9,7 @@ over WiFi for a while now, USB is only ever used for ad-hoc debugging
 Requirements: pip install python-rtmidi websockets
 """
 
-import asyncio, json, os, sys, socket, subprocess, threading, time
+import asyncio, json, os, struct, sys, socket, subprocess, threading, time
 from urllib.parse import urlparse, parse_qs
 
 WS_PORT  = 8765
@@ -21,7 +21,7 @@ MIDI_PORT_NAME = "LiveRig Bridge"
 # component reports its copy at connect time and the iPad shows a red VER
 # badge if they disagree. Bump ALL THREE together on every deploy;
 # scripts/deploy.sh verifies they match.
-LIVERIG_VERSION = "2026.07.06.2"
+LIVERIG_VERSION = "2026.07.06.3"
 
 try:
     import rtmidi
@@ -169,6 +169,156 @@ def save_patch_snapshots():
     except Exception as e:
         print(f"[LiveRig] snapshots save failed: {e}", flush=True)
 
+# ── Lighting OSC cues from song sections (2026-07-06) ─────────────────────────
+# The Remote Script already reports which MARKERS-track section the playhead is
+# in (FB_MARKER_ITEM 0x57 = the ordered section list, FB_MARKER_NOW 0x58 =
+# current section + progress, ~10 Hz while playing -- the same data that drives
+# the Transport section strip). This block turns that into lighting control:
+# on every section CHANGE the bridge fires OSC to a console/software on the
+# network, so lighting looks follow the song automatically -- and because it
+# follows the playhead through named sections (not timecode), it tracks live
+# arrangement changes: vamp a chorus, jump a locator, lights follow.
+#
+# Configured via a new optional top-level "lighting" key in rig_config.json:
+#   "lighting": {
+#     "enabled": true,
+#     "oscHost": "10.0.0.50",          // console/software IP
+#     "oscPort": 8000,
+#     "sendSectionName": true,          // /liverig/section <name> <index> on change
+#     "sendProgress": false,            // /liverig/progress <0.0-1.0> (~10 Hz, for fades)
+#     "cues": {                         // optional per-section console-specific messages
+#       "CHORUS": "/cue/12/fire",                            // address only
+#       "VERSE 1": {"address": "/eos/cue/1/11/fire", "args": []}  // with args (int/float/str)
+#     }
+#   }
+# Section-name matching is case-insensitive (same rule as track binding).
+# Everything here fails SILENTLY toward the music side: no console listening,
+# bad host, missing config -- the worst case is a log line, never a crash.
+#
+# The OSC encoder is hand-rolled (~20 lines) rather than a pip dependency ON
+# PURPOSE: the app's _ensure_bridge_venv() only installs packages on first
+# run, so a new import would crash every already-provisioned rig until a
+# manual venv rebuild. stdlib-only code has no such failure mode.
+
+def osc_message(address, *args):
+    """Encode one OSC message (address + typed args). Supports int (i),
+    float (f), str (s) -- the types lighting consoles actually use."""
+    def pad_str(s):
+        b = s.encode("utf-8") + b"\x00"
+        return b + b"\x00" * ((4 - len(b) % 4) % 4)
+    tags, payload = ",", b""
+    for a in args:
+        if isinstance(a, bool):
+            tags += "T" if a else "F"
+        elif isinstance(a, int):
+            tags += "i"; payload += struct.pack(">i", a)
+        elif isinstance(a, float):
+            tags += "f"; payload += struct.pack(">f", a)
+        else:
+            tags += "s"; payload += pad_str(str(a))
+    return pad_str(address) + pad_str(tags) + payload
+
+LIGHTING = {"enabled": False}
+_osc_sock = None
+_osc_err_logged = False
+
+def load_lighting_config():
+    """Read the optional "lighting" section from rig_config.json. Tries the
+    Desktop repo copy first (canonical), then the served www copy."""
+    global LIGHTING, _osc_sock
+    cfg = None
+    for p in (os.path.expanduser("~/Desktop/liverig/rig_config.json"),
+              "/private/tmp/liverig_www/rig_config.json"):
+        try:
+            with open(p, "r", encoding="utf-8") as fh:
+                cfg = json.load(fh)
+            break
+        except Exception:
+            continue
+    lit = (cfg or {}).get("lighting")
+    if not isinstance(lit, dict) or not lit.get("enabled"):
+        LIGHTING = {"enabled": False}
+        return
+    cues = {}
+    for k, v in (lit.get("cues") or {}).items():
+        key = str(k).strip().lower()
+        if isinstance(v, str) and v.strip():
+            cues[key] = {"address": v.strip(), "args": []}
+        elif isinstance(v, dict) and v.get("address"):
+            args = [a for a in (v.get("args") or [])
+                    if isinstance(a, (int, float, str, bool))]
+            cues[key] = {"address": str(v["address"]), "args": args}
+    LIGHTING = {
+        "enabled": True,
+        "host": str(lit.get("oscHost", "127.0.0.1")),
+        "port": int(lit.get("oscPort", 8000)),
+        "sendSectionName": bool(lit.get("sendSectionName", True)),
+        "sendProgress": bool(lit.get("sendProgress", False)),
+        "cues": cues,
+    }
+    try:
+        _osc_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    except Exception as e:
+        print(f"[LiveRig] lighting: socket failed: {e}", flush=True)
+        LIGHTING = {"enabled": False}
+        return
+    print(f"[LiveRig] lighting OSC -> {LIGHTING['host']}:{LIGHTING['port']} "
+          f"({len(cues)} cue mapping(s), progress "
+          f"{'on' if LIGHTING['sendProgress'] else 'off'})", flush=True)
+
+def _osc_send(address, *args):
+    global _osc_err_logged
+    if not LIGHTING.get("enabled") or _osc_sock is None:
+        return
+    try:
+        _osc_sock.sendto(osc_message(address, *args),
+                         (LIGHTING["host"], LIGHTING["port"]))
+    except Exception as e:
+        if not _osc_err_logged:   # log once, never spam at 10 Hz
+            _osc_err_logged = True
+            print(f"[LiveRig] lighting: OSC send failed: {e}", flush=True)
+
+# Section state, rebuilt from the Remote Script's own marker feedback.
+marker_names = {}            # idx -> section name (from FB_MARKER_ITEM)
+current_section_idx = None   # None = unknown since startup; -1 = outside all
+
+def handle_marker_feedback(fb, data):
+    """Track marker list + current section; fire OSC on section change."""
+    global current_section_idx
+    if fb == 0x57 and len(data) >= 3:            # FB_MARKER_ITEM
+        idx, ln = data[1], data[2]
+        if idx == 0:
+            marker_names.clear()                 # new list starting over
+        marker_names[idx] = "".join(chr(b & 0x7F) for b in data[3:3 + ln])
+    elif fb == 0x58 and len(data) >= 3:          # FB_MARKER_NOW
+        raw = data[0]
+        idx = -1 if raw == 0x7F else raw
+        prog = (((data[1] & 0x7F) << 7) | (data[2] & 0x7F)) / 0x3FFF
+        if idx != current_section_idx:
+            current_section_idx = idx
+            name = marker_names.get(idx, "") if idx >= 0 else ""
+            if LIGHTING.get("sendSectionName", True):
+                _osc_send("/liverig/section", name, idx)
+            cue = LIGHTING.get("cues", {}).get(name.strip().lower())
+            if cue:
+                _osc_send(cue["address"], *cue["args"])
+            print(f"[LiveRig] lighting: section -> "
+                  f"{name or '(none)'} [{idx}]"
+                  + (f" cue {cue['address']}" if cue else ""), flush=True)
+        if LIGHTING.get("sendProgress"):
+            _osc_send("/liverig/progress", float(prog))
+
+def maybe_handle_lighting(midi_bytes):
+    """Peek at Remote Script SysEx feedback for the two marker codes.
+    Called from the rtmidi callback thread; must never raise."""
+    try:
+        if (LIGHTING.get("enabled") and len(midi_bytes) >= 6
+                and midi_bytes[0] == 0xF0 and midi_bytes[1] == 0x7D
+                and midi_bytes[2] == 0x60 and midi_bytes[3] in (0x57, 0x58)):
+            handle_marker_feedback(midi_bytes[3], list(midi_bytes[4:-1]))
+    except Exception as e:
+        print(f"[LiveRig] lighting: parse error: {e}", flush=True)
+
 # ── MIDI IN callback (Ableton → iPad) ────────────────────────────────────────
 def midi_in_callback(message, data=None):
     global rx_count
@@ -176,6 +326,7 @@ def midi_in_callback(message, data=None):
     if not midi_bytes:
         return
     rx_count += 1
+    maybe_handle_lighting(midi_bytes)   # OSC section cues; never raises
     payload = json.dumps({"type": "midi", "data": list(midi_bytes)})
     async def _broadcast():
         async with clients_lock:
@@ -580,6 +731,7 @@ async def main():
 
     load_fader_names()
     load_patch_snapshots()
+    load_lighting_config()
     ips = get_all_ips()
     print(f"\n{'='*58}")
     print(f"  LiveRig MIDI Bridge — Wired USB Mode  (v3 OSC+MIDI)")

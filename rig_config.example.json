@@ -2,10 +2,34 @@
   "version": "1.0",
   "rigName": "Main Live Rig",
   "keyboards": [
-    { "id": "kbd1", "label": "KBD 1", "bankSize": 8, "buttonCount": 16, "faderCount": 8 },
-    { "id": "kbd2", "label": "KBD 2", "bankSize": 8, "buttonCount": 16, "faderCount": 8 },
-    { "id": "kbd3", "label": "KBD 3", "bankSize": 8, "buttonCount": 16, "faderCount": 8 },
-    { "id": "kbd4", "label": "KBD 4", "bankSize": 8, "buttonCount": 16, "faderCount": 8 }
+    {
+      "id": "kbd1",
+      "label": "KBD 1",
+      "bankSize": 8,
+      "buttonCount": 16,
+      "faderCount": 8
+    },
+    {
+      "id": "kbd2",
+      "label": "KBD 2",
+      "bankSize": 8,
+      "buttonCount": 16,
+      "faderCount": 8
+    },
+    {
+      "id": "kbd3",
+      "label": "KBD 3",
+      "bankSize": 8,
+      "buttonCount": 16,
+      "faderCount": 8
+    },
+    {
+      "id": "kbd4",
+      "label": "KBD 4",
+      "bankSize": 8,
+      "buttonCount": 16,
+      "faderCount": 8
+    }
   ],
   "patches": {
     "maxPatches": 8,
@@ -15,14 +39,43 @@
       "stepIntervalMs": 20,
       "stepCount": 25
     },
-    "captureScope": ["kbd1", "kbd2", "kbd3", "kbd4"]
+    "captureScope": [
+      "kbd1",
+      "kbd2",
+      "kbd3",
+      "kbd4"
+    ]
   },
   "stems": [
-    { "id": "stem1", "label": "Drums", "trackName": "Drums" },
-    { "id": "stem2", "label": "Bass", "trackName": "Bass" },
-    { "id": "stem3", "label": "Keys", "trackName": "Keys" },
-    { "id": "stem4", "label": "Vox", "trackName": "Vox" }
+    {
+      "id": "stem1",
+      "label": "Drums",
+      "trackName": "Drums"
+    },
+    {
+      "id": "stem2",
+      "label": "Bass",
+      "trackName": "Bass"
+    },
+    {
+      "id": "stem3",
+      "label": "Keys",
+      "trackName": "Keys"
+    },
+    {
+      "id": "stem4",
+      "label": "Vox",
+      "trackName": "Vox"
+    }
   ],
+  "lighting": {
+    "enabled": false,
+    "oscHost": "127.0.0.1",
+    "oscPort": 8000,
+    "sendSectionName": true,
+    "sendProgress": false,
+    "cues": {}
+  },
   "listeners": {
     "useSchedulePollForSongTime": true,
     "songTimePollHz": 10,

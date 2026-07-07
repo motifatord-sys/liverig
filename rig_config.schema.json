@@ -40,6 +40,12 @@
             "default": 8,
             "description": "Number of parameters walked per bank when paging through a device's parameters."
           },
+          "midiChannel": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16,
+            "description": "1-indexed MIDI channel for this keyboard. Omit to auto-assign (ch1-4 for KBD1-4, then walking free channels skipping reserved ones)."
+          },
           "defaultTrackBinding": {
             "type": ["string", "null"],
             "description": "Track name or index this keyboard binds to by default on load. Null = unbound until user selects a track.",
@@ -112,14 +118,91 @@
           "id": { "type": "string" },
           "label": { "type": "string" },
           "trackName": {
-            "type": "string",
-            "description": "Ableton track name this stem control targets."
+            "type": ["string", "null"],
+            "description": "Ableton track name this stem control targets (case-insensitive match). Null = slot deliberately unconfigured."
           },
           "defaultVolume": {
             "type": "number",
             "minimum": 0,
             "maximum": 127,
             "default": 100
+          }
+        }
+      }
+    },
+
+    "loopers": {
+      "type": "array",
+      "description": "Dedicated Looper-device tracks controlled from the Looper page. Omit if unused.",
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "trackName": {
+            "type": ["string", "null"],
+            "description": "Ableton track holding the Looper device (case-insensitive match)."
+          }
+        }
+      }
+    },
+
+    "markerTrack": {
+      "type": ["string", "null"],
+      "description": "Name of the Arrangement track whose named clips define song sections (feeds the Transport section strip and lighting cues). Case-insensitive match."
+    },
+
+    "lighting": {
+      "type": "object",
+      "description": "OSC lighting cues fired by the bridge when the playhead enters a new markerTrack section (2026-07-06). Console-agnostic: works with anything listening for OSC (grandMA3, Eos, ChamSys, Onyx, Lightkey, QLC+, Resolume...).",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch. When false (or the whole lighting key is absent), the bridge sends nothing."
+        },
+        "oscHost": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "IP/hostname of the lighting console or software."
+        },
+        "oscPort": {
+          "type": "integer",
+          "default": 8000,
+          "description": "UDP port the console listens for OSC on."
+        },
+        "sendSectionName": {
+          "type": "boolean",
+          "default": true,
+          "description": "Send /liverig/section <name(string)> <index(int)> on every section change (index -1 / empty name = outside all sections)."
+        },
+        "sendProgress": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also stream /liverig/progress <0.0-1.0(float)> ~10 Hz while playing -- lets the console run timed fades across a section."
+        },
+        "cues": {
+          "type": "object",
+          "description": "Optional per-section console-specific messages, keyed by section name (case-insensitive). Value is either an OSC address string, or {address, args} with int/float/string args.",
+          "additionalProperties": {
+            "anyOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "required": ["address"],
+                "additionalProperties": false,
+                "properties": {
+                  "address": { "type": "string" },
+                  "args": {
+                    "type": "array",
+                    "items": { "type": ["integer", "number", "string", "boolean"] }
+                  }
+                }
+              }
+            ]
           }
         }
       }
