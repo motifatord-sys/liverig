@@ -106,8 +106,16 @@ _DEFAULT_RIG_CONFIG = {
 
 # Checked in order; first one found wins. Covers both "script reads the repo
 # copy directly" (dev) and "script reads a copy placed next to it" (installed).
+# Search order (2026-07-06, portability fix):
+#   1. The dev repo on David's machine -- highest priority so a hand-edit
+#      there keeps winning exactly as it always has.
+#   2. ~/Library/Application Support/LiveRig/ -- the canonical location on a
+#      machine WITHOUT the dev repo (i.e. anyone who installed from the DMG).
+#      LiveRig.app maintains this copy (see _sync_rig_config).
+#   3. Next to this script -- last-resort bundle fallback.
 _CONFIG_SEARCH_PATHS = [
     os.path.expanduser("~/Desktop/liverig/rig_config.json"),
+    os.path.expanduser("~/Library/Application Support/LiveRig/rig_config.json"),
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "rig_config.json"),
 ]
 
@@ -298,7 +306,7 @@ LIVERIG_MFG_ID     = 0x7D
 # badge if they disagree -- turning the "stale deploy" class of bug (which
 # has bitten twice, see LIVERIG_MEMORY.md) from a debugging session into a
 # glance. Bump ALL THREE together on every deploy; scripts/deploy.sh verifies.
-LIVERIG_VERSION    = "2026.07.06.4"
+LIVERIG_VERSION    = "2026.07.06.5"
 
 
 class LiveRig(ControlSurface):

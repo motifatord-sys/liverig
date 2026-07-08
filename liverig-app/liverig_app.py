@@ -65,7 +65,20 @@ REMOTE_SCRIPTS_DIR  = Path.home() / "Music/Ableton/User Library/Remote Scripts/L
 
 # rig_config.json handoff (ported 2026-07-02 from the retired
 # LiveRig_Wired_Start.sh -- see _sync_rig_config() below for why).
+# Portability (2026-07-06): the Desktop repo is a DEV convenience that only
+# exists on David's machine. On any other Mac (DMG install), the canonical
+# config lives in this app's own Application Support dir instead. All three
+# components (this app, LiveRig.py, the bridge) search Desktop first, then
+# Application Support -- so David's setup behaves exactly as before, and a
+# repo-less machine still gets a real config instead of silent defaults.
 REPO_RIG_CONFIG    = Path.home() / "Desktop/liverig/rig_config.json"
+CANON_RIG_CONFIG   = SUPPORT / "rig_config.json"
+
+
+def _active_rig_config():
+    """The config file this machine actually uses: the dev repo's copy when
+    the repo exists, otherwise the Application Support copy."""
+    return REPO_RIG_CONFIG if REPO_RIG_CONFIG.parent.is_dir() else CANON_RIG_CONFIG
 EXT_STORAGE_CONFIG = (Path.home() / "Library/Application Support/Ableton/Extensions"
                       / "LiveRig Setup Tool/storage/rig_config.json")
 SERVED_RIG_CONFIG  = WWW_DIR / "rig_config.json"
@@ -186,23 +199,25 @@ def _sync_rig_config():
        the iPad silently falls back to the hardcoded 4-keyboard/8-stem
        default with no error, regardless of what's actually configured.
     """
+    target = _active_rig_config()
+
     if EXT_STORAGE_CONFIG.is_file():
         ext_mtime = EXT_STORAGE_CONFIG.stat().st_mtime
-        repo_mtime = REPO_RIG_CONFIG.stat().st_mtime if REPO_RIG_CONFIG.is_file() else 0
-        if ext_mtime > repo_mtime:
-            REPO_RIG_CONFIG.parent.mkdir(parents=True, exist_ok=True)
-            REPO_RIG_CONFIG.write_bytes(EXT_STORAGE_CONFIG.read_bytes())
+        tgt_mtime = target.stat().st_mtime if target.is_file() else 0
+        if ext_mtime > tgt_mtime:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(EXT_STORAGE_CONFIG.read_bytes())
             rumps.notification(
                 "LiveRig", "Config updated",
                 "Synced a newer rig_config.json from the Setup Tool.",
                 sound=False,
             )
 
-    if REPO_RIG_CONFIG.is_file():
+    if target.is_file():
         WWW_DIR.mkdir(parents=True, exist_ok=True)
-        SERVED_RIG_CONFIG.write_bytes(REPO_RIG_CONFIG.read_bytes())
+        SERVED_RIG_CONFIG.write_bytes(target.read_bytes())
     else:
-        print(f"WARNING: rig_config.json not found at {REPO_RIG_CONFIG} -- "
+        print(f"WARNING: rig_config.json not found at {target} -- "
               "controller will fall back to built-in defaults.")
 
 

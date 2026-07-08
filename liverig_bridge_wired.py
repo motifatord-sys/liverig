@@ -20,7 +20,7 @@ MIDI_PORT_NAME = "LiveRig Bridge"
 # component reports its copy at connect time and the iPad shows a red VER
 # badge if they disagree. Bump ALL THREE together on every deploy;
 # scripts/deploy.sh verifies they match.
-LIVERIG_VERSION = "2026.07.06.4"
+LIVERIG_VERSION = "2026.07.06.5"
 
 try:
     import rtmidi
@@ -216,6 +216,8 @@ def load_lighting_config():
     global LIGHTING, _osc_sock
     cfg = None
     for p in (os.path.expanduser("~/Desktop/liverig/rig_config.json"),
+              os.path.expanduser(
+                  "~/Library/Application Support/LiveRig/rig_config.json"),
               "/private/tmp/liverig_www/rig_config.json"):
         try:
             with open(p, "r", encoding="utf-8") as fh:
