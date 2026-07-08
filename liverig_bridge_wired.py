@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-LiveRig MIDI Bridge  (v3 — bidirectional + OSC/UDP)
+LiveRig MIDI Bridge  (v4 — bidirectional MIDI/SysEx + lighting OSC out)
 Runs on your Mac. The iPad connects wirelessly over the local network
-(Safari -> this bridge's WebSocket server) -- the "Wired USB Edition" name
-and "USB cable only" comment are stale as of 2026-07-02: LiveRig has run
-over WiFi for a while now, USB is only ever used for ad-hoc debugging
-(e.g. Safari's remote Web Inspector), never required for normal operation.
+(Safari -> this bridge's WebSocket server). All Ableton state flows through
+the Remote Script's SysEx feedback -- the old Max-for-Live inputs (UDP:9000,
+HTTP:9090, /tmp/liverig_state.json file watcher) were removed 2026-07-06
+after sitting dead since the Remote Script migration.
 Requirements: pip install python-rtmidi websockets
 """
 
@@ -13,7 +13,6 @@ import asyncio, json, os, struct, sys, socket, subprocess, threading, time
 from urllib.parse import urlparse, parse_qs
 
 WS_PORT  = 8765
-UDP_PORT = 9000          # M4L sends JSON state to this port
 MIDI_PORT_NAME = "LiveRig Bridge"
 
 # Version handshake (2026-07-06): the same LIVERIG_VERSION string lives in
@@ -21,7 +20,7 @@ MIDI_PORT_NAME = "LiveRig Bridge"
 # component reports its copy at connect time and the iPad shows a red VER
 # badge if they disagree. Bump ALL THREE together on every deploy;
 # scripts/deploy.sh verifies they match.
-LIVERIG_VERSION = "2026.07.06.3"
+LIVERIG_VERSION = "2026.07.06.4"
 
 try:
     import rtmidi
@@ -52,22 +51,11 @@ main_loop    = None
 rx_count     = 0
 tx_count     = 0
 
-# Last known Live state — merged and forwarded to iPad
-live_state = {
-    "type":         "live_state",
-    "bpm":          120.0,
-    "transport":    "stopped",
-    "bar":          0,
-    "beat":         0,
-    "timesig":      [4, 4],
-    "tracks":       ["Track 1","Track 2","Track 3","Track 4",
-                     "Track 5","Track 6","Track 7","Track 8"],
-    "clips":        [[0]*8 for _ in range(8)],
-    "song":         "",
-    "song_len_bars":0,
-    "locators":     [],
-    "current_locator": ""
-}
+# NOTE (2026-07-06): the old `live_state` dict (fake "Track 1..8" defaults,
+# fed by the retired M4L UDP/HTTP/file-watcher inputs) is gone. All Ableton
+# state reaches the iPad via the Remote Script's SysEx feedback, re-requested
+# on every connect via SX_REQUEST_FULL_STATE (0x4A) below. The HTML's
+# onLiveState() handler remains, harmlessly dormant.
 
 # ── WebSocket auth token (2026-07-06) ─────────────────────────────────────────
 # The WebSocket used to accept ANY client on the LAN with zero auth. LiveRig.app
@@ -349,100 +337,6 @@ async def broadcast(payload_str):
             except: dead.add(ws)
         clients.difference_update(dead)
 
-async def broadcast_live_state():
-    await broadcast(json.dumps(live_state))
-
-async def handle_http(reader, writer):
-    """Simple HTTP server to receive JSON POSTs from M4L JS object."""
-    try:
-        head = await reader.read(4096)
-        text = head.decode('utf-8', errors='replace')
-        # Extract body (after double newline)
-        if '\r\n\r\n' in text:
-            body = text.split('\r\n\r\n', 1)[1]
-        elif '\n\n' in text:
-            body = text.split('\n\n', 1)[1]
-        else:
-            body = ''
-        body = body.strip()
-        if body:
-            try:
-                msg = json.loads(body)
-                changed = False
-                for k, v in msg.items():
-                    if live_state.get(k) != v:
-                        live_state[k] = v
-                        changed = True
-                live_state["type"] = "live_state"
-                if changed:
-                    await broadcast_live_state()
-                    print(f"[LiveRig] HTTP state: bpm={live_state.get('bpm')} transport={live_state.get('transport')} bar={live_state.get('bar')}", flush=True)
-            except Exception as e:
-                print(f"[LiveRig] HTTP parse error: {e}", flush=True)
-        # Send 200 OK
-        writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK")
-        await writer.drain()
-    except Exception as e:
-        pass
-    finally:
-        writer.close()
-
-
-
-# ── UDP server — receives JSON from M4L ──────────────────────────────────────
-class UDPProtocol(asyncio.DatagramProtocol):
-    def datagram_received(self, data, addr):
-        # udpsend in Max wraps data as OSC — try multiple decode strategies
-        msg = None
-
-        # Strategy 1: plain JSON (if using a custom sender)
-        try:
-            msg = json.loads(data.decode('utf-8'))
-        except Exception:
-            pass
-
-        # Strategy 2: OSC string message — skip OSC address header
-        # OSC packets start with / and are null-padded
-        if msg is None:
-            try:
-                text = data.decode('utf-8', errors='ignore')
-                # Find first { which starts the JSON
-                brace = text.find('{')
-                if brace != -1:
-                    msg = json.loads(text[brace:])
-            except Exception:
-                pass
-
-        # Strategy 3: scan raw bytes for JSON
-        if msg is None:
-            try:
-                raw = data.decode('latin-1', errors='replace')
-                brace = raw.find('{')
-                end = raw.rfind('}')
-                if brace != -1 and end != -1:
-                    msg = json.loads(raw[brace:end+1])
-            except Exception:
-                pass
-
-        if msg is None:
-            print(f"[LiveRig] UDP: could not parse {len(data)} bytes from {addr}", flush=True)
-            print(f"[LiveRig] UDP hex: {data[:120].hex()}", flush=True)
-            print(f"[LiveRig] UDP str: {data[:120]}", flush=True)
-            return
-
-        # Merge incoming fields into live_state
-        changed = False
-        for k, v in msg.items():
-            if k in live_state and live_state[k] != v:
-                live_state[k] = v
-                changed = True
-            elif k not in live_state:
-                live_state[k] = v
-                changed = True
-        live_state["type"] = "live_state"
-        if changed and main_loop and not main_loop.is_closed():
-            asyncio.run_coroutine_threadsafe(broadcast_live_state(), main_loop)
-
 # ── WebSocket server — handles iPad messages ──────────────────────────────────
 async def handle_client(websocket, path=None):
     global tx_count
@@ -458,8 +352,6 @@ async def handle_client(websocket, path=None):
     print(f"[LiveRig] iPad connected from {ip}", flush=True)
     async with clients_lock:
         clients.add(websocket)
-    # Send current state immediately on connect
-    await websocket.send(json.dumps(live_state))
     # Version handshake: tell this client which bridge version it's talking
     # to, so the UI can flag a stale deploy (see LIVERIG_VERSION note above).
     try:
@@ -679,52 +571,6 @@ def get_all_ips():
     return ips
 
 # ── Main ──────────────────────────────────────────────────────────────────────
-async def watch_state_file():
-    """Watch /tmp/liverig_state.json written by M4L JS."""
-    import os
-    last_mtime = 0
-    last_content = ""
-    poll_count = 0
-    change_count = 0
-    error_count = 0
-    print(f"[LiveRig] Watching /tmp/liverig_state.json", flush=True)
-    while True:
-        poll_count += 1
-        try:
-            mtime = os.path.getmtime("/tmp/liverig_state.json")
-            if mtime != last_mtime:
-                last_mtime = mtime
-                with open("/tmp/liverig_state.json", 'r') as fh:
-                    content = fh.read().strip()
-                if content and content != last_content:
-                    last_content = content
-                    try:
-                        msg = json.loads(content)
-                    except Exception as e:
-                        error_count += 1
-                        if error_count < 5:
-                            print(f"[LiveRig] JSON parse fail: {e} | content: {content[:100]}", flush=True)
-                        continue
-                    changed = False
-                    for k, v in msg.items():
-                        if live_state.get(k) != v:
-                            live_state[k] = v
-                            changed = True
-                    live_state["type"] = "live_state"
-                    if changed:
-                        change_count += 1
-                        await broadcast_live_state()
-                        if change_count == 1 or change_count % 20 == 0:
-                            print(f"[LiveRig] ✓#{change_count} bpm={live_state.get('bpm')} {live_state.get('transport')} bar={live_state.get('bar')} beat={live_state.get('beat')}", flush=True)
-        except FileNotFoundError:
-            if poll_count % 100 == 0:
-                print(f"[LiveRig] state file not found yet (poll #{poll_count})", flush=True)
-        except Exception as e:
-            error_count += 1
-            if error_count < 5:
-                print(f"[LiveRig] watch error: {e}", flush=True)
-        await asyncio.sleep(0.05)
-
 async def main():
     global main_loop
     main_loop = asyncio.get_running_loop()
@@ -734,47 +580,20 @@ async def main():
     load_lighting_config()
     ips = get_all_ips()
     print(f"\n{'='*58}")
-    print(f"  LiveRig MIDI Bridge — Wired USB Mode  (v3 OSC+MIDI)")
+    print(f"  LiveRig MIDI Bridge  (v4, {LIVERIG_VERSION})")
     print(f"{'='*58}")
     print(f"\n  Virtual MIDI ports: '{MIDI_PORT_NAME}'")
     print(f"\n  Ableton Preferences > MIDI:")
     print(f"    Input  '{MIDI_PORT_NAME}' -> Track ON, Remote ON")
     print(f"    Output '{MIDI_PORT_NAME}' -> Track ON, Remote ON")
-    print(f"\n  M4L device sends UDP JSON → localhost:{UDP_PORT}")
     print(f"\n  Network interfaces:")
-    usb_ip = None
     for iface, ip in ips.items():
-        label = ""
-        if ip.startswith("169.254"):
-            label = "  <-- USB (use this on iPad)"
-            if usb_ip is None:
-                usb_ip = ip
-        elif any(k in iface.lower() for k in ("iphone","ipad","usb")):
-            label = "  <-- USB interface"
-            if usb_ip is None:
-                usb_ip = ip
-        print(f"    {iface:22s} {ip}{label}")
-    if usb_ip:
-        print(f"\n  iPad URL: http://{usb_ip}:8080/liverig_controller_served.html")
+        print(f"    {iface:22s} {ip}")
     print(f"\n  WebSocket : 0.0.0.0:{WS_PORT}")
-    print(f"  UDP (M4L) : 0.0.0.0:{UDP_PORT}")
     print(f"{'='*58}\n")
 
-    # Start file watcher for M4L JS state file
-    asyncio.create_task(watch_state_file())
-
-    # Start HTTP server for M4L JS → bridge
-    http_server = await asyncio.start_server(handle_http, "127.0.0.1", 9090)
-    print(f"[LiveRig] HTTP receiver ready on 127.0.0.1:9090", flush=True)
-
-    # Start UDP listener on loopback — Max udpsend sends to 127.0.0.1
-    await main_loop.create_datagram_endpoint(
-        UDPProtocol,
-        local_addr=("127.0.0.1", UDP_PORT)
-    )
-    print(f"[LiveRig] UDP listener ready on 127.0.0.1:{UDP_PORT}", flush=True)
-
-    # Start WebSocket server
+    # WebSocket server (the bridge's only inbound channel since the M4L
+    # UDP/HTTP/file-watcher inputs were removed 2026-07-06)
     async with ws_serve(handle_client, "0.0.0.0", WS_PORT):
         print(f"[LiveRig] WebSocket ready on port {WS_PORT}", flush=True)
         await asyncio.Future()
