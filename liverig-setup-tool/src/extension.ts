@@ -19,6 +19,14 @@ interface RigKeyboard {
   buttonCount: number;
   faderCount: number;
   faderRange: { min: number; max: number };
+  /** 1-indexed MIDI channel; omit to auto-assign (see LiveRig.py). */
+  midiChannel?: number;
+}
+
+interface RigLooper {
+  id: string;
+  label: string;
+  trackName: string | null;
 }
 
 interface RigStem {
@@ -43,6 +51,11 @@ interface RigConfig {
     captureScope?: string[];
   };
   stems?: RigStem[];
+  loopers?: RigLooper[];
+  /** Track whose named Arrangement clips define song sections. */
+  markerTrack?: string | null;
+  /** OSC lighting cues -- edited by hand for now, passed through untouched. */
+  lighting?: unknown;
   listeners?: {
     useSchedulePollForSongTime: boolean;
     songTimePollHz: number;
@@ -65,6 +78,8 @@ const DEFAULT_CONFIG: RigConfig = {
     captureScope: ["kbd1", "kbd2", "kbd3", "kbd4"],
   },
   stems: [],
+  loopers: [],
+  markerTrack: null,
   listeners: {
     useSchedulePollForSongTime: true,
     songTimePollHz: 10,
