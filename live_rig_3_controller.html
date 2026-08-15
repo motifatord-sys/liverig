@@ -522,7 +522,10 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
   <!-- PADS -->
   <div id="page-2" class="page">
     <div style="display:flex;flex-direction:column;height:100%;gap:8px;">
-      <div class="sec">One-shot pads — CH 10, Notes C2–D#3</div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div class="sec" style="flex:1">One-shot pads — CH 10, Notes C2–D#3</div>
+        <div class="patches-action-btn" id="pads-rename-btn" onclick="setPadsRenameMode()" style="padding:6px 16px;flex:none">RENAME</div>
+      </div>
       <div style="flex:1"><div class="pad-grid-16" id="pad-grid" style="height:100%"></div></div>
       <div class="sec">FX toggles — CH 1, CC 70–73</div>
       <div class="fx-row" id="fx-btns"></div>
@@ -587,7 +590,7 @@ function connectWS(ip) {
   setLabel(`Connecting to ${url}…`); setDot(false);
   const sock = new WebSocket(url);
   sock.binaryType = 'arraybuffer'; ws = sock;
-  sock.onopen = () => { if(sock!==ws)return; wsConnected=true; setDot(true); setLabel('BRIDGE'); kbdFaderNamesMigrated=false; patchSnapshotsMigrated=false; };
+  sock.onopen = () => { if(sock!==ws)return; wsConnected=true; setDot(true); setLabel('BRIDGE'); kbdFaderNamesMigrated=false; patchSnapshotsMigrated=false; padNamesMigrated=false; };
   sock.onclose = () => {
     if(sock!==ws)return; wsConnected=false; setDot(false); setLabel('OFFLINE');
     const delay = Math.min(5000, 1000+(sock._retries||0)*500);
@@ -608,6 +611,8 @@ function connectWS(ip) {
           if (parsed.type === 'kbd_fader_names') { applyKbdFaderNames(parsed.names); return; }
           // Portable patch snapshots + song names (see applyPatchSnapshots).
           if (parsed.type === 'patch_snapshots') { applyPatchSnapshots(parsed); return; }
+          // Portable pad names (see applyPadNames).
+          if (parsed.type === 'pad_names') { applyPadNames(parsed.names); return; }
           // Version handshake: bridge reports its LIVERIG_VERSION on connect.
           if (parsed.type === 'bridge_version') { COMPONENT_VERSIONS.bridge = parsed.version||''; updateVersionBadge(); return; }
           // Could also be a wrapped {type:"midi",data:[...]}
@@ -785,7 +790,7 @@ const RS = { cueAccum: [], sceneAccum: [] };
 // Any mismatch lights the red VER badge in the status bar -- a stale deploy
 // (this project's most-repeated bug class) becomes visible at a glance.
 // Bump ALL THREE together on every deploy; scripts/deploy.sh verifies.
-const LIVERIG_VERSION = '2026.08.14.1';
+const LIVERIG_VERSION = '2026.08.15.1';
 const COMPONENT_VERSIONS = { bridge: null, script: null };
 function updateVersionBadge(){
   const el = document.getElementById('ver-badge'); if(!el) return;
@@ -1683,8 +1688,57 @@ function startLoopProgressTimer(){
 // ═══════════════════════════════════════════
 //  PADS PAGE
 // ═══════════════════════════════════════════
-const PAD_NAMES=['C2','D2','E2','F2','G2','A2','B2','C3','D3','E3','F3','G3','A3','B3','C4','D4'];
+const DEFAULT_PAD_NAMES=['C2','D2','E2','F2','G2','A2','B2','C3','D3','E3','F3','G3','A3','B3','C4','D4'];
+const PAD_NAMES=[...DEFAULT_PAD_NAMES];
 try{const s=localStorage.getItem('padNames');if(s)Object.assign(PAD_NAMES,JSON.parse(s));}catch(e){}
+function savePadNames(){ try{localStorage.setItem('padNames',JSON.stringify(PAD_NAMES));}catch(e){} }
+
+// ── Pad rename (2026-08-15) ─────────────────────────────────────────────────
+// RENAME button flow, mirroring the KBD fader rename (which itself mirrors
+// the Patches page): press RENAME to arm, tap a pad to rename it, mode exits
+// after one rename. This replaces the old 650ms long-press, which had the
+// nasty side effect of FIRING THE PAD'S NOTE first -- unusable mid-show.
+// While armed, tapping a pad never sends MIDI.
+// Names travel via the bridge (same pattern as KBD fader names): persisted on
+// the Mac, pushed to every iPad on connect, rebroadcast on change; an empty
+// rename on the bridge side reverts that pad to its default note name.
+let padsRenameMode = false;
+function setPadsRenameMode(){
+  padsRenameMode = !padsRenameMode;
+  const b = document.getElementById('pads-rename-btn');
+  if (b) b.classList.toggle('armed-rnm', padsRenameMode);
+}
+function sendPadName(key, name){
+  try{
+    if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN)
+      ws.send(JSON.stringify({type:'set_pad_name', key, name: name || ''}));
+  }catch(e){}
+}
+let padNamesMigrated = false;   // reset in sock.onopen
+function applyPadNames(names){
+  if (!names || typeof names !== 'object') return;
+  if (!padNamesMigrated){
+    // First push after (re)connect: migrate local-only custom names UP
+    // (anything differing from the default), then merge bridge-wins.
+    padNamesMigrated = true;
+    for (let i = 0; i < 16; i++){
+      const k = String(i);
+      if (!(k in names) && PAD_NAMES[i] && PAD_NAMES[i] !== DEFAULT_PAD_NAMES[i])
+        sendPadName(k, PAD_NAMES[i]);
+    }
+    for (const k in names){ const i = +k; if (i>=0 && i<16 && names[k]) PAD_NAMES[i] = names[k]; }
+  } else {
+    // Steady state: mirror the bridge exactly; missing key = default name.
+    for (let i = 0; i < 16; i++) PAD_NAMES[i] = names[String(i)] || DEFAULT_PAD_NAMES[i];
+  }
+  savePadNames();
+  refreshPadLabels();
+}
+function refreshPadLabels(){
+  const grid = document.getElementById('pad-grid');
+  if (!grid) return;
+  grid.querySelectorAll('.pad span').forEach((sp, i) => { if (i < 16) sp.textContent = PAD_NAMES[i]; });
+}
 const FX_NAMES=['Reverb','Delay','Chorus','Distort'];
 
 function buildPads() {
@@ -1692,26 +1746,27 @@ function buildPads() {
   for(let i=0;i<16;i++){
     const el=document.createElement('div'); el.className='pad amber-on'; el.dataset.idx=i;
     const sp=document.createElement('span'); sp.textContent=PAD_NAMES[i]; el.appendChild(sp);
-    let pressTimer=null;
     let fired=false;
     el.addEventListener('pointerdown',e=>{
       e.preventDefault();
-      // FIRE IMMEDIATELY on press (visual + MIDI)
-      el.classList.add('hit');
-      sendNote(10,36+i,127);
-      fired=true;
-      // Long-press still triggers rename (note already played briefly)
-      pressTimer=setTimeout(()=>{
-        pressTimer=null;
+      // Rename mode (armed via the RENAME button): tap renames, no MIDI.
+      if(padsRenameMode){
         const name=prompt(`Rename pad ${i+1}:`,PAD_NAMES[i]);
         if(name!==null&&name.trim()!==''){
           PAD_NAMES[i]=name.trim(); sp.textContent=PAD_NAMES[i];
-          localStorage.setItem('padNames',JSON.stringify(PAD_NAMES));
+          savePadNames();
+          sendPadName(String(i), PAD_NAMES[i]);   // sync to every iPad
         }
-      },650);
+        setPadsRenameMode();   // exit after one rename, like KBD/Patches
+        return;
+      }
+      // Normal: FIRE IMMEDIATELY on press (visual + MIDI). The old 650ms
+      // long-press rename is gone -- it fired the note before renaming.
+      el.classList.add('hit');
+      sendNote(10,36+i,127);
+      fired=true;
     });
     const release = () => {
-      if(pressTimer!==null){clearTimeout(pressTimer);pressTimer=null;}
       if(fired){ el.classList.remove('hit'); fired=false; }
     };
     el.addEventListener('pointerup',release);

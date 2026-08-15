@@ -20,7 +20,7 @@ MIDI_PORT_NAME = "LiveRig Bridge"
 # component reports its copy at connect time and the iPad shows a red VER
 # badge if they disagree. Bump ALL THREE together on every deploy;
 # scripts/deploy.sh verifies they match.
-LIVERIG_VERSION = "2026.08.14.1"
+LIVERIG_VERSION = "2026.08.15.1"
 
 try:
     import rtmidi
@@ -120,6 +120,36 @@ def save_fader_names():
             json.dump(kbd_fader_names, fh)
     except Exception as e:
         print(f"[LiveRig] fader-names save failed: {e}", flush=True)
+
+# ── Pad names (portable across iPads, 2026-08-15) ────────────────────────────
+# Same pattern as kbd_fader_names: iPad-authored names for the 16 one-shot
+# pads on the Pads page. Keys are "0".."15" (pad index). Persisted on the Mac,
+# pushed on connect, rebroadcast on change.
+PAD_NAMES_FILE = os.path.expanduser(
+    "~/Library/Application Support/LiveRig/pad_names.json")
+pad_names = {}
+
+def load_pad_names():
+    global pad_names
+    try:
+        with open(PAD_NAMES_FILE, "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+        if isinstance(d, dict):
+            pad_names = {str(k): str(v) for k, v in d.items() if v}
+            print(f"[LiveRig] loaded {len(pad_names)} pad name(s)", flush=True)
+    except FileNotFoundError:
+        pad_names = {}
+    except Exception as e:
+        print(f"[LiveRig] pad-names load failed: {e}", flush=True)
+        pad_names = {}
+
+def save_pad_names():
+    try:
+        os.makedirs(os.path.dirname(PAD_NAMES_FILE), exist_ok=True)
+        with open(PAD_NAMES_FILE, "w", encoding="utf-8") as fh:
+            json.dump(pad_names, fh)
+    except Exception as e:
+        print(f"[LiveRig] pad-names save failed: {e}", flush=True)
 
 # ── Patch snapshots + song names (portable across iPads, 2026-07-06) ─────────
 # Same pattern as kbd_fader_names above: the Patches page's captured snapshots
@@ -366,6 +396,11 @@ async def handle_client(websocket, path=None):
         await websocket.send(json.dumps({"type": "kbd_fader_names", "names": kbd_fader_names}))
     except Exception as e:
         print(f"[LiveRig] fader-names send failed: {e}", flush=True)
+    # Push the portable pad names (same pattern as fader names).
+    try:
+        await websocket.send(json.dumps({"type": "pad_names", "names": pad_names}))
+    except Exception as e:
+        print(f"[LiveRig] pad-names send failed: {e}", flush=True)
     # Push the portable patch snapshots + song names (same portability
     # pattern as fader names -- see SNAPSHOTS_FILE comment above).
     try:
@@ -432,6 +467,20 @@ async def handle_client(websocket, path=None):
                         save_fader_names()
                         await broadcast(json.dumps(
                             {"type": "kbd_fader_names", "names": kbd_fader_names}))
+
+                elif msg_type == "set_pad_name":
+                    # An iPad renamed a pad. Persist and rebroadcast the full
+                    # set so every connected iPad updates in sync.
+                    key = str(data.get("key", "")).strip()
+                    name = data.get("name", "")
+                    if key:
+                        if name is None or str(name).strip() == "":
+                            pad_names.pop(key, None)
+                        else:
+                            pad_names[key] = str(name)
+                        save_pad_names()
+                        await broadcast(json.dumps(
+                            {"type": "pad_names", "names": pad_names}))
 
                 elif msg_type == "set_patch_snapshots":
                     # An iPad captured/renamed a patch. Persist and rebroadcast
@@ -578,6 +627,7 @@ async def main():
     main_loop = asyncio.get_running_loop()
 
     load_fader_names()
+    load_pad_names()
     load_patch_snapshots()
     load_lighting_config()
     ips = get_all_ips()
