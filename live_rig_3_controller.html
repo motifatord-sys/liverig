@@ -785,7 +785,7 @@ const RS = { cueAccum: [], sceneAccum: [] };
 // Any mismatch lights the red VER badge in the status bar -- a stale deploy
 // (this project's most-repeated bug class) becomes visible at a glance.
 // Bump ALL THREE together on every deploy; scripts/deploy.sh verifies.
-const LIVERIG_VERSION = '2026.07.06.5';
+const LIVERIG_VERSION = '2026.08.14.1';
 const COMPONENT_VERSIONS = { bridge: null, script: null };
 function updateVersionBadge(){
   const el = document.getElementById('ver-badge'); if(!el) return;
@@ -824,8 +824,10 @@ function onRemoteScriptFeedback(bytes){
     transportState = state===2?'RECORDING':state===1?'PLAYING':'STOPPED';
     m4l.transport = transportState.toLowerCase();
     if (typeof updateTransportButtons === 'function') updateTransportButtons();
-    if (state===0) { try{clearInterval(beatPulseTimer);}catch(e){} beatPulseTimer=null; currentBeat=0; }
-    else { if (typeof restartBeat === 'function') restartBeat(); }
+    // 2026-08-14: no more simulated ticker to start/stop -- the display is
+    // driven entirely by FB_SONG_TIME. Re-render so a stop shows the exact
+    // landing position (like Ableton) instead of freezing mid-simulation.
+    renderBarBeat();
   } else if (fb === 0x01) {
     const bpm = rsUint14(data[0],data[1]) / 100.0;
     m4l.bpm = bpm; tempo = bpm;
@@ -834,6 +836,13 @@ function onRemoteScriptFeedback(bytes){
     const t = document.getElementById('tempo-disp'); if(t) t.textContent = Math.round(bpm);
   } else if (fb === 0x02) {
     m4l.song_time = rsUint28(data[0],data[1],data[2],data[3]) / 1000.0;
+    renderBarBeat();   // real playhead -> bar/beat display + tick markers
+  } else if (fb === 0x5A) {
+    // Time signature from Live (numerator, denominator) -- on change + full
+    // state. Feeds the real-playhead bar/beat math in renderBarBeat().
+    m4l.tsNum = data[0] || 4; m4l.tsDen = data[1] || 4;
+    m4l.timesig = m4l.tsNum;
+    renderBarBeat();
   } else if (fb === 0x03) {
     m4l.song_len = rsUint28(data[0],data[1],data[2],data[3]) / 1000.0;
   } else if (fb === 0x12) { RS.cueAccum = [];
@@ -1162,14 +1171,52 @@ function updateKbdTabs() {
 // ═══════════════════════════════════════════
 let beatPulseTimer=null, currentBeat=0, transportState='STOPPED';
 
-function pulseBeat() {
-  const dot=document.getElementById('beat-pulse'); if(!dot)return;
-  dot.classList.add('flash'); setTimeout(()=>dot.classList.remove('flash'),80);
-  const timesig=m4l.timesig||4;
-  for(let i=0;i<4;i++){const b=document.getElementById(`tbeat${i}`);if(b)b.classList.toggle('on',i===currentBeat%timesig);}
-  currentBeat++;
-  const tBar=document.getElementById('t-bar-display');
-  if(tBar) tBar.textContent=`${m4l.bar+1} · ${(currentBeat%timesig)+1}`;
+// ── Real-playhead bar/beat display (2026-08-14) ─────────────────────────────
+// Replaces the old free-running pulseBeat() setInterval, which SIMULATED the
+// beat from BPM client-side: it drifted from Ableton's own bar/beat display
+// (m4l.bar had no live data source since the M4L retirement) and kept cycling
+// after a stop whenever the optimistic transport state was wrong. Now the
+// Remote Script's FB_SONG_TIME (real playhead, ~10 Hz while playing, plus one
+// emit on stop) + FB_TIME_SIG drive everything: bar·beat text, the tick
+// markers, and the status-bar pulse flash. No data => nothing moves, ever.
+let lastBeatFlash = -1;
+function ensureBeatTicks(n){
+  const first = document.getElementById('tbeat0');
+  const row = first ? first.parentElement : null;
+  if(!row) return;
+  while(row.children.length < n){
+    const d=document.createElement('div');
+    d.className='bar-beat'; d.id=`tbeat${row.children.length}`;
+    row.appendChild(d);
+  }
+  for(let i=0;i<row.children.length;i++)
+    row.children[i].style.display = i<n ? '' : 'none';
+}
+function renderBarBeat(){
+  const num = m4l.tsNum||4, den = m4l.tsDen||4;
+  const qpb = num * (4/den);                 // quarter-note beats per bar
+  const t = Math.max(0, m4l.song_time||0);   // playhead, in quarter-note beats
+  const bar = Math.floor(t/qpb) + 1;
+  const beat = Math.min(num, Math.floor((t - (bar-1)*qpb) / (4/den)) + 1);
+  const tBar = document.getElementById('t-bar-display');
+  if(tBar) tBar.textContent = `${bar} · ${beat}`;
+  ensureBeatTicks(num);
+  for(let i=0;i<num;i++){
+    const b=document.getElementById(`tbeat${i}`);
+    if(b)b.classList.toggle('on', i===beat-1);
+  }
+  // Looper page's beat-row (4 fixed ticks under the Tempo display) -- same
+  // real-playhead data; wraps for signatures with more than 4 beats.
+  for(let i=0;i<4;i++){
+    const lb=document.getElementById('beat'+i);
+    if(lb) lb.classList.toggle('lit', i===(beat-1)%4);
+  }
+  const key = bar*1000+beat;
+  if(transportState!=='STOPPED' && lastBeatFlash!==key){
+    lastBeatFlash = key;
+    const dot=document.getElementById('beat-pulse');
+    if(dot){ dot.classList.add('flash'); setTimeout(()=>dot.classList.remove('flash'),80); }
+  }
 }
 
 function updateBeatPulseColor() {
@@ -1514,15 +1561,15 @@ function buildLooper() {
 }
 
 function restartBeat() {
-  clearInterval(beatTimer);
-  const ms=Math.round(60000/tempo);
-  beatTimer=setInterval(()=>{
-    document.querySelectorAll('.beat').forEach(b=>b.classList.remove('lit'));
-    const b=document.getElementById('beat'+beatIdx); if(b) b.classList.add('lit');
-    beatIdx=(beatIdx+1)%4;
-  },ms);
-  clearInterval(beatPulseTimer); currentBeat=0;
-  if(transportState!=='STOPPED'&&tempo>0) beatPulseTimer=setInterval(pulseBeat,ms);
+  // 2026-08-14: both simulated tickers are GONE -- beatTimer (the Looper
+  // page's beat-row, which cycled forever because nothing cleared it on
+  // stop) and beatPulseTimer (the status-bar pulse). All beat displays are
+  // now rendered from the Remote Script's real FB_SONG_TIME in
+  // renderBarBeat(). This stub survives only because many legacy call
+  // sites (tap tempo, nudge, optimistic transport buttons) still call it;
+  // it just makes sure no old timer is left running.
+  try{clearInterval(beatTimer);}catch(e){} beatTimer=null;
+  try{clearInterval(beatPulseTimer);}catch(e){} beatPulseTimer=null;
   updateBeatPulseColor();
 }
 

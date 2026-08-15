@@ -258,6 +258,11 @@ FB_SCRIPT_VERSION  = 0x59   # data: version string (len+bytes) -- this script's
                              # LIVERIG_VERSION, sent on every full-state emit so the
                              # iPad can flag a stale deploy (see version handshake note
                              # above LIVERIG_VERSION)
+FB_TIME_SIG        = 0x5A   # data: numerator, denominator -- the Set's time
+                             # signature, on change + full state (2026-08-14: lets the
+                             # iPad compute bar/beat from the REAL playhead position
+                             # (FB_SONG_TIME) instead of the old free-running client
+                             # metronome that drifted from Ableton's display)
 
 # ── Track-binding status (2026-07-01) ───────────────────────────────────────
 # rig_config.json binds KBD/stem/looper/aux slots to Ableton tracks by NAME
@@ -306,7 +311,7 @@ LIVERIG_MFG_ID     = 0x7D
 # badge if they disagree -- turning the "stale deploy" class of bug (which
 # has bitten twice, see LIVERIG_MEMORY.md) from a debugging session into a
 # glance. Bump ALL THREE together on every deploy; scripts/deploy.sh verifies.
-LIVERIG_VERSION    = "2026.07.06.5"
+LIVERIG_VERSION    = "2026.08.14.1"
 
 
 class LiveRig(ControlSurface):
@@ -401,6 +406,8 @@ class LiveRig(ControlSurface):
         safe_add("is_playing",   lambda: song.add_is_playing_listener(self._on_playing_changed))
         safe_add("record_mode",  lambda: song.add_record_mode_listener(self._on_record_changed))
         safe_add("tempo",        lambda: song.add_tempo_listener(self._on_tempo_changed))
+        safe_add("sig_num",      lambda: song.add_signature_numerator_listener(self._on_time_sig_changed))
+        safe_add("sig_den",      lambda: song.add_signature_denominator_listener(self._on_time_sig_changed))
         # Cue points & scenes
         safe_add("cue_points",   lambda: song.add_cue_points_listener(self._on_cue_points_changed))
         safe_add("scenes",       lambda: song.add_scenes_listener(self._on_scenes_changed))
@@ -533,6 +540,8 @@ class LiveRig(ControlSurface):
         safe_remove(lambda: song.remove_is_playing_listener(self._on_playing_changed))
         safe_remove(lambda: song.remove_record_mode_listener(self._on_record_changed))
         safe_remove(lambda: song.remove_tempo_listener(self._on_tempo_changed))
+        safe_remove(lambda: song.remove_signature_numerator_listener(self._on_time_sig_changed))
+        safe_remove(lambda: song.remove_signature_denominator_listener(self._on_time_sig_changed))
         safe_remove(lambda: song.remove_cue_points_listener(self._on_cue_points_changed))
         safe_remove(lambda: song.remove_scenes_listener(self._on_scenes_changed))
         safe_remove(lambda: song.view.remove_selected_track_listener(self._on_selected_track_changed))
@@ -724,6 +733,16 @@ class LiveRig(ControlSurface):
     # ── Listener callbacks ──────────────────────────────────────────────────
     def _on_playing_changed(self):
         self._emit_transport_state()
+        # Emit the final playhead position on stop (the 10 Hz poll only runs
+        # while playing) so the iPad's bar/beat display lands exactly where
+        # Ableton's does instead of freezing ~100ms early. Harmless on start.
+        try:
+            self._emit_song_time()
+        except Exception:
+            pass
+
+    def _on_time_sig_changed(self):
+        self._emit_time_sig()
 
     def _on_record_changed(self):
         self._emit_transport_state()
@@ -1951,6 +1970,14 @@ class LiveRig(ControlSurface):
         t_ms = int(self.song().last_event_time * 1000)
         self._send_sx([FB_SONG_LEN] + self._encode_uint28(t_ms))
 
+    def _emit_time_sig(self):
+        try:
+            num = int(self.song().signature_numerator) & 0x7F
+            den = int(self.song().signature_denominator) & 0x7F
+            self._send_sx([FB_TIME_SIG, num, den])
+        except Exception as e:
+            self.log_message("time sig emit error: " + str(e))
+
     # ── Marker track -> Transport section strip ─────────────────────────────
     # David's "marker track" is a MIDI track (rig_config "markerTrack") whose
     # Arrangement clips each span one song section, named after that section.
@@ -2243,6 +2270,7 @@ class LiveRig(ControlSurface):
         self._emit_script_version()
         self._emit_transport_state()
         self._emit_bpm()
+        self._emit_time_sig()
         self._emit_song_time()
         self._emit_song_len()
         self._emit_cue_list()
