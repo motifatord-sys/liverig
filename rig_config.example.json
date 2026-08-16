@@ -68,6 +68,13 @@
       "trackName": "Vox"
     }
   ],
+  "mainstage": {
+    "enabled": false,
+    "midiChannel": 14,
+    "patchCount": 8,
+    "faderCount": 8,
+    "buttonCount": 8
+  },
   "lighting": {
     "enabled": false,
     "oscHost": "127.0.0.1",

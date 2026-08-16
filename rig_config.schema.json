@@ -154,6 +154,22 @@
       "description": "Name of the Arrangement track whose named clips define song sections (feeds the Transport section strip and lighting cues). Case-insensitive match."
     },
 
+    "mainstage": {
+      "type": "object",
+      "description": "MainStage mode (2026-08-15): a dedicated two-way MSTG page. Patch buttons send Program Change, faders CC1..N, toggles CC20.., all on midiChannel. Feedback comes from MainStage Layout-mode screen controls with 'Send Value to' pointed at the LiveRig Bridge port -- see docs/MAINSTAGE_MODE.md.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false, "description": "Show the MSTG tab and intercept feedback CCs on midiChannel." },
+        "midiChannel": {
+          "type": "integer", "minimum": 1, "maximum": 16, "default": 14,
+          "description": "1-indexed dedicated channel. Default 14: unused by KBD auto-assign below 10 keyboards and not in the reserved set. Do NOT set to a channel used elsewhere (kbd/stems ch6/FX ch7/pads ch10/Blue Hand ch15/transport ch16)."
+        },
+        "patchCount":  { "type": "integer", "minimum": 1, "maximum": 128, "default": 8 },
+        "faderCount":  { "type": "integer", "minimum": 0, "maximum": 16,  "default": 8 },
+        "buttonCount": { "type": "integer", "minimum": 0, "maximum": 16,  "default": 8 }
+      }
+    },
+
     "lighting": {
       "type": "object",
       "description": "OSC lighting cues fired by the bridge when the playhead enters a new markerTrack section (2026-07-06). Console-agnostic: works with anything listening for OSC (grandMA3, Eos, ChamSys, Onyx, Lightkey, QLC+, Resolume...).",

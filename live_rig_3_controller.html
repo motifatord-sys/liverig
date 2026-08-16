@@ -186,6 +186,12 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
 .master-ch-nav-label{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px;letter-spacing:3px;color:#3dbf9b;}
 .master-ch-nav-hint{font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.08em;}
 .tab[data-page="11"].active::after{background:#3dbf9b;}
+.tab[data-page="12"].active::after{background:#c060ff;}
+.ms-patch{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;padding:10px 4px;min-height:54px;}
+.ms-patch span{font-size:16px;font-weight:600;color:#ddd;pointer-events:none;}
+.ms-patch .ms-pc{font-family:var(--mono);font-size:10px;color:var(--muted);pointer-events:none;}
+.ms-patch.active{border-color:#c060ff;box-shadow:0 0 10px #c060ff66;background:#2a1a38;}
+.ms-patch.active span{color:#e0a0ff;}
 
 /* ── SETLIST v2 ──────────────────────────────────────── */
 .sl-lib-card{display:grid;grid-template-columns:28px 1fr 40px;align-items:center;gap:8px;padding:8px 10px;background:#111117;border:1px solid #222;border-radius:6px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;}
@@ -352,6 +358,7 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
   <div class="tab" data-page="1">Looper</div>
   <div class="tab" data-page="2">Pads</div>
   <div class="tab" data-page="9">Clips</div>
+  <div class="tab" data-page="12">MSTG</div>
 </div>
 
 <div id="pages">
@@ -529,6 +536,21 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
       <div style="flex:1"><div class="pad-grid-16" id="pad-grid" style="height:100%"></div></div>
       <div class="sec">FX toggles — CH 1, CC 70–73</div>
       <div class="fx-row" id="fx-btns"></div>
+    </div>
+  </div>
+
+  <!-- MAINSTAGE MODE (2026-08-15) — hidden unless rig_config "mainstage".enabled -->
+  <div id="page-12" class="page">
+    <div style="display:flex;flex-direction:column;height:100%;gap:8px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div class="sec" style="flex:1" id="mstg-sec">MainStage — patch select (Program Change)</div>
+        <div class="patches-action-btn" id="mstg-rename-btn" onclick="setMstgRenameMode()" style="padding:6px 16px;flex:none">RENAME</div>
+      </div>
+      <div id="mstg-patches" style="display:grid;gap:8px;flex:0 0 auto;"></div>
+      <div class="sec">Faders — two-way with MainStage screen controls (see docs/MAINSTAGE_MODE.md)</div>
+      <div id="mstg-faders-row" style="flex:1;display:grid;gap:10px;min-height:0;"></div>
+      <div class="sec" id="mstg-tog-sec">Toggles</div>
+      <div class="fx-row" id="mstg-btns"></div>
     </div>
   </div>
 
@@ -790,7 +812,7 @@ const RS = { cueAccum: [], sceneAccum: [] };
 // Any mismatch lights the red VER badge in the status bar -- a stale deploy
 // (this project's most-repeated bug class) becomes visible at a glance.
 // Bump ALL THREE together on every deploy; scripts/deploy.sh verifies.
-const LIVERIG_VERSION = '2026.08.15.1';
+const LIVERIG_VERSION = '2026.08.15.2';
 const COMPONENT_VERSIONS = { bridge: null, script: null };
 function updateVersionBadge(){
   const el = document.getElementById('ver-badge'); if(!el) return;
@@ -1119,6 +1141,13 @@ function updateBindingIndicator(catInt, idx, status) {
 function onMIDIIn(bytes) {
   if(!bytes||bytes.length<2) return;
   const status=bytes[0]&0xF0, ch=(bytes[0]&0x0F)+1;
+  // MainStage mode feedback: CCs on the dedicated MainStage channel are
+  // screen-control values sent back by MainStage ("Send Value to" -> the
+  // LiveRig Bridge port). Only intercepted while the mode is enabled.
+  if(status===0xB0&&bytes.length>=3&&typeof msEnabled==='function'&&msEnabled()&&ch===msChannel()){
+    updateMainstageFromCC(bytes[1],bytes[2]);
+    return;
+  }
   if(status===0xB0&&ch===1&&bytes.length>=3) {
     const cc=bytes[1],val=bytes[2];
     if(cc===14){
@@ -1683,6 +1712,146 @@ function startLoopProgressTimer(){
       if(bar) bar.style.width=pct+'%';
     }
   },50);
+}
+
+// ═══════════════════════════════════════════
+//  MAINSTAGE MODE (2026-08-15)
+// ═══════════════════════════════════════════
+// A dedicated two-way page for Apple MainStage, using only supported MIDI:
+//   OUT: patch buttons send Program Change; faders CC1..N; toggles CC20..
+//        -- all on a dedicated channel (rig_config "mainstage".midiChannel,
+//        default CH14: never used by KBD auto-assign below 10 keyboards,
+//        not in the reserved set).
+//   IN (the two-way part): MainStage has no scripting API, but Layout-mode
+//        screen controls have "Send Value to" -- the motorized-fader
+//        feedback mechanism -- pointed at the "LiveRig Bridge" port. When a
+//        control moves in MainStage (or jumps to saved values on a patch
+//        change), MainStage sends the CC back; the bridge forwards ALL MIDI
+//        to this page, and updateMainstageFromCC() moves the matching fader
+//        or toggle. Touch-guard prevents fighting an active finger-drag;
+//        an echo of our own value is a visual no-op.
+// Setup steps live in docs/MAINSTAGE_MODE.md. Patch names are local
+// (localStorage) for now -- MainStage cannot report patch names or current
+// patch, so the active highlight is what THIS page last sent.
+function msCfg(){ return (typeof RIG_CONFIG !== 'undefined' && RIG_CONFIG && RIG_CONFIG.mainstage) || {}; }
+function msEnabled(){ return !!msCfg().enabled; }
+function msChannel(){ return msCfg().midiChannel || 14; }
+
+let MS_PATCH_NAMES = [];
+try{ const s=localStorage.getItem('msPatchNames'); if(s) MS_PATCH_NAMES=JSON.parse(s)||[]; }catch(e){}
+let mstgRenameMode = false;
+function setMstgRenameMode(){
+  mstgRenameMode = !mstgRenameMode;
+  const b = document.getElementById('mstg-rename-btn');
+  if (b) b.classList.toggle('armed-rnm', mstgRenameMode);
+}
+let msActivePatch = -1;
+
+function buildMainstage(){
+  const cfg = msCfg();
+  const tab = document.querySelector('.tab[data-page="12"]');
+  const pg  = document.getElementById('page-12');
+  if (!cfg.enabled){
+    if (tab) tab.style.display = 'none';
+    if (pg) pg.style.display = 'none';
+    return;
+  }
+  const ch = msChannel();
+  const nP = cfg.patchCount ?? 8, nF = cfg.faderCount ?? 8, nB = cfg.buttonCount ?? 8;
+  const sec = document.getElementById('mstg-sec');
+  if (sec) sec.textContent = `MainStage — patch select (Program Change, CH ${ch})`;
+
+  // Patch buttons -----------------------------------------------------------
+  const pgrid = document.getElementById('mstg-patches');
+  pgrid.innerHTML = '';
+  pgrid.style.gridTemplateColumns = `repeat(${Math.min(nP, 8)},1fr)`;
+  for (let i = 0; i < nP; i++){
+    const el = document.createElement('div');
+    el.className = 'ms-patch'; el.id = `ms-patch-${i}`;
+    const sp = document.createElement('span');
+    sp.textContent = MS_PATCH_NAMES[i] || `Patch ${i+1}`;
+    const pc = document.createElement('div');
+    pc.className = 'ms-pc'; pc.textContent = `PC ${i}`;
+    el.append(sp, pc);
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (mstgRenameMode){
+        const name = prompt(`Rename MainStage patch ${i+1}:`, MS_PATCH_NAMES[i] || `Patch ${i+1}`);
+        if (name !== null && name.trim() !== ''){
+          MS_PATCH_NAMES[i] = name.trim(); sp.textContent = MS_PATCH_NAMES[i];
+          try{ localStorage.setItem('msPatchNames', JSON.stringify(MS_PATCH_NAMES)); }catch(err){}
+        }
+        setMstgRenameMode();
+        return;
+      }
+      sendPC(ch, i);
+      msActivePatch = i;
+      pgrid.querySelectorAll('.ms-patch').forEach(p => p.classList.remove('active'));
+      el.classList.add('active');
+    });
+    pgrid.appendChild(el);
+  }
+
+  // Faders (two-way) --------------------------------------------------------
+  const frow = document.getElementById('mstg-faders-row');
+  frow.innerHTML = '';
+  frow.style.gridTemplateColumns = `repeat(${nF},1fr)`;
+  for (let i = 0; i < nF; i++){
+    const col = document.createElement('div'); col.className = 'master-ch';
+    const track = document.createElement('div'); track.className = 'fader-track-vert';
+    track.id = `ms-fdr-track-${i}`;
+    const fill = document.createElement('div'); fill.className = 'fader-fill-vert';
+    fill.style.height = '0%'; fill.style.background = '#c060ff';
+    fill.id = `ms-fdr-fill-${i}`;
+    const lblWrap = document.createElement('div'); lblWrap.className = 'fader-label-vert';
+    const lblSpan = document.createElement('span'); lblSpan.textContent = `CC ${1+i}`;
+    lblWrap.appendChild(lblSpan);
+    track.append(fill, lblWrap);
+    const val = document.createElement('div'); val.className = 'fader-val-vert';
+    val.textContent = '0'; val.id = `ms-fdr-val-${i}`;
+    fdrTouch(track, fill, val, pct => sendCC(ch, 1+i, Math.round(pct*127)));
+    col.append(track, val);
+    frow.appendChild(col);
+  }
+
+  // Toggles (two-way) -------------------------------------------------------
+  const brow = document.getElementById('mstg-btns');
+  brow.innerHTML = '';
+  const tsec = document.getElementById('mstg-tog-sec');
+  if (tsec) tsec.textContent = `Toggles — CH ${ch}, CC 20–${19+nB}`;
+  for (let i = 0; i < nB; i++){
+    const el = document.createElement('div');
+    el.className = 'tog amber-on'; el.id = `ms-btn-${i}`;
+    el.style.flex = '1'; el.style.padding = '12px 4px'; el.dataset.state = '0';
+    el.innerHTML = `<span style="font-size:16px;font-weight:600">B${i+1}</span><span class="cc-lbl">CC${20+i}</span>`;
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const on = el.dataset.state === '0';
+      el.dataset.state = on ? '1' : '0';
+      el.classList.toggle('on', on);
+      sendCC(ch, 20+i, on ? 127 : 0);
+    });
+    brow.appendChild(el);
+  }
+}
+
+// Inbound CCs from MainStage (via its "Send Value to" -> LiveRig Bridge).
+function updateMainstageFromCC(cc, val){
+  const cfg = msCfg(); if (!cfg.enabled) return;
+  const nF = cfg.faderCount ?? 8, nB = cfg.buttonCount ?? 8;
+  if (cc >= 1 && cc <= nF){
+    const i = cc - 1;
+    const track = document.getElementById(`ms-fdr-track-${i}`);
+    if (track && track.dataset.touching === '1') return;  // don't fight a drag
+    const pct = Math.max(0, Math.min(1, val/127));
+    const fill = document.getElementById(`ms-fdr-fill-${i}`);
+    if (fill) fill.style.height = (pct*100) + '%';
+    const v = document.getElementById(`ms-fdr-val-${i}`);
+    if (v) v.textContent = String(val);
+  } else if (cc >= 20 && cc < 20 + nB){
+    const el = document.getElementById(`ms-btn-${cc-20}`);
+    if (el){ const on = val >= 64; el.dataset.state = on ? '1' : '0'; el.classList.toggle('on', on); }
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -3509,6 +3678,7 @@ buildMaster();
 buildStems();
 buildLooper();
 buildPads();
+buildMainstage();
 buildPatches();
 for(let k=0;k<KBD_COUNT;k++) buildKbdPage(k);
 // Hide tabs/pages for any KBD slots beyond what rig_config.json defines.
