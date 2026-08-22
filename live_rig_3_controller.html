@@ -559,9 +559,17 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
     <div style="height:100%;display:flex;flex-direction:column;gap:6px">
       <div class="sec" id="patches-sec">Song presets — Program Change on all 4 keyboards simultaneously</div>
       <div id="song-grid" style="flex:1;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,1fr);gap:10px"></div>
-      <div id="patches-actions" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;height:64px;flex:0 0 auto;">
+      <div id="patches-actions" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;height:64px;flex:0 0 auto;">
         <div id="patches-capture-btn" class="patches-action-btn">CAPTURE CURRENT STATE</div>
         <div id="patches-rename-btn" class="patches-action-btn">RENAME</div>
+        <div id="patches-release-btn" class="patches-action-btn" onclick="releaseAllKbdButtons()" title="Turn OFF every KBD-page MIDI button in Ableton (sends 0 on each button CC). Fader levels untouched.">RELEASE BTNS</div>
+      </div>
+      <div id="setups-row" style="display:flex;gap:8px;align-items:center;flex:0 0 auto;">
+        <span class="sec" style="margin:0;flex:none">SETUPS</span>
+        <select id="setup-select" class="loop-quant" style="flex:1;max-width:280px;padding:8px 4px"><option value="">— no setups saved —</option></select>
+        <div class="patches-action-btn" onclick="saveSetup()" style="padding:8px 14px">SAVE AS</div>
+        <div class="patches-action-btn" onclick="loadSetup()" style="padding:8px 14px">LOAD</div>
+        <div class="patches-action-btn" onclick="deleteSetup()" style="padding:8px 14px">DELETE</div>
       </div>
     </div>
   </div>
@@ -635,6 +643,8 @@ function connectWS(ip) {
           if (parsed.type === 'patch_snapshots') { applyPatchSnapshots(parsed); return; }
           // Portable pad names (see applyPadNames).
           if (parsed.type === 'pad_names') { applyPadNames(parsed.names); return; }
+          // Named setup banks (see applyPatchSetups).
+          if (parsed.type === 'patch_setups') { applyPatchSetups(parsed.setups); return; }
           // Version handshake: bridge reports its LIVERIG_VERSION on connect.
           if (parsed.type === 'bridge_version') { COMPONENT_VERSIONS.bridge = parsed.version||''; updateVersionBadge(); return; }
           // Could also be a wrapped {type:"midi",data:[...]}
@@ -812,7 +822,7 @@ const RS = { cueAccum: [], sceneAccum: [] };
 // Any mismatch lights the red VER badge in the status bar -- a stale deploy
 // (this project's most-repeated bug class) becomes visible at a glance.
 // Bump ALL THREE together on every deploy; scripts/deploy.sh verifies.
-const LIVERIG_VERSION = '2026.08.15.2';
+const LIVERIG_VERSION = '2026.08.15.3';
 const COMPONENT_VERSIONS = { bridge: null, script: null };
 function updateVersionBadge(){
   const el = document.getElementById('ver-badge'); if(!el) return;
@@ -2198,7 +2208,9 @@ function readKbdState(kbdIdx) {
 
 function applyKbdState(kbdIdx, state) {
   if (!state) return;
-  const ch = kbdIdx + 1;
+  // 2026-08-15: was `kbdIdx + 1` -- a leftover channel==index assumption from
+  // before the >4 keyboard work. Identical for KBD1-4, correct for KBD5+.
+  const ch = kbdChannel(kbdIdx);
   const buttonCount = BUTTON_COUNTS[kbdIdx] ?? 16;
   const faderCount = FADER_COUNTS[kbdIdx] ?? 8;
   // Buttons — set state and send CC immediately
@@ -2269,6 +2281,91 @@ function captureSnapshotForSong(songIdx) {
   PATCH_SNAPSHOTS[songIdx] = snap;
   savePatchSnapshots();
   sendPatchSnapshots();   // sync to the bridge -> every other iPad
+}
+
+// ── RELEASE BTNS (2026-08-15) ───────────────────────────────────────────────
+// Turns OFF every KBD-page MIDI button in Ableton: sends value 0 on each
+// button CC (CC20+) on every keyboard's channel, so any Cmd+M-mapped toggle
+// switches off, and clears the on-screen button states to match. Deliberately
+// does NOT touch fader CCs (CC10+) -- levels stay exactly where they are.
+// This is the right mechanism (vs. a Remote Script action) because these
+// buttons are the user's own Cmd+M mappings: Ableton only knows them as CCs,
+// so a 0 on each CC is precisely "switch it off".
+function releaseAllKbdButtons(){
+  for(let k=0;k<KBD_COUNT;k++){
+    const ch=kbdChannel(k), n=BUTTON_COUNTS[k]??16;
+    for(let b=0;b<n;b++){
+      sendCC(ch,20+b,0);
+      const el=document.querySelector(`#kbtns${k} .tog:nth-child(${b+1})`);
+      if(el){el.dataset.state='0';el.classList.remove('on');}
+    }
+  }
+}
+
+// ── SETUPS: named snapshot banks (2026-08-15) ───────────────────────────────
+// A "setup" = a complete named bank of all song snapshots + song names
+// (e.g. "Sunday AM", "Tour Set"). Stored on the Mac via the bridge
+// (patch_setups.json) so they're shared across iPads and survive resets.
+// LOAD replaces the current bank everywhere (it pushes through the existing
+// set_patch_snapshots path, so the bridge persists it as current and every
+// connected iPad follows). SAVE AS snapshots the current bank under a name.
+let PATCH_SETUPS = {};   // name -> {snapshots:[...], songNames:[...]}; bridge-authoritative
+function applyPatchSetups(setups){
+  PATCH_SETUPS = (setups && typeof setups === 'object') ? setups : {};
+  refreshSetupSelect();
+}
+function refreshSetupSelect(){
+  const sel = document.getElementById('setup-select');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '';
+  const names = Object.keys(PATCH_SETUPS).sort((a,b)=>a.localeCompare(b));
+  const first = document.createElement('option');
+  first.value = ''; first.textContent = names.length ? '— select a setup —' : '— no setups saved —';
+  sel.appendChild(first);
+  for (const n of names){
+    const o = document.createElement('option');
+    o.value = n; o.textContent = n;
+    sel.appendChild(o);
+  }
+  if (cur && PATCH_SETUPS[cur]) sel.value = cur;
+}
+function sendSetupMsg(obj){
+  try{
+    if (wsConnected && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+    else alert('Not connected to the bridge — setup changes need the Mac connection.');
+  }catch(e){}
+}
+function saveSetup(){
+  const name = prompt('Save the current songs + snapshots as a setup named:', '');
+  if (name === null || name.trim() === '') return;
+  const n = name.trim();
+  if (PATCH_SETUPS[n] && !confirm(`A setup named "${n}" exists. Overwrite it?`)) return;
+  sendSetupMsg({type:'save_patch_setup', name:n,
+                snapshots:PATCH_SNAPSHOTS, songNames:SONG_NAMES});
+  // Optimistic local update; the bridge's rebroadcast confirms/mirrors it.
+  PATCH_SETUPS[n] = { snapshots: JSON.parse(JSON.stringify(PATCH_SNAPSHOTS)),
+                      songNames: [...SONG_NAMES] };
+  refreshSetupSelect();
+  const sel = document.getElementById('setup-select'); if (sel) sel.value = n;
+}
+function loadSetup(){
+  const sel = document.getElementById('setup-select');
+  const n = sel ? sel.value : '';
+  if (!n || !PATCH_SETUPS[n]) { alert('Pick a setup to load first.'); return; }
+  if (!confirm(`Load setup "${n}"? This replaces the current songs + snapshots on every iPad.`)) return;
+  const s = PATCH_SETUPS[n];
+  applyPatchSnapshots({ snapshots: s.snapshots || [], songNames: s.songNames || [] });
+  sendPatchSnapshots();   // becomes the current bank everywhere (bridge persists)
+}
+function deleteSetup(){
+  const sel = document.getElementById('setup-select');
+  const n = sel ? sel.value : '';
+  if (!n || !PATCH_SETUPS[n]) { alert('Pick a setup to delete first.'); return; }
+  if (!confirm(`Delete setup "${n}"? (The current songs/snapshots are not affected.)`)) return;
+  sendSetupMsg({type:'delete_patch_setup', name:n});
+  delete PATCH_SETUPS[n];
+  refreshSetupSelect();
 }
 
 function restoreSnapshotForSong(songIdx) {

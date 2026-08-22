@@ -20,7 +20,7 @@ MIDI_PORT_NAME = "LiveRig Bridge"
 # component reports its copy at connect time and the iPad shows a red VER
 # badge if they disagree. Bump ALL THREE together on every deploy;
 # scripts/deploy.sh verifies they match.
-LIVERIG_VERSION = "2026.08.15.2"
+LIVERIG_VERSION = "2026.08.15.3"
 
 try:
     import rtmidi
@@ -186,6 +186,37 @@ def save_patch_snapshots():
             json.dump(patch_snapshots, fh)
     except Exception as e:
         print(f"[LiveRig] snapshots save failed: {e}", flush=True)
+
+# ── Named setups: saved snapshot banks (2026-08-15) ───────────────────────────
+# A "setup" is a complete named bank of the Patches page's song snapshots +
+# song names (e.g. "Sunday AM", "Tour Set"). Saved/loaded from the iPad,
+# persisted here, shared across iPads. Deleting a setup is allowed (it's
+# user-authored data, requested explicitly from the UI with a confirm).
+SETUPS_FILE = os.path.expanduser(
+    "~/Library/Application Support/LiveRig/patch_setups.json")
+patch_setups = {}
+
+def load_patch_setups():
+    global patch_setups
+    try:
+        with open(SETUPS_FILE, "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+        if isinstance(d, dict):
+            patch_setups = {str(k): v for k, v in d.items() if isinstance(v, dict)}
+            print(f"[LiveRig] loaded {len(patch_setups)} saved setup(s)", flush=True)
+    except FileNotFoundError:
+        patch_setups = {}
+    except Exception as e:
+        print(f"[LiveRig] setups load failed: {e}", flush=True)
+        patch_setups = {}
+
+def save_patch_setups():
+    try:
+        os.makedirs(os.path.dirname(SETUPS_FILE), exist_ok=True)
+        with open(SETUPS_FILE, "w", encoding="utf-8") as fh:
+            json.dump(patch_setups, fh)
+    except Exception as e:
+        print(f"[LiveRig] setups save failed: {e}", flush=True)
 
 # ── Lighting OSC cues from song sections (2026-07-06) ─────────────────────────
 # The Remote Script already reports which MARKERS-track section the playhead is
@@ -409,6 +440,12 @@ async def handle_client(websocket, path=None):
                                          "songNames": patch_snapshots["songNames"]}))
     except Exception as e:
         print(f"[LiveRig] snapshots send failed: {e}", flush=True)
+    # Push the saved setup banks (names + full contents; a few KB at most).
+    try:
+        await websocket.send(json.dumps({"type": "patch_setups",
+                                         "setups": patch_setups}))
+    except Exception as e:
+        print(f"[LiveRig] setups send failed: {e}", flush=True)
     # Ask the Remote Script to re-emit everything it knows over MIDI SysEx --
     # KBD/stem/aux device names+colors+volumes, binding statuses, cues,
     # scenes, looper states, etc (see SX_REQUEST_FULL_STATE / _emit_full_state
@@ -481,6 +518,29 @@ async def handle_client(websocket, path=None):
                         save_pad_names()
                         await broadcast(json.dumps(
                             {"type": "pad_names", "names": pad_names}))
+
+                elif msg_type == "save_patch_setup":
+                    name = str(data.get("name", "")).strip()
+                    snaps = data.get("snapshots")
+                    names = data.get("songNames")
+                    if name and isinstance(snaps, list):
+                        patch_setups[name] = {
+                            "snapshots": snaps,
+                            "songNames": names if isinstance(names, list) else [],
+                        }
+                        save_patch_setups()
+                        await broadcast(json.dumps(
+                            {"type": "patch_setups", "setups": patch_setups}))
+                        print(f"[LiveRig] setup saved: '{name}'", flush=True)
+
+                elif msg_type == "delete_patch_setup":
+                    name = str(data.get("name", "")).strip()
+                    if name and name in patch_setups:
+                        patch_setups.pop(name, None)
+                        save_patch_setups()
+                        await broadcast(json.dumps(
+                            {"type": "patch_setups", "setups": patch_setups}))
+                        print(f"[LiveRig] setup deleted: '{name}'", flush=True)
 
                 elif msg_type == "set_patch_snapshots":
                     # An iPad captured/renamed a patch. Persist and rebroadcast
@@ -629,6 +689,7 @@ async def main():
     load_fader_names()
     load_pad_names()
     load_patch_snapshots()
+    load_patch_setups()
     load_lighting_config()
     ips = get_all_ips()
     print(f"\n{'='*58}")
