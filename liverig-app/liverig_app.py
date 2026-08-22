@@ -312,7 +312,11 @@ class LiveRigMenu(rumps.App):
         self.menu = [
             self._status,
             None,
-            rumps.MenuItem("Open on iPad (Safari)", callback=self.open_url),
+            # Opens the controller page in this Mac's default browser -- a
+            # local preview/sanity-check. (Was mislabeled "Open on iPad
+            # (Safari)" until 2026-08-15: macOS cannot push a URL to an
+            # iPad; the iPad always navigates to the URL itself.)
+            rumps.MenuItem("Preview in Browser (this Mac)", callback=self.open_url),
             rumps.MenuItem("Copy iPad URL", callback=self.copy_url),
             rumps.MenuItem("Resync Config from Setup Tool", callback=self.resync_config),
             rumps.MenuItem("Pre-Gig Check", callback=self.pre_gig_check),
