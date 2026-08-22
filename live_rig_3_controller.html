@@ -129,7 +129,7 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
 /* While a KBD page is armed for fader rename, its fader labels look tappable */
 /* KBD fader name overlaid vertically ON the fader body, like Master/Stems */
 .fader-wrap .fader-label-vert{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;padding:6px 0;}
-.fader-wrap .fader-label-vert span{writing-mode:vertical-rl;transform:rotate(180deg);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:21px;letter-spacing:2px;color:#ffffffee;text-shadow:0 2px 4px rgba(0,0,0,.75);max-height:92%;overflow:hidden;white-space:nowrap;}
+.fader-wrap .fader-label-vert span{writing-mode:vertical-rl;transform:rotate(180deg);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:29px;letter-spacing:2px;color:#ffffffee;text-shadow:0 2px 4px rgba(0,0,0,.75);max-height:92%;overflow:hidden;white-space:nowrap;}
 /* In rename mode the label overlay becomes tappable (tap a fader to rename) */
 .kbd-rename-active .fader-wrap .fader-label-vert{pointer-events:auto;cursor:pointer;}
 .kbd-rename-active .fader-wrap .fader-label-vert span{color:#ffd060;text-shadow:none;}
@@ -822,7 +822,7 @@ const RS = { cueAccum: [], sceneAccum: [] };
 // Any mismatch lights the red VER badge in the status bar -- a stale deploy
 // (this project's most-repeated bug class) becomes visible at a glance.
 // Bump ALL THREE together on every deploy; scripts/deploy.sh verifies.
-const LIVERIG_VERSION = '2026.08.15.3';
+const LIVERIG_VERSION = '2026.08.15.4';
 const COMPONENT_VERSIONS = { bridge: null, script: null };
 function updateVersionBadge(){
   const el = document.getElementById('ver-badge'); if(!el) return;

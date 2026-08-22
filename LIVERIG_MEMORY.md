@@ -8,6 +8,10 @@
 
 David asked what that menu item does since it opened his Mac's default browser. Answer: it always did — `open_url()` just runs `open <controller URL>` on the Mac; macOS has no way to push a URL to an iPad. It's a local preview/sanity-check. Renamed to **"Preview in Browser (this Mac)"** with an explanatory comment. `liverig_app.py` only (no version bump — not one of the three handshake files), synced to bundle Resources, takes effect on next app relaunch.
 
+## KBD fader label size bump — 2026-08-15
+
+David found the vertical KBD fader labels hard to read from stage distance. Explored alternatives (bigger vertical / plate below / banner across, then design-critique-driven console scribble-strip + short-code options) — **he rejected all of them** and chose the minimal change: same design, font 8px larger. `.fader-wrap .fader-label-vert span` 21px → **29px**, everything else (rotation, letter-spacing, shadow, max-height truncation) unchanged. Note: at 29px, names longer than ~9-10 chars will truncate sooner inside 92% track height. Version **2026.08.15.4** (HTML change; bridge/script version-only). Deployed to all 4 targets. If distance readability is still poor after a live look, the scribble-strip option (E) remains the design-grounded next step — mockups were shown 2026-08-15.
+
 ## Named setups (snapshot banks) + RELEASE BTNS — shipped 2026-08-15
 
 Two Patches-page features, both chosen by David via explicit options (he picked "snapshot banks + name storage" for setups and "KBD buttons only" for release scope):
