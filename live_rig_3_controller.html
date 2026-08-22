@@ -265,6 +265,10 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
 .sect-progress{flex-basis:100%;height:8px;border-radius:4px;background:var(--surface);border:1px solid var(--border2);overflow:hidden;margin-top:2px;}
 .sect-progress-fill{height:100%;width:0%;background:var(--accent);box-shadow:0 0 6px var(--accent);transition:width .12s linear;}
 .section-strip.empty .sect-now .sect-name{color:var(--muted);font-size:19px;letter-spacing:0;}
+/* Transport page as a flex column so the button groups can be pushed to the
+   bottom (via #transport-spacer). Scoped to .active so .page{display:none}
+   still hides it when inactive; id+class outranks .page.active's display:block. */
+#page-8.active{display:flex;flex-direction:column;}
 .transport-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
 .transport-grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px;}
 .transport-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;}
@@ -416,6 +420,10 @@ body.patches-rename-mode  .song-btn{animation:rnmglow 1s ease-in-out infinite;}
         </div>
       </div>
     </div>
+    <!-- Spacer: grows to fill free space so all transport button groups below
+         sit at the BOTTOM of the page (section strip + BPM/bar stay at top).
+         Shrinks to its min if content is tall, so nothing gets clipped. -->
+    <div id="transport-spacer" style="flex:1 1 auto;min-height:8px"></div>
     <div class="transport-grid">
       <div class="t-btn t-play" id="t-play-btn" ontouchstart="transportPlay(event)">
         <div class="t-icon"><svg viewBox="0 0 32 32" width="28" height="28"><polygon points="8,4 28,16 8,28" fill="var(--green)"/></svg></div>
@@ -822,7 +830,7 @@ const RS = { cueAccum: [], sceneAccum: [] };
 // Any mismatch lights the red VER badge in the status bar -- a stale deploy
 // (this project's most-repeated bug class) becomes visible at a glance.
 // Bump ALL THREE together on every deploy; scripts/deploy.sh verifies.
-const LIVERIG_VERSION = '2026.08.15.4';
+const LIVERIG_VERSION = '2026.08.22.1';
 const COMPONENT_VERSIONS = { bridge: null, script: null };
 function updateVersionBadge(){
   const el = document.getElementById('ver-badge'); if(!el) return;
