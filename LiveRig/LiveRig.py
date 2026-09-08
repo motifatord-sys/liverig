@@ -311,7 +311,7 @@ LIVERIG_MFG_ID     = 0x7D
 # badge if they disagree -- turning the "stale deploy" class of bug (which
 # has bitten twice, see LIVERIG_MEMORY.md) from a debugging session into a
 # glance. Bump ALL THREE together on every deploy; scripts/deploy.sh verifies.
-LIVERIG_VERSION    = "2026.08.22.1"
+LIVERIG_VERSION    = "2026.08.22.2"
 
 
 class LiveRig(ControlSurface):

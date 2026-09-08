@@ -830,7 +830,7 @@ const RS = { cueAccum: [], sceneAccum: [] };
 // Any mismatch lights the red VER badge in the status bar -- a stale deploy
 // (this project's most-repeated bug class) becomes visible at a glance.
 // Bump ALL THREE together on every deploy; scripts/deploy.sh verifies.
-const LIVERIG_VERSION = '2026.08.22.1';
+const LIVERIG_VERSION = '2026.08.22.2';
 const COMPONENT_VERSIONS = { bridge: null, script: null };
 function updateVersionBadge(){
   const el = document.getElementById('ver-badge'); if(!el) return;
@@ -2423,12 +2423,20 @@ function buildPatches() {
   const secEl = document.getElementById('patches-sec');
   if (secEl) secEl.textContent = `Song presets — Program Change on all ${KBD_COUNT} keyboard${KBD_COUNT === 1 ? '' : 's'} simultaneously`;
   const grid = document.getElementById('song-grid');
+  // Lay out N patch buttons as 4 columns x ceil(N/4) rows, and shrink the song
+  // name as the grid gets denser (buttons are shorter with more rows). 2 rows
+  // (<=8 patches) keeps the original 34px; 16 patches -> 4 rows -> 22px.
+  const cols = 4, rows = Math.max(1, Math.ceil(MAX_PATCHES / cols));
+  grid.style.gridTemplateColumns = `repeat(${cols},1fr)`;
+  grid.style.gridTemplateRows = `repeat(${rows},1fr)`;
+  const nameFont = rows <= 2 ? 34 : rows === 3 ? 28 : 22;
   SONG_NAMES.forEach((name, i) => {
     const el = document.createElement('div');
     el.className = 'song-btn';
     el.dataset.idx = i;
     const sname = document.createElement('div');
     sname.className = 'sname';
+    sname.style.fontSize = nameFont + 'px';
     sname.id = `song-name-${i}`;
     sname.style.color = SONG_COLORS[i % SONG_COLORS.length];
     sname.textContent = name;

@@ -56,7 +56,7 @@
     }
   ],
   "patches": {
-    "maxPatches": 8,
+    "maxPatches": 16,
     "restoreAnimation": {
       "durationMs": 500,
       "easing": "ease-out-cubic",
