@@ -20,7 +20,7 @@ MIDI_PORT_NAME = "LiveRig Bridge"
 # component reports its copy at connect time and the iPad shows a red VER
 # badge if they disagree. Bump ALL THREE together on every deploy;
 # scripts/deploy.sh verifies they match.
-LIVERIG_VERSION = "2026.08.22.2"
+LIVERIG_VERSION = "2026.10.07.1"
 
 try:
     import rtmidi
@@ -505,6 +505,20 @@ async def handle_client(websocket, path=None):
                         await broadcast(json.dumps(
                             {"type": "kbd_fader_names", "names": kbd_fader_names}))
 
+                elif msg_type == "set_kbd_fader_names":
+                    # Bulk replace of ALL KBD fader names (e.g. loading a saved
+                    # setup, which carries its own faderNames). Replaces the
+                    # whole map atomically, persists, and rebroadcasts so every
+                    # iPad mirrors it.
+                    bulk = data.get("names")
+                    if isinstance(bulk, dict):
+                        kbd_fader_names.clear()
+                        kbd_fader_names.update(
+                            {str(k): str(v) for k, v in bulk.items() if v})
+                        save_fader_names()
+                        await broadcast(json.dumps(
+                            {"type": "kbd_fader_names", "names": kbd_fader_names}))
+
                 elif msg_type == "set_pad_name":
                     # An iPad renamed a pad. Persist and rebroadcast the full
                     # set so every connected iPad updates in sync.
@@ -523,10 +537,15 @@ async def handle_client(websocket, path=None):
                     name = str(data.get("name", "")).strip()
                     snaps = data.get("snapshots")
                     names = data.get("songNames")
+                    fnames = data.get("faderNames")
                     if name and isinstance(snaps, list):
                         patch_setups[name] = {
                             "snapshots": snaps,
                             "songNames": names if isinstance(names, list) else [],
+                            # KBD-page fader names (32 slots, "<kbd>_<fader>").
+                            # Part of the setup so a setup is a complete recall.
+                            "faderNames": {str(k): str(v) for k, v in fnames.items() if v}
+                                          if isinstance(fnames, dict) else {},
                         }
                         save_patch_setups()
                         await broadcast(json.dumps(

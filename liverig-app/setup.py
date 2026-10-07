@@ -26,6 +26,10 @@ APP = ["liverig_app.py"]
 DATA_FILES = [
     "../live_rig_3_controller.html",
     "../liverig_bridge_wired.py",
+    # Default config seeded into App Support on a fresh machine (see
+    # liverig_app.py BUNDLED_RIG_CONFIG / _sync_rig_config). Lands in
+    # Resources/ as rig_config.default.json.
+    "../tester/rig_config.default.json",
     ("LiveRig", ["../LiveRig/LiveRig.py", "../LiveRig/__init__.py"]),
 ]
 

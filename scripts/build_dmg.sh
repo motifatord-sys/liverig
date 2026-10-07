@@ -43,17 +43,37 @@ ln -s /Applications "$STAGING/Applications"
 cat > "$STAGING/Read Me.txt" <<'EOF'
 LiveRig Installer
 ==================
+Full step-by-step is in "LiveRig Quick Start.md" on this disk image. Short version:
+
 1. Drag LiveRig.app into the Applications folder (shortcut provided here).
-2. Launch LiveRig from Applications -- first run installs its own
-   dependencies (Python venv, Homebrew if needed) and takes 3-5 minutes.
-3. First run also deploys the Ableton Remote Script automatically to
-   ~/Music/Ableton/User Library/Remote Scripts/LiveRig/. If you already
-   had Ableton open, restart it (or toggle the Control Surface dropdown
-   to None and back to LiveRig in Settings > Link, Tempo & MIDI) so it
-   picks up the Remote Script.
-4. See ONBOARDING.md in the LiveRig repo for full setup, including
-   Ableton's one-time MIDI preferences step, which cannot be automated.
+2. FIRST LAUNCH: because this is a test build, macOS blocks it once. In
+   Applications, RIGHT-CLICK LiveRig -> Open -> Open. (If it says "damaged",
+   run this in Terminal once, then right-click -> Open again:
+      xattr -cr /Applications/LiveRig.app  )
+   First launch takes 3-5 minutes and may ask for your Mac password -- it
+   installs its own components and deploys the Ableton Remote Script.
+3. In Ableton: Settings > Link, Tempo & MIDI > Control Surface = LiveRig,
+   Input = LiveRig Bridge, Output = LiveRig Bridge (Track + Remote On for
+   both). Restart Ableton once. (This MIDI step can't be automated.)
+4. Open LiveRig-Template.als (on this disk image) -- its tracks are named to
+   match LiveRig so everything binds automatically.
+5. Click the menu-bar keyboard icon for the address; open it in a browser on
+   the same WiFi (iPad ideal, or "Preview in Browser (this Mac)" to try it
+   right here).
+
+See "LiveRig Quick Start.md" for details and what to test.
 EOF
+
+# Friend-facing quick start + the demo template Live Set (if David built it).
+QUICKSTART="$REPO_DIR/tester/TESTER_QUICKSTART.md"
+TEMPLATE="$REPO_DIR/tester/LiveRig-Template.als"
+[ -f "$QUICKSTART" ] && cp "$QUICKSTART" "$STAGING/LiveRig Quick Start.md"
+if [ -f "$TEMPLATE" ]; then
+  cp "$TEMPLATE" "$STAGING/LiveRig-Template.als"
+else
+  echo "NOTE: $TEMPLATE not found -- the DMG will ship WITHOUT the demo Live Set." >&2
+  echo "      Build it once in Ableton per tester/TESTER_TEMPLATE.md, save it there, and re-run." >&2
+fi
 
 echo "== Building $DMG_NAME =="
 rm -f "$DIST_DIR/$DMG_NAME"

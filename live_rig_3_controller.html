@@ -830,7 +830,7 @@ const RS = { cueAccum: [], sceneAccum: [] };
 // Any mismatch lights the red VER badge in the status bar -- a stale deploy
 // (this project's most-repeated bug class) becomes visible at a glance.
 // Bump ALL THREE together on every deploy; scripts/deploy.sh verifies.
-const LIVERIG_VERSION = '2026.08.22.2';
+const LIVERIG_VERSION = '2026.10.07.1';
 const COMPONENT_VERSIONS = { bridge: null, script: null };
 function updateVersionBadge(){
   const el = document.getElementById('ver-badge'); if(!el) return;
@@ -2317,7 +2317,7 @@ function releaseAllKbdButtons(){
 // LOAD replaces the current bank everywhere (it pushes through the existing
 // set_patch_snapshots path, so the bridge persists it as current and every
 // connected iPad follows). SAVE AS snapshots the current bank under a name.
-let PATCH_SETUPS = {};   // name -> {snapshots:[...], songNames:[...]}; bridge-authoritative
+let PATCH_SETUPS = {};   // name -> {snapshots:[...], songNames:[...], faderNames:{...}}; bridge-authoritative
 function applyPatchSetups(setups){
   PATCH_SETUPS = (setups && typeof setups === 'object') ? setups : {};
   refreshSetupSelect();
@@ -2345,15 +2345,21 @@ function sendSetupMsg(obj){
   }catch(e){}
 }
 function saveSetup(){
-  const name = prompt('Save the current songs + snapshots as a setup named:', '');
+  const name = prompt('Save the current songs + snapshots + KBD fader names as a setup named:', '');
   if (name === null || name.trim() === '') return;
   const n = name.trim();
   if (PATCH_SETUPS[n] && !confirm(`A setup named "${n}" exists. Overwrite it?`)) return;
+  // A setup is a complete recall: the 16 patch tiles (each snapshot already
+  // holds that song's KBD fader VALUES + button states), the song names, and
+  // the current KBD-page fader NAMES (32 slots). faderNames is a flat map
+  // keyed "<kbd>_<fader>", same keys the per-fader rename uses.
   sendSetupMsg({type:'save_patch_setup', name:n,
-                snapshots:PATCH_SNAPSHOTS, songNames:SONG_NAMES});
+                snapshots:PATCH_SNAPSHOTS, songNames:SONG_NAMES,
+                faderNames:{...KBD_FADER_NAMES}});
   // Optimistic local update; the bridge's rebroadcast confirms/mirrors it.
   PATCH_SETUPS[n] = { snapshots: JSON.parse(JSON.stringify(PATCH_SNAPSHOTS)),
-                      songNames: [...SONG_NAMES] };
+                      songNames: [...SONG_NAMES],
+                      faderNames: {...KBD_FADER_NAMES} };
   refreshSetupSelect();
   const sel = document.getElementById('setup-select'); if (sel) sel.value = n;
 }
@@ -2365,6 +2371,19 @@ function loadSetup(){
   const s = PATCH_SETUPS[n];
   applyPatchSnapshots({ snapshots: s.snapshots || [], songNames: s.songNames || [] });
   sendPatchSnapshots();   // becomes the current bank everywhere (bridge persists)
+  // Restore the KBD fader names too, if this setup carries them. Only when the
+  // key is actually present: setups saved before this feature have no
+  // faderNames field, and we must NOT wipe the current names in that case.
+  // An explicit empty object {} means "this setup has no names" -> clear them.
+  if (s.faderNames && typeof s.faderNames === 'object') {
+    for (const k in {...KBD_FADER_NAMES}) delete KBD_FADER_NAMES[k];
+    for (const k in s.faderNames) KBD_FADER_NAMES[k] = s.faderNames[k];
+    saveKbdFaderNames();
+    refreshKbdFaderLabels();
+    // Propagate to every iPad + persist Mac-side (bulk replace).
+    if (wsConnected && ws && ws.readyState === WebSocket.OPEN)
+      ws.send(JSON.stringify({type:'set_kbd_fader_names', names: s.faderNames}));
+  }
 }
 function deleteSetup(){
   const sel = document.getElementById('setup-select');

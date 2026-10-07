@@ -73,6 +73,13 @@ REMOTE_SCRIPTS_DIR  = Path.home() / "Music/Ableton/User Library/Remote Scripts/L
 # repo-less machine still gets a real config instead of silent defaults.
 REPO_RIG_CONFIG    = Path.home() / "Desktop/liverig/rig_config.json"
 CANON_RIG_CONFIG   = SUPPORT / "rig_config.json"
+# A default config shipped inside the app bundle. On a fresh machine (e.g. a
+# tester's DMG install) there's no repo config and no Setup Tool copy yet, so
+# _sync_rig_config() seeds the canonical location from this once — otherwise
+# the controller would fall back to the generic 4x8 default and nothing the
+# shipped template Live Set defines would bind. Absent on dev machines that
+# don't bundle it; the seed step is a no-op then.
+BUNDLED_RIG_CONFIG = RESOURCES / "rig_config.default.json"
 
 
 def _active_rig_config():
@@ -212,6 +219,15 @@ def _sync_rig_config():
                 "Synced a newer rig_config.json from the Setup Tool.",
                 sound=False,
             )
+
+    # Fresh machine (tester DMG install): nothing at the target and nothing
+    # from the Setup Tool. Seed the target from the config bundled in the app
+    # so bindings match the shipped template instead of the generic default.
+    # Guarded on "not target.is_file()" so it never clobbers a real config.
+    if not target.is_file() and BUNDLED_RIG_CONFIG.is_file():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(BUNDLED_RIG_CONFIG.read_bytes())
+        print(f"Seeded {target} from bundled default config.")
 
     if target.is_file():
         WWW_DIR.mkdir(parents=True, exist_ok=True)
