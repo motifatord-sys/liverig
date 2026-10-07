@@ -20,7 +20,7 @@ MIDI_PORT_NAME = "LiveRig Bridge"
 # component reports its copy at connect time and the iPad shows a red VER
 # badge if they disagree. Bump ALL THREE together on every deploy;
 # scripts/deploy.sh verifies they match.
-LIVERIG_VERSION = "2026.10.07.1"
+LIVERIG_VERSION = "2026.10.07.2"
 
 try:
     import rtmidi
