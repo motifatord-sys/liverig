@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "rigName": "LiveRig Tester",
+  "_comment": "Minimal demo config shipped in the tester DMG. The template Live Set (see TESTER_TEMPLATE.md) must contain tracks with these exact names (case-insensitive) so everything binds on a fresh machine. Stock Ableton instruments only.",
+  "keyboards": [
+    { "id": "kbd1", "label": "MAIN KEYS", "bankSize": 8, "midiChannel": 1, "defaultTrackBinding": "MAIN KEYS", "buttonCount": 16, "faderCount": 8, "faderRange": { "min": 0, "max": 127 } },
+    { "id": "kbd2", "label": "TOP KEYS",  "bankSize": 8, "midiChannel": 2, "defaultTrackBinding": "TOP KEYS",  "buttonCount": 16, "faderCount": 8, "faderRange": { "min": 0, "max": 127 } }
+  ],
+  "patches": {
+    "maxPatches": 8,
+    "restoreAnimation": { "durationMs": 500, "easing": "ease-out-cubic", "stepIntervalMs": 20, "stepCount": 25 },
+    "captureScope": ["kbd1", "kbd2"]
+  },
+  "stems": [
+    { "id": "stem1", "label": "DRUMS", "trackName": "DRUMS", "defaultVolume": 100 },
+    { "id": "stem2", "label": "BASS",  "trackName": "BASS",  "defaultVolume": 100 },
+    { "id": "stem3", "label": "KEYS",  "trackName": "KEYS",  "defaultVolume": 100 },
+    { "id": "stem4", "label": "VOX",   "trackName": "VOX",   "defaultVolume": 100 },
+    { "id": "stem5", "label": "CLICK", "trackName": "CLICK", "defaultVolume": 100 },
+    { "id": "stem6", "label": "GUIDE", "trackName": "GUIDE", "defaultVolume": 100 }
+  ],
+  "loopers": [
+    { "id": "loop1", "label": "Loop 1", "trackName": "Loop 1" }
+  ],
+  "markerTrack": "MARKERS",
+  "listeners": {
+    "useSchedulePollForSongTime": true,
+    "songTimePollHz": 10,
+    "wrapListenersInTryExcept": true
+  }
+}
